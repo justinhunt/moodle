@@ -17,14 +17,13 @@
 /**
  * Block for displaying logged in user's course completion status
  *
- * @package    block
- * @subpackage completion
+ * @package    block_completionstatus
  * @copyright  2009-2012 Catalyst IT Ltd
  * @author     Aaron Barnes <aaronb@catalyst.net.nz>
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
-require_once(dirname(__FILE__).'/../../config.php');
+require_once(__DIR__.'/../../config.php');
 require_once("{$CFG->libdir}/completionlib.php");
 
 // Load data.
@@ -76,7 +75,7 @@ $page = get_string('completionprogressdetails', 'block_completionstatus');
 $title = format_string($course->fullname) . ': ' . $page;
 
 $PAGE->navbar->add($page);
-$PAGE->set_pagelayout('standard');
+$PAGE->set_pagelayout('report');
 $PAGE->set_url('/blocks/completionstatus/details.php', array('course' => $course->id, 'user' => $user->id));
 $PAGE->set_title(get_string('course') . ': ' . $course->fullname);
 $PAGE->set_heading($title);
@@ -91,7 +90,7 @@ echo html_writer::start_tag('tbody');
 if ($USER->id != $user->id) {
     echo html_writer::start_tag('tr');
     echo html_writer::start_tag('td', array('colspan' => '2'));
-    echo html_writer::tag('b', get_string('showinguser', 'completion'));
+    echo html_writer::tag('b', get_string('showinguser', 'completion') . ' ');
     $url = new moodle_url('/user/view.php', array('id' => $user->id, 'course' => $course->id));
     echo html_writer::link($url, fullname($user));
     echo html_writer::end_tag('td');
@@ -100,7 +99,7 @@ if ($USER->id != $user->id) {
 
 echo html_writer::start_tag('tr');
 echo html_writer::start_tag('td', array('colspan' => '2'));
-echo html_writer::tag('b', get_string('status'));
+echo html_writer::tag('b', get_string('status') . ' ');
 
 // Is course complete?
 $coursecomplete = $info->is_course_complete($user->id);
@@ -134,7 +133,7 @@ if (empty($completions)) {
     echo html_writer::start_tag('tr');
     echo html_writer::start_tag('td', array('colspan' => '2'));
     echo html_writer::start_tag('br');
-    echo $OUTPUT->box(get_string('err_nocriteria', 'completion'), 'noticebox');
+    echo $OUTPUT->box(get_string('nocriteriaset', 'completion'), 'noticebox');
     echo html_writer::end_tag('td');
     echo html_writer::end_tag('tr');
     echo html_writer::end_tag('tbody');
@@ -142,7 +141,7 @@ if (empty($completions)) {
 } else {
     echo html_writer::start_tag('tr');
     echo html_writer::start_tag('td', array('colspan' => '2'));
-    echo html_writer::tag('b', get_string('required'));
+    echo html_writer::tag('b', get_string('required') . ' ');
 
     // Get overall aggregation method.
     $overall = $info->get_aggregation_method();
@@ -210,12 +209,12 @@ if (empty($completions)) {
                 $agg = $info->get_aggregation_method($row['type']);
                 echo '('. html_writer::start_tag('i');
                 if ($agg == COMPLETION_AGGREGATION_ALL) {
-                    echo strtolower(get_string('all', 'completion'));
+                    echo core_text::strtolower(get_string('all', 'completion'));
                 } else {
-                    echo strtolower(get_string('any', 'completion'));
+                    echo core_text::strtolower(get_string('any', 'completion'));
                 }
 
-                echo html_writer::end_tag('i') .strtolower(get_string('required')).')';
+                echo ' ' . html_writer::end_tag('i') .core_text::strtolower(get_string('required')).')';
                 $agg_type = false;
             }
         }

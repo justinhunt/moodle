@@ -52,6 +52,17 @@ class qtype_numerical extends question_type {
     const UNITGRADEDOUTOFMARK = 1;
     const UNITGRADEDOUTOFMAX = 2;
 
+    /**
+     * Validate that a string is a number formatted correctly for the current locale.
+     * @param string $x a string
+     * @return bool whether $x is a number that the numerical question type can interpret.
+     */
+    public static function is_valid_number(string $x) : bool {
+        $ap = new qtype_numerical_answer_processor(array());
+        list($value, $unit) = $ap->apply_units($x);
+        return !is_null($value) && !$unit;
+    }
+
     public function get_question_options($question) {
         global $CFG, $DB, $OUTPUT;
         parent::get_question_options($question);
@@ -191,7 +202,7 @@ class qtype_numerical extends question_type {
                 $answer->answer = $this->apply_unit($answerdata, $units,
                         !empty($question->unitsleft));
                 if ($answer->answer === false) {
-                    $result->notice = get_string('invalidnumericanswer', 'quiz');
+                    $result->notice = get_string('invalidnumericanswer', 'qtype_numerical');
                 }
             }
             $answer->fraction = $question->fraction[$key];
@@ -212,7 +223,7 @@ class qtype_numerical extends question_type {
                 $options->tolerance = $this->apply_unit($question->tolerance[$key],
                         $units, !empty($question->unitsleft));
                 if ($options->tolerance === false) {
-                    $result->notice = get_string('invalidnumerictolerance', 'quiz');
+                    $result->notice = get_string('invalidnumerictolerance', 'qtype_numerical');
                 }
             }
             if (isset($options->id)) {
@@ -433,7 +444,7 @@ class qtype_numerical extends question_type {
                 $ans = new qtype_numerical_answer($answer->id, $answer->answer, $answer->fraction,
                         $answer->feedback, $answer->feedbackformat, $answer->tolerance);
                 list($min, $max) = $ans->get_tolerance_interval();
-                $responseclass .= " ($min..$max)";
+                $responseclass .= " ({$min}..{$max})";
             }
 
             $responses[$aid] = new question_possible_response($responseclass,
@@ -542,7 +553,7 @@ class qtype_numerical_answer_processor {
     }
 
     /**
-     * @return book If the student's response contains a '.' or a ',' that
+     * @return bool If the student's response contains a '.' or a ',' that
      * matches the thousands separator in the current locale. In this case, the
      * parsing in apply_unit can give a result that the student did not expect.
      */
@@ -569,12 +580,12 @@ class qtype_numerical_answer_processor {
         $decimalsre = $decsep . '(\d*)';
         $exponentre = '(?:e|E|(?:x|\*|×)10(?:\^|\*\*))([+-]?\d+)';
 
-        $numberbit = "$beforepointre(?:$decimalsre)?(?:$exponentre)?";
+        $numberbit = "{$beforepointre}(?:{$decimalsre})?(?:{$exponentre})?";
 
         if ($this->unitsbefore) {
-            $this->regex = "/$numberbit$/";
+            $this->regex = "/{$numberbit}$/";
         } else {
-            $this->regex = "/^$numberbit/";
+            $this->regex = "/^{$numberbit}/";
         }
         return $this->regex;
     }
@@ -640,14 +651,14 @@ class qtype_numerical_answer_processor {
         if (strpos($response, '.') !== false || substr_count($response, ',') > 1) {
             $response = str_replace(',', '', $response);
         } else {
-            $response = str_replace(',', '.', $response);
+            $response = str_replace([$this->thousandssep, $this->decsep, ','], ['', '.', '.'], $response);
         }
 
         $regex = '[+-]?(?:\d+(?:\\.\d*)?|\\.\d+)(?:e[-+]?\d+)?';
         if ($this->unitsbefore) {
-            $regex = "/$regex$/";
+            $regex = "/{$regex}$/";
         } else {
-            $regex = "/^$regex/";
+            $regex = "/^{$regex}/";
         }
         if (!preg_match($regex, $response, $matches)) {
             return array(null, null, null);

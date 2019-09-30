@@ -1,5 +1,4 @@
 <?php
-
 // This file is part of Moodle - http://moodle.org/
 //
 // Moodle is free software: you can redistribute it and/or modify
@@ -22,8 +21,7 @@
  * It uses the standard core Moodle formslib. For more info about them, please
  * visit: http://docs.moodle.org/dev/lib/formslib.php
  *
- * @package    mod
- * @subpackage workshop
+ * @package    mod_workshop
  * @copyright  2009 David Mudrak <david.mudrak@gmail.com>
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
@@ -31,7 +29,7 @@
 defined('MOODLE_INTERNAL') || die();
 
 require_once($CFG->dirroot . '/course/moodleform_mod.php');
-require_once(dirname(__FILE__) . '/locallib.php');
+require_once(__DIR__ . '/locallib.php');
 require_once($CFG->libdir . '/filelib.php');
 
 /**
@@ -56,7 +54,7 @@ class mod_workshop_mod_form extends moodleform_mod {
      * @return void
      */
     public function definition() {
-        global $CFG;
+        global $CFG, $PAGE;
 
         $workshopconfig = get_config('workshop');
         $mform = $this->_form;
@@ -66,7 +64,7 @@ class mod_workshop_mod_form extends moodleform_mod {
 
         // Workshop name
         $label = get_string('workshopname', 'workshop');
-        $mform->addElement('text', 'name', $label, array('size'=>'64'));
+        $mform->addElement('text', 'name', $label, array('size' => '64'));
         if (!empty($CFG->formatstringstriptags)) {
             $mform->setType('name', PARAM_TEXT);
         } else {
@@ -76,7 +74,7 @@ class mod_workshop_mod_form extends moodleform_mod {
         $mform->addRule('name', get_string('maximumchars', '', 255), 'maxlength', 255, 'client');
 
         // Introduction
-        $this->add_intro_editor(false, get_string('introduction', 'workshop'));
+        $this->standard_intro_elements(get_string('introduction', 'workshop'));
 
         // Grading settings -----------------------------------------------------------
         $mform->addElement('header', 'gradingsettings', get_string('gradingsettings', 'workshop'));
@@ -98,6 +96,11 @@ class mod_workshop_mod_form extends moodleform_mod {
         $mform->setDefault('grade', $workshopconfig->grade);
         $mform->addHelpButton('submissiongradegroup', 'submissiongrade', 'workshop');
 
+        $mform->addElement('text', 'submissiongradepass', get_string('gradetopasssubmission', 'workshop'));
+        $mform->addHelpButton('submissiongradepass', 'gradepass', 'grades');
+        $mform->setDefault('submissiongradepass', '');
+        $mform->setType('submissiongradepass', PARAM_RAW);
+
         $label = get_string('gradinggrade', 'workshop');
         $mform->addGroup(array(
             $mform->createElement('select', 'gradinggrade', '', $grades),
@@ -106,8 +109,13 @@ class mod_workshop_mod_form extends moodleform_mod {
         $mform->setDefault('gradinggrade', $workshopconfig->gradinggrade);
         $mform->addHelpButton('gradinggradegroup', 'gradinggrade', 'workshop');
 
+        $mform->addElement('text', 'gradinggradepass', get_string('gradetopassgrading', 'workshop'));
+        $mform->addHelpButton('gradinggradepass', 'gradepass', 'grades');
+        $mform->setDefault('gradinggradepass', '');
+        $mform->setType('gradinggradepass', PARAM_RAW);
+
         $options = array();
-        for ($i=5; $i>=0; $i--) {
+        for ($i = 5; $i >= 0; $i--) {
             $options[$i] = $i;
         }
         $label = get_string('gradedecimals', 'workshop');
@@ -121,17 +129,39 @@ class mod_workshop_mod_form extends moodleform_mod {
         $mform->addElement('editor', 'instructauthorseditor', $label, null,
                             workshop::instruction_editors_options($this->context));
 
+        $typeelements = [];
+        foreach (['submissiontypetext', 'submissiontypefile'] as $type) {
+            $available = $type . 'available';
+            $required = $type . 'required';
+            $availablelabel = get_string($available, 'workshop');
+            $requiredlabel = get_string($required, 'workshop');
+            $typeelements[] = $mform->createElement('advcheckbox', $available, '', $availablelabel);
+            $typeelements[] = $mform->createElement('advcheckbox', $required, '', $requiredlabel);
+            $mform->setDefault($available, 1);
+        }
+        // We can't use <br> as the separator as it does not work well in this case with the Boost theme.
+        // Instead, separate both tuples with a full-width empty div.
+        $mform->addGroup($typeelements, 'submissiontypes', get_string('submissiontypes', 'workshop'),
+            array(' ', '<div style="width:100%"></div>'), false);
+
         $options = array();
-        for ($i=7; $i>=0; $i--) {
+        for ($i = 7; $i >= 1; $i--) {
             $options[$i] = $i;
         }
         $label = get_string('nattachments', 'workshop');
         $mform->addElement('select', 'nattachments', $label, $options);
         $mform->setDefault('nattachments', 1);
+        $mform->hideIf('nattachments', 'submissiontypefileavailable');
+
+        $label = get_string('allowedfiletypesforsubmission', 'workshop');
+        $mform->addElement('filetypes', 'submissionfiletypes', $label);
+        $mform->addHelpButton('submissionfiletypes', 'allowedfiletypesforsubmission', 'workshop');
+        $mform->hideIf('submissionfiletypes', 'submissiontypefileavailable');
 
         $options = get_max_upload_sizes($CFG->maxbytes, $this->course->maxbytes, 0, $workshopconfig->maxbytes);
         $mform->addElement('select', 'maxbytes', get_string('maxbytes', 'workshop'), $options);
         $mform->setDefault('maxbytes', $workshopconfig->maxbytes);
+        $mform->hideIf('maxbytes', 'submissiontypefileavailable');
 
         $label = get_string('latesubmissions', 'workshop');
         $text = get_string('latesubmissions_desc', 'workshop');
@@ -166,13 +196,18 @@ class mod_workshop_mod_form extends moodleform_mod {
         }
         $mform->addElement('select', 'overallfeedbackfiles', get_string('overallfeedbackfiles', 'workshop'), $options);
         $mform->setDefault('overallfeedbackfiles', 0);
-        $mform->disabledIf('overallfeedbackfiles', 'overallfeedbackmode', 'eq', 0);
+        $mform->hideIf('overallfeedbackfiles', 'overallfeedbackmode', 'eq', 0);
+
+        $label = get_string('allowedfiletypesforoverallfeedback', 'workshop');
+        $mform->addElement('filetypes', 'overallfeedbackfiletypes', $label);
+        $mform->addHelpButton('overallfeedbackfiletypes', 'allowedfiletypesforoverallfeedback', 'workshop');
+        $mform->hideIf('overallfeedbackfiletypes', 'overallfeedbackfiles', 'eq', 0);
 
         $options = get_max_upload_sizes($CFG->maxbytes, $this->course->maxbytes);
         $mform->addElement('select', 'overallfeedbackmaxbytes', get_string('overallfeedbackmaxbytes', 'workshop'), $options);
         $mform->setDefault('overallfeedbackmaxbytes', $workshopconfig->maxbytes);
-        $mform->disabledIf('overallfeedbackmaxbytes', 'overallfeedbackmode', 'eq', 0);
-        $mform->disabledIf('overallfeedbackmaxbytes', 'overallfeedbackfiles', 'eq', 0);
+        $mform->hideIf('overallfeedbackmaxbytes', 'overallfeedbackmode', 'eq', 0);
+        $mform->hideIf('overallfeedbackmaxbytes', 'overallfeedbackfiles', 'eq', 0);
 
         $label = get_string('conclusion', 'workshop');
         $mform->addElement('editor', 'conclusioneditor', $label, null,
@@ -191,7 +226,7 @@ class mod_workshop_mod_form extends moodleform_mod {
         $options = workshop::available_example_modes_list();
         $mform->addElement('select', 'examplesmode', $label, $options);
         $mform->setDefault('examplesmode', $workshopconfig->examplesmode);
-        $mform->disabledIf('examplesmode', 'useexamples');
+        $mform->hideIf('examplesmode', 'useexamples');
 
         // Availability ---------------------------------------------------------------
         $mform->addElement('header', 'accesscontrol', get_string('availability', 'core'));
@@ -204,7 +239,7 @@ class mod_workshop_mod_form extends moodleform_mod {
 
         $label = get_string('submissionendswitch', 'mod_workshop');
         $mform->addElement('checkbox', 'phaseswitchassessment', $label);
-        $mform->disabledIf('phaseswitchassessment', 'submissionend[enabled]');
+        $mform->hideIf('phaseswitchassessment', 'submissionend[enabled]');
         $mform->addHelpButton('phaseswitchassessment', 'submissionendswitch', 'mod_workshop');
 
         $label = get_string('assessmentstart', 'workshop');
@@ -217,13 +252,15 @@ class mod_workshop_mod_form extends moodleform_mod {
         plagiarism_get_form_elements_module($mform, $coursecontext, 'mod_workshop');
 
         // Common module settings, Restrict availability, Activity completion etc. ----
-        $features = array('groups'=>true, 'groupings'=>true, 'groupmembersonly'=>true,
-                'outcomes'=>true, 'gradecat'=>false, 'idnumber'=>false);
+        $features = array('groups' => true, 'groupings' => true,
+                'outcomes' => true, 'gradecat' => false, 'idnumber' => false);
 
         $this->standard_coursemodule_elements();
 
         // Standard buttons, common to all modules ------------------------------------
         $this->add_action_buttons();
+
+        $PAGE->requires->js_call_amd('mod_workshop/modform', 'init');
     }
 
     /**
@@ -261,6 +298,16 @@ class mod_workshop_mod_form extends moodleform_mod {
                                 $data['conclusion']);
             $data['conclusioneditor']['format'] = $data['conclusionformat'];
             $data['conclusioneditor']['itemid'] = $draftitemid;
+            // Set submission type checkboxes.
+            foreach (['submissiontypetext', 'submissiontypefile'] as $type) {
+                $data[$type . 'available'] = 1;
+                $data[$type . 'required'] = 0;
+                if ($data[$type] == WORKSHOP_SUBMISSION_TYPE_DISABLED) {
+                    $data[$type . 'available'] = 0;
+                } else if ($data[$type] == WORKSHOP_SUBMISSION_TYPE_REQUIRED) {
+                    $data[$type . 'required'] = 1;
+                }
+            }
         } else {
             // adding a new workshop instance
             $draftitemid = file_get_submitted_draft_itemid('instructauthors');
@@ -274,6 +321,30 @@ class mod_workshop_mod_form extends moodleform_mod {
             $draftitemid = file_get_submitted_draft_itemid('conclusion');
             file_prepare_draft_area($draftitemid, null, 'mod_workshop', 'conclusion', 0);    // no context yet, itemid not used
             $data['conclusioneditor'] = array('text' => '', 'format' => editors_get_preferred_format(), 'itemid' => $draftitemid);
+        }
+    }
+
+    /**
+     * Combine submission type checkboxes into integer values for the database.
+     *
+     * @param stdClass $data The submitted form data.
+     */
+    public function data_postprocessing($data) {
+        parent::data_postprocessing($data);
+
+        foreach (['text', 'file'] as $type) {
+            $field = 'submissiontype' . $type;
+            $available = $field . 'available';
+            $required = $field . 'required';
+            if ($data->$required) {
+                $data->$field = WORKSHOP_SUBMISSION_TYPE_REQUIRED;
+            } else if ($data->$available) {
+                $data->$field = WORKSHOP_SUBMISSION_TYPE_AVAILABLE;
+            } else {
+                $data->$field = WORKSHOP_SUBMISSION_TYPE_DISABLED;
+            }
+            unset($data->$available);
+            unset($data->$required);
         }
     }
 
@@ -297,7 +368,9 @@ class mod_workshop_mod_form extends moodleform_mod {
                 foreach ($gradeitems as $gradeitem) {
                     // here comes really crappy way how to set the value of the fields
                     // gradecategory and gradinggradecategory - grrr QuickForms
+                    $decimalpoints = $gradeitem->get_decimals();
                     if ($gradeitem->itemnumber == 0) {
+                        $mform->setDefault('submissiongradepass', format_float($gradeitem->gradepass, $decimalpoints));
                         $group = $mform->getElement('submissiongradegroup');
                         $elements = $group->getElements();
                         foreach ($elements as $element) {
@@ -306,6 +379,7 @@ class mod_workshop_mod_form extends moodleform_mod {
                             }
                         }
                     } else if ($gradeitem->itemnumber == 1) {
+                        $mform->setDefault('gradinggradepass', format_float($gradeitem->gradepass, $decimalpoints));
                         $group = $mform->getElement('gradinggradegroup');
                         $elements = $group->getElements();
                         foreach ($elements as $element) {
@@ -315,6 +389,13 @@ class mod_workshop_mod_form extends moodleform_mod {
                         }
                     }
                 }
+            }
+        }
+        $typevalues = $mform->getElementValue('submissiontypes');
+        foreach (['submissiontypetext', 'submissiontypefile'] as $type) {
+            // Don't leave a disabled "required" checkbox checked.
+            if (!$typevalues[$type . 'available']) {
+                $mform->setDefault($type . 'required', 0);
             }
         }
 
@@ -329,7 +410,7 @@ class mod_workshop_mod_form extends moodleform_mod {
      * @return array eventual errors indexed by the field name
      */
     public function validation($data, $files) {
-        $errors = array();
+        $errors = parent::validation($data, $files);
 
         // check the phases borders are valid
         if ($data['submissionstart'] > 0 and $data['submissionend'] > 0 and $data['submissionstart'] >= $data['submissionend']) {
@@ -354,6 +435,35 @@ class mod_workshop_mod_form extends moodleform_mod {
                     }
                 }
             }
+        }
+
+        // Check that the submission grade pass is a valid number.
+        if (!empty($data['submissiongradepass'])) {
+            $submissiongradefloat = unformat_float($data['submissiongradepass'], true);
+            if ($submissiongradefloat === false) {
+                $errors['submissiongradepass'] = get_string('err_numeric', 'form');
+            } else {
+                if ($submissiongradefloat > $data['grade']) {
+                    $errors['submissiongradepass'] = get_string('gradepassgreaterthangrade', 'grades', $data['grade']);
+                }
+            }
+        }
+
+        // Check that the grade pass is a valid number.
+        if (!empty($data['gradinggradepass'])) {
+            $gradepassfloat = unformat_float($data['gradinggradepass'], true);
+            if ($gradepassfloat === false) {
+                $errors['gradinggradepass'] = get_string('err_numeric', 'form');
+            } else {
+                if ($gradepassfloat > $data['gradinggrade']) {
+                    $errors['gradinggradepass'] = get_string('gradepassgreaterthangrade', 'grades', $data['gradinggrade']);
+                }
+            }
+        }
+
+        if (!$data['submissiontypetextavailable'] && !$data['submissiontypefileavailable']) {
+            // One submission type must be available.
+            $errors['submissiontypes'] = get_string('nosubmissiontype', 'workshop');
         }
 
         return $errors;

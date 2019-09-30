@@ -177,6 +177,8 @@ abstract class grade_object {
      * @return array|bool Array of object instances or false if not found
      */
     public static function fetch_all_helper($table, $classname, $params) {
+        global $DB; // Need to introspect DB here.
+
         $instance = new $classname();
 
         $classvars = (array)$instance;
@@ -185,14 +187,25 @@ abstract class grade_object {
         $wheresql = array();
         $newparams = array();
 
+        $columns = $DB->get_columns($table); // Cached, no worries.
+
         foreach ($params as $var=>$value) {
             if (!in_array($var, $instance->required_fields) and !array_key_exists($var, $instance->optional_fields)) {
+                continue;
+            }
+            if (!array_key_exists($var, $columns)) {
                 continue;
             }
             if (is_null($value)) {
                 $wheresql[] = " $var IS NULL ";
             } else {
-                $wheresql[] = " $var = ? ";
+                if ($columns[$var]->meta_type === 'X') {
+                    // We have a text/clob column, use the cross-db method for its comparison.
+                    $wheresql[] = ' ' . $DB->sql_compare_text($var) . ' = ' . $DB->sql_compare_text('?') . ' ';
+                } else {
+                    // Other columns (varchar, integers...).
+                    $wheresql[] = " $var = ? ";
+                }
                 $newparams[] = $value;
             }
         }
@@ -218,7 +231,6 @@ abstract class grade_object {
             $result[$instance->id] = $instance;
         }
         $rs->close();
-
         return $result;
     }
 
@@ -240,6 +252,7 @@ abstract class grade_object {
 
         $DB->update_record($this->table, $data);
 
+        $historyid = null;
         if (empty($CFG->disablegradehistory)) {
             unset($data->timecreated);
             $data->action       = GRADE_HISTORY_UPDATE;
@@ -247,10 +260,13 @@ abstract class grade_object {
             $data->source       = $source;
             $data->timemodified = time();
             $data->loggeduser   = $USER->id;
-            $DB->insert_record($this->table.'_history', $data);
+            $historyid = $DB->insert_record($this->table.'_history', $data);
         }
 
         $this->notify_changed(false);
+
+        $this->update_feedback_files($historyid);
+
         return true;
     }
 
@@ -281,9 +297,12 @@ abstract class grade_object {
                 $data->loggeduser   = $USER->id;
                 $DB->insert_record($this->table.'_history', $data);
             }
-            $this->notify_changed(true);
-            return true;
 
+            $this->notify_changed(true);
+
+            $this->delete_feedback_files();
+
+            return true;
         } else {
             return false;
         }
@@ -334,6 +353,7 @@ abstract class grade_object {
 
         $data = $this->get_record_data();
 
+        $historyid = null;
         if (empty($CFG->disablegradehistory)) {
             unset($data->timecreated);
             $data->action       = GRADE_HISTORY_INSERT;
@@ -341,10 +361,13 @@ abstract class grade_object {
             $data->source       = $source;
             $data->timemodified = time();
             $data->loggeduser   = $USER->id;
-            $DB->insert_record($this->table.'_history', $data);
+            $historyid = $DB->insert_record($this->table.'_history', $data);
         }
 
         $this->notify_changed(false);
+
+        $this->add_feedback_files($historyid);
+
         return $this->id;
     }
 
@@ -396,7 +419,29 @@ abstract class grade_object {
      *
      * @param bool $deleted
      */
-    function notify_changed($deleted) {
+    protected function notify_changed($deleted) {
+    }
+
+    /**
+     * Handles adding feedback files in the gradebook.
+     *
+     * @param int|null $historyid
+     */
+    protected function add_feedback_files(int $historyid = null) {
+    }
+
+    /**
+     * Handles updating feedback files in the gradebook.
+     *
+     * @param int|null $historyid
+     */
+    protected function update_feedback_files(int $historyid = null) {
+    }
+
+    /**
+     * Handles deleting feedback files in the gradebook.
+     */
+    protected function delete_feedback_files() {
     }
 
     /**
@@ -437,5 +482,14 @@ abstract class grade_object {
     function set_hidden($hidden, $cascade=false) {
         $this->hidden = $hidden;
         $this->update();
+    }
+
+    /**
+     * Returns whether the grade object can control the visibility of the grades.
+     *
+     * @return bool
+     */
+    public function can_control_visibility() {
+        return true;
     }
 }

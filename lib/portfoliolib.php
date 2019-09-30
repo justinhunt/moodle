@@ -117,7 +117,14 @@ class portfolio_add_button {
             debugging('Building portfolio add button while portfolios is disabled. This code can be optimised.', DEBUG_DEVELOPER);
         }
 
-        $this->instances = portfolio_instances();
+        $cache = cache::make('core', 'portfolio_add_button_portfolio_instances');
+        $instances = $cache->get('instances');
+        if ($instances === false) {
+            $instances = portfolio_instances();
+            $cache->set('instances', $instances);
+        }
+
+        $this->instances = $instances;
         if (empty($options)) {
             return true;
         }
@@ -259,7 +266,7 @@ class portfolio_add_button {
      *                    Optional, defaults to PORTFOLIO_ADD_FULL_FORM
      * @param string $addstr string to use for the button or icon alt text or link text.
      *                       This is whole string, not key.  optional, defaults to 'Add to portfolio';
-     * @return void|string
+     * @return void|string|moodle_url
      */
     public function to_html($format=null, $addstr=null) {
         global $CFG, $COURSE, $OUTPUT, $USER;
@@ -327,6 +334,11 @@ class portfolio_add_button {
                 return;
             }
         }
+        // If we just want a moodle_url to redirect to, do it now.
+        if ($format == PORTFOLIO_ADD_MOODLE_URL) {
+            return $url;
+        }
+
         // if we just want a url to redirect to, do it now
         if ($format == PORTFOLIO_ADD_FAKE_URL) {
             return $url->out(false);
@@ -346,12 +358,12 @@ class portfolio_add_button {
         switch ($format) {
             case PORTFOLIO_ADD_FULL_FORM:
                 $formoutput .= $selectoutput;
-                $formoutput .= "\n" . '<input type="submit" value="' . $addstr .'" />';
+                $formoutput .= "\n" . '<input type="submit" class="btn btn-secondary" value="' . $addstr .'" />';
                 $formoutput .= "\n" . '</form>';
             break;
             case PORTFOLIO_ADD_ICON_FORM:
                 $formoutput .= $selectoutput;
-                $formoutput .= "\n" . '<input class="portfolio-add-icon" type="image" src="' . $OUTPUT->pix_url('t/portfolioadd') . '" alt=' . $addstr .'" />';
+                $formoutput .= "\n" . '<button class="portfolio-add-icon">' . $OUTPUT->pix_icon('t/portfolioadd', $addstr) . '</button>';
                 $formoutput .= "\n" . '</form>';
             break;
             case PORTFOLIO_ADD_ICON_LINK:
@@ -453,7 +465,7 @@ function portfolio_instance_select($instances, $callerformats, $callbackclass, $
 
     $count = 0;
     $selectoutput = "\n" . '<label class="accesshide" for="instanceid">' . get_string('plugin', 'portfolio') . '</label>';
-    $selectoutput .= "\n" . '<select id="instanceid" name="' . $selectname . '">' . "\n";
+    $selectoutput .= "\n" . '<select id="instanceid" name="' . $selectname . '" class="custom-select">' . "\n";
     $existingexports = portfolio_existing_exports_by_plugin($USER->id);
     foreach ($instances as $instance) {
         $formats = portfolio_supported_formats_intersect($callerformats, $instance->supported_formats());
@@ -531,6 +543,16 @@ function portfolio_instances($visibleonly=true, $useronly=true) {
         $instances[$instance->id] = portfolio_instance($instance->id, $instance);
     }
     return $instances;
+}
+
+/**
+ * Return whether there are visible instances in portfolio.
+ *
+ * @return bool true when there are some visible instances.
+ */
+function portfolio_has_visible_instances() {
+    global $DB;
+    return $DB->record_exists('portfolio_instance', array('visible' => 1));
 }
 
 /**
@@ -815,7 +837,7 @@ function portfolio_plugin_sanity_check($plugins=null) {
     if (is_string($plugins)) {
         $plugins = array($plugins);
     } else if (empty($plugins)) {
-        $plugins = get_plugin_list('portfolio');
+        $plugins = core_component::get_plugin_list('portfolio');
         $plugins = array_keys($plugins);
     }
 
@@ -918,47 +940,6 @@ function portfolio_report_insane($insane, $instances=false, $return=false) {
         return $output;
     }
     echo $output;
-}
-
-
-/**
- * Event handler for the portfolio_send event
- *
- * @param int $eventdata event id
- * @return bool
- */
-function portfolio_handle_event($eventdata) {
-    global $CFG;
-
-    require_once($CFG->libdir . '/portfolio/exporter.php');
-    $exporter = portfolio_exporter::rewaken_object($eventdata);
-    $exporter->process_stage_package();
-    $exporter->process_stage_send();
-    $exporter->save();
-    $exporter->process_stage_cleanup();
-    return true;
-}
-
-/**
- * Main portfolio cronjob.
- * Currently just cleans up expired transfer records.
- *
- * @todo - MDL-15997 - Add hooks in the plugins - either per instance or per plugin
- */
-function portfolio_cron() {
-    global $DB, $CFG;
-
-    require_once($CFG->libdir . '/portfolio/exporter.php');
-    if ($expired = $DB->get_records_select('portfolio_tempdata', 'expirytime < ?', array(time()), '', 'id')) {
-        foreach ($expired as $d) {
-            try {
-                $e = portfolio_exporter::rewaken_object($d->id);
-                $e->process_stage_cleanup(true);
-            } catch (Exception $e) {
-                mtrace('Exception thrown in portfolio cron while cleaning up ' . $d->id . ': ' . $e->getMessage());
-            }
-        }
-    }
 }
 
 /**
@@ -1106,7 +1087,8 @@ function portfolio_insane_notify_admins($insane, $instances=false) {
     $smallbody = get_string('insanebodysmall', 'portfolio', $a);
 
     foreach ($admins as $admin) {
-        $eventdata = new stdClass();
+        $eventdata = new \core\message\message();
+        $eventdata->courseid = SITEID;
         $eventdata->modulename = 'portfolio';
         $eventdata->component = 'portfolio';
         $eventdata->name = 'notices';
@@ -1224,13 +1206,25 @@ function portfolio_format_text_options() {
  * @return object|array|string
  */
 function portfolio_rewrite_pluginfile_url_callback($contextid, $component, $filearea, $itemid, $format, $options, $matches) {
-    $matches = $matches[0]; // no internal matching
+    $matches = $matches[0]; // No internal matching.
+
+    // Loads the HTML.
     $dom = new DomDocument();
-    if (!$dom->loadXML($matches)) {
+    if (!$dom->loadHTML($matches)) {
         return $matches;
     }
+
+    // Navigates to the node.
+    $xpath = new DOMXPath($dom);
+    $nodes = $xpath->query('/html/body/child::*');
+    if (empty($nodes) || count($nodes) > 1) {
+        // Unexpected sequence, none or too many nodes.
+        return $matches;
+    }
+    $dom = $nodes->item(0);
+
     $attributes = array();
-    foreach ($dom->documentElement->attributes as $attr => $node) {
+    foreach ($dom->attributes as $attr => $node) {
         $attributes[$attr] = $node->value;
     }
     // now figure out the file
@@ -1281,11 +1275,13 @@ function portfolio_include_callback_file($component, $class = null) {
         // Get rid of the first slash (if it exists).
         $component = ltrim($component, '/');
         // Get a list of valid plugin types.
-        $plugintypes = get_plugin_types(false);
+        $plugintypes = core_component::get_plugin_types();
         // Assume it is not valid for now.
         $isvalid = false;
         // Go through the plugin types.
         foreach ($plugintypes as $type => $path) {
+            // Getting the path relative to the dirroot.
+            $path = preg_replace('|^' . preg_quote($CFG->dirroot, '|') . '/|', '', $path);
             if (strrpos($component, $path) === 0) {
                 // Found the plugin type.
                 $isvalid = true;
@@ -1313,7 +1309,7 @@ function portfolio_include_callback_file($component, $class = null) {
     }
 
     // Obtain the component's location.
-    if (!$componentloc = get_component_directory($component)) {
+    if (!$componentloc = core_component::get_component_directory($component)) {
         throw new portfolio_button_exception('nocallbackcomponent', 'portfolio', '', $component);
     }
 
@@ -1340,8 +1336,11 @@ function portfolio_include_callback_file($component, $class = null) {
         throw new portfolio_button_exception('nocallbackfile', 'portfolio', '', $component);
     }
 
-    if (!is_null($class) && !class_exists($class)) {
-        throw new portfolio_button_exception('nocallbackclass', 'portfolio', '', $class);
+    if (!is_null($class)) {
+        // If class is specified, check it exists and extends portfolio_caller_base.
+        if (!class_exists($class) || !is_subclass_of($class, 'portfolio_caller_base')) {
+            throw new portfolio_button_exception('nocallbackclass', 'portfolio', '', $class);
+        }
     }
 }
 
@@ -1360,7 +1359,11 @@ function portfolio_include_callback_file($component, $class = null) {
  * @return mixed
  */
 function portfolio_rewrite_pluginfile_urls($text, $contextid, $component, $filearea, $itemid, $format, $options=null) {
-    $pattern = '/(<[^<]*?="@@PLUGINFILE@@\/[^>]*?(?:\/>|>.*?<\/[^>]*?>))/';
+    $patterns = array(
+        '(<(a|A)[^<]*?href="@@PLUGINFILE@@/[^>]*?>.*?</(a|A)>)',
+        '(<(img|IMG)\s[^<]*?src="@@PLUGINFILE@@/[^>]*?/?>)',
+    );
+    $pattern = '~' . implode('|', $patterns) . '~';
     $callback = partial('portfolio_rewrite_pluginfile_url_callback', $contextid, $component, $filearea, $itemid, $format, $options);
     return preg_replace_callback($pattern, $callback, $text);
 }

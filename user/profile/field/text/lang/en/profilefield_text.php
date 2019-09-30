@@ -1,5 +1,4 @@
 <?php
-
 // This file is part of Moodle - http://moodle.org/
 //
 // Moodle is free software: you can redistribute it and/or modify
@@ -24,3 +23,8 @@
  */
 
 $string['pluginname'] = 'Text input';
+$string['privacy:metadata:profilefield_text:userid'] = 'The ID of the user whose data is stored by the Text input user profile field';
+$string['privacy:metadata:profilefield_text:fieldid'] = 'The ID of the profile field';
+$string['privacy:metadata:profilefield_text:data'] = 'Text input user profile field user data';
+$string['privacy:metadata:profilefield_text:dataformat'] = 'The format of Text input user profile field user data';
+$string['privacy:metadata:profilefield_text:tableexplanation'] = 'Additional profile data';

@@ -19,14 +19,14 @@
 /**
  * This file is used to manage repositories
  *
- * @since 2.0
+ * @since Moodle 2.0
  * @package    core
  * @subpackage repository
  * @copyright  2009 Dongsheng Cai <dongsheng@moodle.com>
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
-require_once(dirname(dirname(__FILE__)) . '/config.php');
+require_once(__DIR__ . '/../config.php');
 require_once($CFG->dirroot . '/repository/lib.php');
 
 $edit    = optional_param('edit', 0, PARAM_INT);
@@ -69,6 +69,7 @@ $context = context::instance_by_id($contextid);
 
 $PAGE->set_url($url);
 $PAGE->set_context($context);
+$PAGE->set_pagelayout('standard');
 
 /// Security: make sure we're allowed to do this operation
 if ($context->contextlevel == CONTEXT_COURSE) {
@@ -84,13 +85,12 @@ if ($context->contextlevel == CONTEXT_COURSE) {
 
 } else if ($context->contextlevel == CONTEXT_USER) {
     require_login();
-    $pagename = get_string("personalrepositories",'repository');
+    $pagename = get_string('manageinstances', 'repository');
     //is the user looking at its own repository instances
     if ($USER->id != $context->instanceid){
         print_error('notyourinstances', 'repository');
     }
     $user = $USER;
-    $PAGE->set_pagelayout('mydashboard');
 } else {
     print_error('invalidcontext');
 }
@@ -99,10 +99,10 @@ if ($context->contextlevel == CONTEXT_COURSE) {
 if (!empty($new) && empty($edit)){
     $type = repository::get_type_by_typename($new);
 } else if (!empty($edit)){
-    $instance = repository::get_instance($edit);
+    $instance = repository::get_repository_by_id($edit, $context->id);
     $type = repository::get_type_by_id($instance->options['typeid']);
 } else if (!empty($delete)){
-    $instance = repository::get_instance($delete);
+    $instance = repository::get_repository_by_id($delete, $context->id);
     $type = repository::get_type_by_id($instance->options['typeid']);
 }
 
@@ -134,20 +134,16 @@ if (!empty($instance)) {
     }
 }
 
-/// Create navigation links
+// Create navigation links.
 if (!empty($course)) {
-    $PAGE->navbar->add($pagename);
-    $fullname = $course->fullname;
+    $pageheading = $course->fullname;
 } else {
-    $fullname = fullname($user);
-    $strrepos = get_string('repositories', 'repository');
-    $PAGE->navbar->add($fullname, new moodle_url('/user/view.php', array('id'=>$user->id)));
-    $PAGE->navbar->add($strrepos);
+    $pageheading = $pagename;
 }
 
 // Display page header.
 $PAGE->set_title($pagename);
-$PAGE->set_heading($fullname);
+$PAGE->set_heading($pageheading);
 
 $return = true;
 if (!empty($edit) || !empty($new)) {

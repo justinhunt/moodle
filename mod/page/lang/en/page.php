@@ -18,7 +18,7 @@
 /**
  * Strings for component 'page', language 'en', branch 'MOODLE_20_STABLE'
  *
- * @package   page
+ * @package   mod_page
  * @copyright 1999 onwards Martin Dougiamas  {@link http://moodle.com}
  * @license   http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
@@ -30,6 +30,10 @@ $string['createpage'] = 'Create a new page resource';
 $string['displayoptions'] = 'Available display options';
 $string['displayselect'] = 'Display';
 $string['displayselectexplain'] = 'Select display type.';
+$string['indicator:cognitivedepth'] = 'Page cognitive';
+$string['indicator:cognitivedepth_help'] = 'This indicator is based on the cognitive depth reached by the student in a Page resource.';
+$string['indicator:socialbreadth'] = 'Page social';
+$string['indicator:socialbreadth_help'] = 'This indicator is based on the social breadth reached by the student in a Page resource.';
 $string['legacyfiles'] = 'Migration of old course file';
 $string['legacyfilesactive'] = 'Active';
 $string['legacyfilesdone'] = 'Finished';
@@ -46,7 +50,6 @@ A page may be used
 * To embed several videos or sound files together with some explanatory text';
 $string['modulename_link'] = 'mod/page/view';
 $string['modulenameplural'] = 'Pages';
-$string['neverseen'] = 'Never seen';
 $string['optionsheader'] = 'Display options';
 $string['page-mod-page-x'] = 'Any page module page';
 $string['page:addinstance'] = 'Add a new page resource';
@@ -61,3 +64,7 @@ $string['printheading'] = 'Display page name';
 $string['printheadingexplain'] = 'Display page name above content?';
 $string['printintro'] = 'Display page description';
 $string['printintroexplain'] = 'Display page description above content?';
+$string['printlastmodified'] = 'Display last modified date';
+$string['printlastmodifiedexplain'] = 'Display last modified date below content?';
+$string['privacy:metadata'] = 'The Page resource plugin does not store any personal data.';
+$string['search:activity'] = 'Page';

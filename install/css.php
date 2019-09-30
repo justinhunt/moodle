@@ -23,114 +23,93 @@
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
-if (file_exists(dirname(dirname(__FILE__)).'/config.php')) {
+if (file_exists(__DIR__.'/../config.php')) {
     // already installed
     die;
 }
 
-// include only the necessary stuff from themes, keep this small otherwise IE will complain...
-$files = array(
-        'base/style/pagelayout.css',
-        'base/style/core.css',
-        'standard/style/core.css',
-        'standard/style/css3.css');
-
+// and remove some of the CSS in $content.
+$files = array('boost/style/moodle.css');
 
 $content = '';
 
 foreach($files as $file) {
-    $content .= file_get_contents(dirname(dirname(__FILE__)).'/theme/'.$file) . "\n";
+    $content .= file_get_contents(__DIR__.'/../theme/'.$file) . "\n";
 }
 
-$content .= "
+$content .= <<<EOF
+
+body {
+    padding: 4px;
+}
+
+.text-ltr {
+    direction: ltr !important;
+}
+
+.headermain {
+    margin: 15px;
+}
 
 h2 {
   text-align:center;
 }
 
+textarea, .uneditable-input {
+    width: 50%;
+}
+
 #installdiv {
-  width: 800px;
-  margin-left:auto;
-  margin-right:auto;
+    margin-left:auto;
+    margin-right:auto;
+    padding: 5px;
+    margin-bottom: 15px;
 }
 
 #installdiv dt {
-  font-weight: bold;
+    font-weight: bold;
 }
 
 #installdiv dd {
-  padding-bottom: 0.5em;
+    padding-bottom: 0.5em;
 }
 
 .stage {
-  margin-top: 2em;
-  margin-bottom: 2em;
-  width: 100%;
-  padding:25px;
+    margin-top: 2em;
+    margin-bottom: 2em;
+    padding: 25px;
 }
 
 #installform {
-  width: 100%;
-}
-
-#nav_buttons input {
-  margin: 5px;
+    width: 100%;
 }
 
 #envresult {
-  text-align:left;
-  width: auto;
-  margin-left:10em;
+    text-align:left;
+    width: auto;
+    margin-left:10em;
 }
 
 #envresult dd {
-  color: red;
-}
-
-.formrow {
-  clear:both;
-  text-align:left;
-  padding: 8px;
-}
-
-.formrow label.formlabel {
-  display:block;
-  float:left;
-  width: 160px;
-  margin-right:5px;
-  text-align:right;
-}
-
-.formrow .forminput {
-  display:block;
-  float:left;
+    color: red;
 }
 
 fieldset {
-  text-align:center;
-  border:none;
+    text-align:center;
+    border:none;
 }
 
-.hint {
-  display:block;
-  clear:both;
-  padding-left: 265px;
-  color: red;
+fieldset .configphp,
+fieldset .alert {
+    text-align: left;
+    direction: ltr;
 }
 
-.configphp {
-  text-align:left;
-  background-color:white;
-  padding:1em;
-  width:95%;
+.sitelink {
+    text-align: center;
 }
 
-.stage6 .stage {
-  font-weight: bold;
-  color: red;
-}
-
-";
+EOF;
 
 // fix used urls
 $content = str_replace('[[pix:theme|hgradient]]', '../theme/standard/pix/hgradient.jpg', $content);

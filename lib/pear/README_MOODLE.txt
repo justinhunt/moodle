@@ -1,38 +1,6 @@
 MOODLE-SPECIFIC PEAR MODIFICATIONS
 ==================================
 
-Auth/RADIUS
-===========
-
-1/ Changed static call to correct alternative (MDL-38373):
-    - From: PEAR::loadExtension('radius'); (in global scope)
-    - To: $this->loadExtension('radius'); (in constructor)
-
-Spreadsheet/Excel
-=================
-
-1/ These functions:
-    _calculateSharedStringsSizes()
-    _storeSharedStringsTable()
-have been inserted, replacing the original functions in order to make the function
-work with 2-byte data.  The patch is discussed at this URL:
-    http://pear.php.net/bugs/bug.php?id=1572
-and documented for Moodle at:
-    http://tracker.moodle.org/browse/MDL-9911
-
-2/ Changed ereg_ to preg_
-
-3/ removed deprecated "=& new"
-
-4/ MDL-20876 - replaced deprecated split() with explode() or str_split() where appropriate
-
-Such modifications should be carefully each time the Excel PEAR package is updated
-to a new release within Moodle.
-
-5/ static keywords in OLE.php
-* static function Asc2Ucs()
-* static function LocalDate2OLE()
-
 XML/Parser
 =================
 1/ changed ereg_ to preg_
@@ -45,4 +13,19 @@ Full of our custom hacks, no way to upgrade to latest upstream.
 Most probably we will stop using this library in the future.
 
 MDL-20876 - replaced split() with explode() or preg_split() where appropriate
+MDL-40267 - Moodle core_text strlen functions used for range rule rule to be utf8 safe.
+MDL-46467 - $mform->hardfreeze causes labels to loose their for HTML attribute
+MDL-52081 - made all constructors PHP7 compatible
+MDL-52826 - Remove onsubmit events pointing to the global validation functions and script
+            tag moved after the HTML
+MDL-50484 - _getPersistantData() returns id with _persistant prefixed to element id.
+MDL-55123 - corrected call to non-static functions in HTML_QuickForm to be PHP7.1-compliant
+MDL-60281 - replaced deprecated create_function() with lambda functions for PHP7.2 compatibility
 
+
+Pear
+====
+It was decided that we will not upgrade this library from upstream  any more, see MDL-52465
+
+Changed constructors in classes PEAR and PEAR_ERROR to be __construct().
+MDL-60281 - replaced deprecated function each() with foreach loop for PHP7.2 compatibility

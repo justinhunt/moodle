@@ -18,7 +18,7 @@
 /**
  * Basic authentication steps definitions.
  *
- * @package    core
+ * @package    core_auth
  * @category   test
  * @copyright  2012 David Monllaó
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
@@ -28,13 +28,10 @@
 
 require_once(__DIR__ . '/../../../lib/behat/behat_base.php');
 
-use Behat\Behat\Context\Step\Given as Given;
-use Behat\Behat\Context\Step\When as When;
-
 /**
  * Log in log out steps definitions.
  *
- * @package    core
+ * @package    core_auth
  * @category   test
  * @copyright  2012 David Monllaó
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
@@ -47,13 +44,21 @@ class behat_auth extends behat_base {
      * @Given /^I log in as "(?P<username_string>(?:[^"]|\\")*)"$/
      */
     public function i_log_in_as($username) {
+        // In the mobile app the required tasks are different.
+        if ($this->is_in_app()) {
+            $this->execute('behat_app::login', [$username]);
+            return;
+        }
 
-        return array(new Given('I am on homepage'),
-            new Given('I follow "Login"'),
-            new Given('I fill in "Username" with "'.$username.'"'),
-            new Given('I fill in "Password" with "'.$username.'"'),
-            new Given('I press "Login"')
-        );
+        // Visit login page.
+        $this->getSession()->visit($this->locate_path('login/index.php'));
+
+        // Enter username and password.
+        $this->execute('behat_forms::i_set_the_field_to', array('Username', $this->escape($username)));
+        $this->execute('behat_forms::i_set_the_field_to', array('Password', $this->escape($username)));
+
+        // Press log in button, no need to check for exceptions as it will checked after this step execution.
+        $this->execute('behat_forms::press_button', get_string('login'));
     }
 
     /**
@@ -62,7 +67,11 @@ class behat_auth extends behat_base {
      * @Given /^I log out$/
      */
     public function i_log_out() {
-        return new When('I follow "Logout"');
-    }
 
+        // Wait for page to be loaded.
+        $this->wait_for_pending_js();
+
+        // Click on logout link in footer, as it's much faster.
+        $this->execute('behat_general::i_click_on_in_the', array(get_string('logout'), 'link', '#page-footer', "css_element"));
+    }
 }

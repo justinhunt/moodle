@@ -35,7 +35,7 @@ defined('MOODLE_INTERNAL') || die();
  *
  * @category grading
  * @example $manager = get_grading_manager($areaid);
- * @example $manager = get_grading_manager(get_system_context());
+ * @example $manager = get_grading_manager(context_system::instance());
  * @example $manager = get_grading_manager($context, 'mod_assignment', 'submission');
  * @param stdClass|int|null $context_or_areaid if $areaid is passed, no other parameter is needed
  * @param string|null $component the frankenstyle name of the component
@@ -139,7 +139,7 @@ class grading_manager {
      */
     public function set_component($component) {
         $this->areacache = null;
-        list($type, $name) = normalize_component($component);
+        list($type, $name) = core_component::normalize_component($component);
         $this->component = $type.'_'.$name;
     }
 
@@ -185,8 +185,8 @@ class grading_manager {
         } else if ($this->get_context()->contextlevel >= CONTEXT_COURSE) {
             list($context, $course, $cm) = get_context_info_array($this->get_context()->id);
 
-            if (!empty($cm->name)) {
-                $title = $cm->name;
+            if ($cm && strval($cm->name) !== '') {
+                $title = format_string($cm->name, true, array('context' => $context));
             } else {
                 debugging('Gradable areas are currently supported at the course module level only', DEBUG_DEVELOPER);
                 $title = $this->get_component();
@@ -253,7 +253,7 @@ class grading_manager {
             $list = array();
         }
 
-        foreach (get_plugin_list('gradingform') as $name => $location) {
+        foreach (core_component::get_plugin_list('gradingform') as $name => $location) {
             $list[$name] = get_string('pluginname', 'gradingform_'.$name);
         }
 
@@ -288,7 +288,7 @@ class grading_manager {
     public static function available_areas($component) {
         global $CFG;
 
-        list($plugintype, $pluginname) = normalize_component($component);
+        list($plugintype, $pluginname) = core_component::normalize_component($component);
 
         if ($component === 'core_grading') {
             return array();
@@ -489,7 +489,7 @@ class grading_manager {
      * Returns the given method's controller in the gradable area
      *
      * @param string $method the method name, eg 'rubric' (must be available)
-     * @return grading_controller
+     * @return gradingform_controller
      */
     public function get_controller($method) {
         global $CFG, $DB;
@@ -534,7 +534,7 @@ class grading_manager {
     /**
      * Returns the controller for the active method if it is available
      *
-     * @return null|grading_controller
+     * @return null|gradingform_controller
      */
     public function get_active_controller() {
         if ($gradingmethod = $this->get_active_method()) {

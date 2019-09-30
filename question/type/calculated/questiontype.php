@@ -26,6 +26,7 @@
 
 defined('MOODLE_INTERNAL') || die();
 
+require_once($CFG->dirroot . '/question/type/questiontypebase.php');
 require_once($CFG->dirroot . '/question/type/questionbase.php');
 require_once($CFG->dirroot . '/question/type/numerical/question.php');
 
@@ -37,6 +38,21 @@ require_once($CFG->dirroot . '/question/type/numerical/question.php');
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 class qtype_calculated extends question_type {
+    /**
+     * @const string a placeholder is a letter, followed by almost any characters. (This should probably be restricted more.)
+     */
+    const PLACEHOLDER_REGEX_PART = '[[:alpha:]][^>} <`{"\']*';
+
+    /**
+     * @const string REGEXP for a placeholder, wrapped in its {...} delimiters, with capturing brackets around the name.
+     */
+    const PLACEHODLER_REGEX = '~\{(' . self::PLACEHOLDER_REGEX_PART . ')\}~';
+
+    /**
+     * @const string Regular expression that finds the formulas in content, with capturing brackets to get the forumlas.
+     */
+    const FORMULAS_IN_TEXT_REGEX = '~\{=([^{}]*(?:\{' . self::PLACEHOLDER_REGEX_PART . '\}[^{}]*)*)\}~';
+
     const MAX_DATASET_ITEMS = 100;
 
     public $wizardpagesnumber = 3;
@@ -119,7 +135,7 @@ class qtype_calculated extends question_type {
                             $def->number_of_items = $n;
                         }
                     }
-                    $datasetdefs["1-$r->category-$r->name"] = $def;
+                    $datasetdefs["1-{$r->category}-{$r->name}"] = $def;
                 }
             }
         }
@@ -128,11 +144,13 @@ class qtype_calculated extends question_type {
 
     public function save_question_options($question) {
         global $CFG, $DB;
+
+        // Make it impossible to save bad formulas anywhere.
+        $this->validate_question_data($question);
+
         // The code is used for calculated, calculatedsimple and calculatedmulti qtypes.
         $context = $question->context;
-        if (isset($question->answer) && !isset($question->answers)) {
-            $question->answers = $question->answer;
-        }
+
         // Calculated options.
         $update = true;
         $options = $DB->get_record('question_calculated_options',
@@ -182,14 +200,7 @@ class qtype_calculated extends question_type {
             $units = $result->units;
         }
 
-        // Insert all the new answers.
-        if (isset($question->answer) && !isset($question->answers)) {
-            $question->answers = $question->answer;
-        }
-        foreach ($question->answers as $key => $answerdata) {
-            if (is_array($answerdata)) {
-                $answerdata = $answerdata['text'];
-            }
+        foreach ($question->answer as $key => $answerdata) {
             if (trim($answerdata) == '') {
                 continue;
             }
@@ -282,7 +293,7 @@ class qtype_calculated extends question_type {
                 if ($sharedatasetdefs = $DB->get_records_select(
                     'question_dataset_definitions',
                     "type = '1'
-                    AND name = ?
+                    AND " . $DB->sql_equal('name', '?') . "
                     AND category = ?
                     ORDER BY id DESC ", array($dataset->name, $question->category)
                 )) { // So there is at least one.
@@ -343,49 +354,6 @@ class qtype_calculated extends question_type {
         $question->datasetloader = new qtype_calculated_dataset_loader($questiondata->id);
     }
 
-    public function validate_form($form) {
-        switch($form->wizardpage) {
-            case 'question':
-                $calculatedmessages = array();
-                if (empty($form->name)) {
-                    $calculatedmessages[] = get_string('missingname', 'qtype_calculated');
-                }
-                if (empty($form->questiontext)) {
-                    $calculatedmessages[] = get_string('missingquestiontext', 'qtype_calculated');
-                }
-                // Verify formulas.
-                foreach ($form->answers as $key => $answer) {
-                    if ('' === trim($answer)) {
-                        $calculatedmessages[] = get_string(
-                                'missingformula', 'qtype_calculated');
-                    }
-                    if ($formulaerrors = qtype_calculated_find_formula_errors($answer)) {
-                        $calculatedmessages[] = $formulaerrors;
-                    }
-                    if (! isset($form->tolerance[$key])) {
-                        $form->tolerance[$key] = 0.0;
-                    }
-                    if (! is_numeric($form->tolerance[$key])) {
-                        $calculatedmessages[] = get_string('xmustbenumeric', 'qtype_numerical',
-                                get_string('tolerance', 'qtype_calculated'));
-                    }
-                }
-
-                if (!empty($calculatedmessages)) {
-                    $errorstring = "The following errors were found:<br />";
-                    foreach ($calculatedmessages as $msg) {
-                        $errorstring .= $msg . '<br />';
-                    }
-                    print_error($errorstring);
-                }
-
-                break;
-            default:
-                return parent::validate_form($form);
-                break;
-        }
-        return true;
-    }
     public function finished_edit_wizard($form) {
         return isset($form->savechanges);
     }
@@ -404,11 +372,11 @@ class qtype_calculated extends question_type {
         // See where we're coming from.
         switch($form->wizardpage) {
             case 'question':
-                require("$CFG->dirroot/question/type/calculated/datasetdefinitions.php");
+                require("{$CFG->dirroot}/question/type/calculated/datasetdefinitions.php");
                 break;
             case 'datasetdefinitions':
             case 'datasetitems':
-                require("$CFG->dirroot/question/type/calculated/datasetitems.php");
+                require("{$CFG->dirroot}/question/type/calculated/datasetitems.php");
                 break;
             default:
                 print_error('invalidwizardpage', 'question');
@@ -432,15 +400,15 @@ class qtype_calculated extends question_type {
         // See where we're coming from.
         switch($wizardnow) {
             case 'datasetdefinitions':
-                require("$CFG->dirroot/question/type/calculated/datasetdefinitions_form.php");
+                require("{$CFG->dirroot}/question/type/calculated/datasetdefinitions_form.php");
                 $mform = new question_dataset_dependent_definitions_form(
-                        "$submiturl?wizardnow=datasetdefinitions", $question);
+                        "{$submiturl}?wizardnow=datasetdefinitions", $question);
                 break;
             case 'datasetitems':
-                require("$CFG->dirroot/question/type/calculated/datasetitems_form.php");
+                require("{$CFG->dirroot}/question/type/calculated/datasetitems_form.php");
                 $regenerate = optional_param('forceregeneration', false, PARAM_BOOL);
                 $mform = new question_dataset_dependent_items_form(
-                        "$submiturl?wizardnow=datasetitems", $question, $regenerate);
+                        "{$submiturl}?wizardnow=datasetitems", $question, $regenerate);
                 break;
             default:
                 print_error('invalidwizardpage', 'question');
@@ -482,6 +450,64 @@ class qtype_calculated extends question_type {
     }
 
     /**
+     * Verify that the equations in part of the question are OK.
+     * We throw an exception here because this should have already been validated
+     * by the form. This is just a last line of defence to prevent a question
+     * being stored in the database if it has bad formulas. This saves us from,
+     * for example, malicious imports.
+     * @param string $text containing equations.
+     */
+    protected function validate_text($text) {
+        $error = qtype_calculated_find_formula_errors_in_text($text);
+        if ($error) {
+            throw new coding_exception($error);
+        }
+    }
+
+    /**
+     * Verify that an answer is OK.
+     * We throw an exception here because this should have already been validated
+     * by the form. This is just a last line of defence to prevent a question
+     * being stored in the database if it has bad formulas. This saves us from,
+     * for example, malicious imports.
+     * @param string $text containing equations.
+     */
+    protected function validate_answer($answer) {
+        $error = qtype_calculated_find_formula_errors($answer);
+        if ($error) {
+            throw new coding_exception($error);
+        }
+    }
+
+    /**
+     * Validate data before save.
+     * @param stdClass $question data from the form / import file.
+     */
+    protected function validate_question_data($question) {
+        $this->validate_text($question->questiontext); // Yes, really no ['text'].
+
+        if (isset($question->generalfeedback['text'])) {
+            $this->validate_text($question->generalfeedback['text']);
+        } else if (isset($question->generalfeedback)) {
+            $this->validate_text($question->generalfeedback); // Because question import is weird.
+        }
+
+        foreach ($question->answer as $key => $answer) {
+            $this->validate_answer($answer);
+            $this->validate_text($question->feedback[$key]['text']);
+        }
+    }
+
+    /**
+     * Remove prefix #{..}# if exists.
+     * @param $name a question name,
+     * @return string the cleaned up question name.
+     */
+    public function clean_technical_prefix_from_question_name($name) {
+        return preg_replace('~#\{([^[:space:]]*)#~', '', $name);
+    }
+
+    /**
      * This method prepare the $datasets in a format similar to dadatesetdefinitions_form.php
      * so that they can be saved
      * using the function save_dataset_definitions($form)
@@ -493,12 +519,13 @@ class qtype_calculated extends question_type {
      * @param object $form
      * @param int $questionfromid default = '0'
      */
-    public function preparedatasets($form , $questionfromid = '0') {
+    public function preparedatasets($form, $questionfromid = '0') {
+
         // The dataset names present in the edit_question_form and edit_calculated_form
         // are retrieved.
         $possibledatasets = $this->find_dataset_names($form->questiontext);
         $mandatorydatasets = array();
-        foreach ($form->answers as $answer) {
+        foreach ($form->answer as $key => $answer) {
             $mandatorydatasets += $this->find_dataset_names($answer);
         }
         // If there are identical datasetdefs already saved in the original question
@@ -547,11 +574,7 @@ class qtype_calculated extends question_type {
                 AND a.category != 0
                 AND b.question = ?
            ORDER BY a.name ", array($question->id));
-        $questionname = $question->name;
-        $regs= array();
-        if (preg_match('~#\{([^[:space:]]*)#~', $questionname , $regs)) {
-            $questionname = str_replace($regs[0], '', $questionname);
-        };
+        $questionname = $this->clean_technical_prefix_from_question_name($question->name);
 
         if (!empty($categorydatasetdefs)) {
             // There is at least one with the same name.
@@ -587,8 +610,9 @@ class qtype_calculated extends question_type {
      */
     public function save_question($question, $form) {
         global $DB;
+
         if ($this->wizardpagesnumber() == 1 || $question->qtype == 'calculatedsimple') {
-                $question = parent::save_question($question, $form);
+            $question = parent::save_question($question, $form);
             return $question;
         }
 
@@ -706,22 +730,20 @@ class qtype_calculated extends question_type {
     public function custom_generator_tools_part($mform, $idx, $j) {
 
         $minmaxgrp = array();
-        $minmaxgrp[] = $mform->createElement('text', "calcmin[$idx]",
+        $minmaxgrp[] = $mform->createElement('float', "calcmin[{$idx}]",
                 get_string('calcmin', 'qtype_calculated'));
-        $minmaxgrp[] = $mform->createElement('text', "calcmax[$idx]",
+        $minmaxgrp[] = $mform->createElement('float', "calcmax[{$idx}]",
                 get_string('calcmax', 'qtype_calculated'));
         $mform->addGroup($minmaxgrp, 'minmaxgrp',
                 get_string('minmax', 'qtype_calculated'), ' - ', false);
-        $mform->setType("calcmin[$idx]", PARAM_FLOAT);
-        $mform->setType("calcmax[$idx]", PARAM_FLOAT);
 
         $precisionoptions = range(0, 10);
-        $mform->addElement('select', "calclength[$idx]",
+        $mform->addElement('select', "calclength[{$idx}]",
                 get_string('calclength', 'qtype_calculated'), $precisionoptions);
 
         $distriboptions = array('uniform' => get_string('uniform', 'qtype_calculated'),
                 'loguniform' => get_string('loguniform', 'qtype_calculated'));
-        $mform->addElement('select', "calcdistribution[$idx]",
+        $mform->addElement('select', "calcdistribution[{$idx}]",
                 get_string('calcdistribution', 'qtype_calculated'), $distriboptions);
     }
 
@@ -730,11 +752,10 @@ class qtype_calculated extends question_type {
         foreach ($datasetdefs as $datasetdef) {
             if (preg_match('~^(uniform|loguniform):([^:]*):([^:]*):([0-9]*)$~',
                     $datasetdef->options, $regs)) {
-                $defid = "$datasetdef->type-$datasetdef->category-$datasetdef->name";
-                $formdata["calcdistribution[$idx]"] = $regs[1];
-                $formdata["calcmin[$idx]"] = $regs[2];
-                $formdata["calcmax[$idx]"] = $regs[3];
-                $formdata["calclength[$idx]"] = $regs[4];
+                $formdata["calcdistribution[{$idx}]"] = $regs[1];
+                $formdata["calcmin[{$idx}]"] = $regs[2];
+                $formdata["calcmax[{$idx}]"] = $regs[3];
+                $formdata["calclength[{$idx}]"] = $regs[4];
             }
             $idx++;
         }
@@ -745,7 +766,7 @@ class qtype_calculated extends question_type {
         global $OUTPUT;
         if (preg_match('~^(uniform|loguniform):([^:]*):([^:]*):([0-9]*)$~',
                 $datasetdef->options, $regs)) {
-            $defid = "$datasetdef->type-$datasetdef->category-$datasetdef->name";
+            $defid = "{$datasetdef->type}-{$datasetdef->category}-{$datasetdef->name}";
             for ($i = 0; $i<10; ++$i) {
                 $lengthoptions[$i] = get_string(($regs[1] == 'uniform'
                     ? 'decimals'
@@ -753,19 +774,19 @@ class qtype_calculated extends question_type {
             }
             $menu1 = html_writer::label(get_string('lengthoption', 'qtype_calculated'),
                 'menucalclength', false, array('class' => 'accesshide'));
-            $menu1 .= html_writer::select($lengthoptions, 'calclength[]', $regs[4], null);
+            $menu1 .= html_writer::select($lengthoptions, 'calclength[]', $regs[4], null, array('class' => 'custom-select'));
 
             $options = array('uniform' => get_string('uniformbit', 'qtype_calculated'),
                 'loguniform' => get_string('loguniformbit', 'qtype_calculated'));
             $menu2 = html_writer::label(get_string('distributionoption', 'qtype_calculated'),
                 'menucalcdistribution', false, array('class' => 'accesshide'));
-            $menu2 .= html_writer::select($options, 'calcdistribution[]', $regs[1], null);
-            return '<input type="submit" onclick="'
-                . "getElementById('addform').regenerateddefid.value='$defid'; return true;"
+            $menu2 .= html_writer::select($options, 'calcdistribution[]', $regs[1], null, array('class' => 'custom-select'));
+            return '<input type="submit" class="btn btn-secondary" onclick="'
+                . "getElementById('addform').regenerateddefid.value='{$defid}'; return true;"
                 .'" value="'. get_string('generatevalue', 'qtype_calculated') . '"/><br/>'
-                . '<input type="text" size="3" name="calcmin[]" '
-                . " value=\"$regs[2]\"/> &amp; <input name=\"calcmax[]\" "
-                . ' type="text" size="3" value="' . $regs[3] .'"/> '
+                . '<input type="text" class="form-control" size="3" name="calcmin[]" '
+                . " value=\"{$regs[2]}\"/> &amp; <input name=\"calcmax[]\" "
+                . ' type="text" class="form-control" size="3" value="' . $regs[3] .'"/> '
                 . $menu1 . '<br/>'
                 . $menu2;
         } else {
@@ -940,7 +961,7 @@ class qtype_calculated extends question_type {
                 // Fix regenerate for this datadefs.
                 $defregenerate = 0;
                 if ($synchronize &&
-                        !empty ($fromform->nextpageparam["datasetregenerate[$datasetdef->name"])) {
+                        !empty ($fromform->nextpageparam["datasetregenerate[{$datasetdef->name}"])) {
                     $defregenerate = 1;
                 } else if (!$synchronize &&
                         (($regenerate == 1 && $datasetdef->category == 0) ||$regenerate == 2)) {
@@ -1047,18 +1068,26 @@ class qtype_calculated extends question_type {
         $comment->outsidelimit = false;
         $comment->answers = array();
         // Find a default unit.
-        if (!empty($questionid) && $unit = $DB->get_record('question_numerical_units',
-                array('question' => $questionid, 'multiplier' => 1.0))) {
-            $unit = $unit->unit;
-        } else {
-            $unit = '';
+        $unit = '';
+        if (!empty($questionid)) {
+            $units = $DB->get_records('question_numerical_units',
+                array('question' => $questionid, 'multiplier' => 1.0),
+                'id ASC', '*', 0, 1);
+            if ($units) {
+                $unit = reset($units);
+                $unit = $unit->unit;
+            }
         }
 
         $answers = fullclone($answers);
-        $errors = '';
         $delimiter = ': ';
         $virtualqtype =  $qtypeobj->get_virtual_qtype();
         foreach ($answers as $key => $answer) {
+            $error = qtype_calculated_find_formula_errors($answer->answer);
+            if ($error) {
+                $comment->stranswers[$key] = $error;
+                continue;
+            }
             $formula = $this->substitute_variables($answer->answer, $data);
             $formattedanswer = qtype_calculated_calculate_answer(
                 $answer->answer, $data, $answer->tolerance,
@@ -1075,7 +1104,7 @@ class qtype_calculated extends question_type {
             }
             if ($answer->min === '') {
                 // This should mean that something is wrong.
-                $comment->stranswers[$key] = " $formattedanswer->answer".'<br/><br/>';
+                $comment->stranswers[$key] = " {$formattedanswer->answer}".'<br/><br/>';
             } else if ($formula === '*') {
                 $comment->stranswers[$key] = $formula . ' = ' .
                         get_string('anyvalue', 'qtype_calculated') . '<br/><br/><br/>';
@@ -1130,7 +1159,7 @@ class qtype_calculated extends question_type {
         }
         if (!$selected) {
             if ($mandatory) {
-                $selected =  "1-0-$name"; // Default.
+                $selected =  "1-0-{$name}"; // Default.
             } else {
                 $selected = '0'; // Default.
             }
@@ -1222,7 +1251,7 @@ class qtype_calculated extends question_type {
                   ORDER BY i.id";
             if ($records = $DB->get_records_sql($sql, array($questionid))) {
                 foreach ($records as $r) {
-                    $datasetdefs["$r->type-$r->category-$r->name"] = $r;
+                    $datasetdefs["{$r->type}-{$r->category}-{$r->name}"] = $r;
                 }
             }
         }
@@ -1389,7 +1418,7 @@ class qtype_calculated extends question_type {
                 // can manage to automatically take care of
                 // some possible realtime concurrence.
                 if ($olderdatasetdefs = $DB->get_records_select('question_dataset_definitions',
-                        "type = ? AND name = ? AND category = ? AND id < ?
+                        "type = ? AND " . $DB->sql_equal('name', '?') . " AND category = ? AND id < ?
                         ORDER BY id DESC",
                         array($datasetdef->type, $datasetdef->name,
                                 $datasetdef->category, $datasetdef->id))) {
@@ -1465,26 +1494,26 @@ class qtype_calculated extends question_type {
         $options['0'] = get_string($prefix.'nodataset', $langfile);
         // New question no local.
         if (!isset($form->id) || $form->id == 0) {
-            $key = "$type-0-$name";
-            $options[$key] = get_string($prefix."newlocal$type", $langfile);
+            $key = "{$type}-0-{$name}";
+            $options[$key] = get_string($prefix."newlocal{$type}", $langfile);
             $currentdatasetdef = new stdClass();
             $currentdatasetdef->type = '0';
         } else {
             // Construct question local options.
             $sql = "SELECT a.*
                 FROM {question_dataset_definitions} a, {question_datasets} b
-               WHERE a.id = b.datasetdefinition AND a.type = '1' AND b.question = ? AND a.name = ?";
+               WHERE a.id = b.datasetdefinition AND a.type = '1' AND b.question = ? AND " . $DB->sql_equal('a.name', '?');
             $currentdatasetdef = $DB->get_record_sql($sql, array($form->id, $name));
             if (!$currentdatasetdef) {
                 $currentdatasetdef = new stdClass();
                 $currentdatasetdef->type = '0';
             }
-            $key = "$type-0-$name";
+            $key = "{$type}-0-{$name}";
             if ($currentdatasetdef->type == $type
                     and $currentdatasetdef->category == 0) {
-                $options[$key] = get_string($prefix."keptlocal$type", $langfile);
+                $options[$key] = get_string($prefix."keptlocal{$type}", $langfile);
             } else {
-                $options[$key] = get_string($prefix."newlocal$type", $langfile);
+                $options[$key] = get_string($prefix."newlocal{$type}", $langfile);
             }
         }
         // Construct question category options.
@@ -1495,35 +1524,48 @@ class qtype_calculated extends question_type {
             WHERE a.id = b.datasetdefinition
             AND a.type = '1'
             AND a.category = ?
-            AND a.name = ?", array($form->category, $name));
+            AND " . $DB->sql_equal('a.name', '?'), array($form->category, $name));
         $type = 1;
-        $key = "$type-$form->category-$name";
+        $key = "{$type}-{$form->category}-{$name}";
         if (!empty($categorydatasetdefs)) {
             // There is at least one with the same name.
             if (isset($form->id) && isset($categorydatasetdefs[$form->id])) {
                 // It is already used by this question.
-                $options[$key] = get_string($prefix."keptcategory$type", $langfile);
+                $options[$key] = get_string($prefix."keptcategory{$type}", $langfile);
             } else {
-                $options[$key] = get_string($prefix."existingcategory$type", $langfile);
+                $options[$key] = get_string($prefix."existingcategory{$type}", $langfile);
             }
         } else {
-            $options[$key] = get_string($prefix."newcategory$type", $langfile);
+            $options[$key] = get_string($prefix."newcategory{$type}", $langfile);
         }
         // All done!
         return array($options, $currentdatasetdef->type
-            ? "$currentdatasetdef->type-$currentdatasetdef->category-$name"
+            ? "{$currentdatasetdef->type}-{$currentdatasetdef->category}-{$name}"
             : '');
     }
 
+    /**
+     * Find the names of all datasets mentioned in a piece of question content like the question text.
+     * @param $text the text to analyse.
+     * @return array with dataset name for both key and value.
+     */
     public function find_dataset_names($text) {
-        // Returns the possible dataset names found in the text as an array.
-        // The array has the dataset name for both key and value.
-        $datasetnames = array();
-        while (preg_match('~\\{([[:alpha:]][^>} <{"\']*)\\}~', $text, $regs)) {
-            $datasetnames[$regs[1]] = $regs[1];
-            $text = str_replace($regs[0], '', $text);
-        }
-        return $datasetnames;
+        preg_match_all(self::PLACEHODLER_REGEX, $text, $matches);
+        return array_combine($matches[1], $matches[1]);
+    }
+
+    /**
+     * Find all the formulas in a bit of text.
+     *
+     * For example, called with "What is {a} plus {b}? (Hint, it is not {={a}*{b}}.)" this
+     * returns ['{a}*{b}'].
+     *
+     * @param $text text to analyse.
+     * @return array where they keys an values are the formulas.
+     */
+    public function find_formulas($text) {
+        preg_match_all(self::FORMULAS_IN_TEXT_REGEX, $text, $matches);
+        return array_combine($matches[1], $matches[1]);
     }
 
     /**
@@ -1541,8 +1583,8 @@ class qtype_calculated extends question_type {
                      WHERE i.id = d.datasetdefinition AND i.category = ?";
             if ($records = $DB->get_records_sql($sql, array($form->category))) {
                 foreach ($records as $r) {
-                    if (!isset ($datasetdefs["$r->name"])) {
-                        $datasetdefs["$r->name"] = $r->itemcount;
+                    if (!isset ($datasetdefs["{$r->name}"])) {
+                        $datasetdefs["{$r->name}"] = $r->itemcount;
                     }
                 }
             }
@@ -1578,14 +1620,14 @@ class qtype_calculated extends question_type {
                     $sql1 = "SELECT q.*
                                FROM {question} q
                               WHERE q.id = ?";
-                    if (!isset ($datasetdefs["$r->type-$r->category-$r->name"])) {
-                        $datasetdefs["$r->type-$r->category-$r->name"] = $r;
+                    if (!isset ($datasetdefs["{$r->type}-{$r->category}-{$r->name}"])) {
+                        $datasetdefs["{$r->type}-{$r->category}-{$r->name}"] = $r;
                     }
                     if ($questionb = $DB->get_records_sql($sql1, array($r->question))) {
-                        if (!isset ($datasetdefs["$r->type-$r->category-$r->name"]->questions[$r->question])) {
-                            $datasetdefs["$r->type-$r->category-$r->name"]->questions[$r->question] = new stdClass();
+                        if (!isset ($datasetdefs["{$r->type}-{$r->category}-{$r->name}"]->questions[$r->question])) {
+                            $datasetdefs["{$r->type}-{$r->category}-{$r->name}"]->questions[$r->question] = new stdClass();
                         }
-                        $datasetdefs["$r->type-$r->category-$r->name"]->questions[
+                        $datasetdefs["{$r->type}-{$r->category}-{$r->name}"]->questions[
                                 $r->question]->name = $questionb[$r->question]->name;
                     }
                 }
@@ -1595,30 +1637,25 @@ class qtype_calculated extends question_type {
 
             $text = "<table width=\"100%\" border=\"1\"><tr>
                     <th style=\"white-space:nowrap;\" class=\"header\"
-                            scope=\"col\">$namestr</th>
+                            scope=\"col\">{$namestr}</th>
                     <th style=\"white-space:nowrap;\" class=\"header\"
-                            scope=\"col\">$rangeofvaluestr</th>
+                            scope=\"col\">{$rangeofvaluestr}</th>
                     <th style=\"white-space:nowrap;\" class=\"header\"
-                            scope=\"col\">$itemscountstr</th>
+                            scope=\"col\">{$itemscountstr}</th>
                     <th style=\"white-space:nowrap;\" class=\"header\"
-                            scope=\"col\">$questionusingstr</th>
+                            scope=\"col\">{$questionusingstr}</th>
                     </tr>";
             foreach ($datasetdefs as $datasetdef) {
                 list($distribution, $min, $max, $dec) = explode(':', $datasetdef->options, 4);
                 $text .= "<tr>
-                        <td valign=\"top\" align=\"center\">$datasetdef->name</td>
-                        <td align=\"center\" valign=\"top\">$min <strong>-</strong> $max</td>
-                        <td align=\"right\" valign=\"top\">$datasetdef->itemcount&nbsp;&nbsp;</td>
+                        <td valign=\"top\" align=\"center\">{$datasetdef->name}</td>
+                        <td align=\"center\" valign=\"top\">{$min} <strong>-</strong> $max</td>
+                        <td align=\"right\" valign=\"top\">{$datasetdef->itemcount}&nbsp;&nbsp;</td>
                         <td align=\"left\">";
                 foreach ($datasetdef->questions as $qu) {
                     // Limit the name length displayed.
-                    if (!empty($qu->name)) {
-                        $qu->name = (strlen($qu->name) > $lnamemax) ?
-                            substr($qu->name, 0, $lnamemax).'...' : $qu->name;
-                    } else {
-                        $qu->name = '';
-                    }
-                    $text .= " &nbsp;&nbsp; $qu->name <br/>";
+                    $questionname = $this->get_short_question_name($qu->name, $lnamemax);
+                    $text .= " &nbsp;&nbsp; {$questionname} <br/>";
                 }
                 $text .= "</td></tr>";
             }
@@ -1627,6 +1664,26 @@ class qtype_calculated extends question_type {
             $text .= get_string('nosharedwildcard', 'qtype_calculated');
         }
         return $text;
+    }
+
+    /**
+     * This function shortens a question name if it exceeds the character limit.
+     *
+     * @param string $stringtoshorten the string to be shortened.
+     * @param int $characterlimit the character limit.
+     * @return string
+     */
+    public function get_short_question_name($stringtoshorten, $characterlimit)
+    {
+        if (!empty($stringtoshorten)) {
+            $returnstring = format_string($stringtoshorten);
+            if (strlen($returnstring) > $characterlimit) {
+                $returnstring = shorten_text($returnstring, $characterlimit, true);
+            }
+            return $returnstring;
+        } else {
+            return '';
+        }
     }
 
     /**
@@ -1653,7 +1710,7 @@ class qtype_calculated extends question_type {
                      WHERE i.id = d.datasetdefinition AND i.category = ?";
             if ($records = $DB->get_records_sql($sql, array($category))) {
                 foreach ($records as $r) {
-                    $key = "$r->type-$r->category-$r->name";
+                    $key = "{$r->type}-{$r->category}-{$r->name}";
                     $sql1 = "SELECT q.*
                                FROM {question} q
                               WHERE q.id = ?";
@@ -1674,11 +1731,11 @@ class qtype_calculated extends question_type {
 
             $text  = "<table width=\"100%\" border=\"1\"><tr>
                     <th style=\"white-space:nowrap;\" class=\"header\"
-                            scope=\"col\">$namestr</th>";
+                            scope=\"col\">{$namestr}</th>";
             $text .= "<th style=\"white-space:nowrap;\" class=\"header\"
-                    scope=\"col\">$itemscountstr</th>";
+                    scope=\"col\">{$itemscountstr}</th>";
             $text .= "<th style=\"white-space:nowrap;\" class=\"header\"
-                    scope=\"col\">&nbsp;&nbsp;$questionusingstr &nbsp;&nbsp;</th>";
+                    scope=\"col\">&nbsp;&nbsp;{$questionusingstr} &nbsp;&nbsp;</th>";
             $text .= "<th style=\"white-space:nowrap;\" class=\"header\"
                     scope=\"col\">Quiz</th>";
             $text .= "<th style=\"white-space:nowrap;\" class=\"header\"
@@ -1688,45 +1745,31 @@ class qtype_calculated extends question_type {
                 $count = count($datasetdef->questions);
                 $text .= "<tr>
                         <td style=\"white-space:nowrap;\" valign=\"top\"
-                                align=\"center\" rowspan=\"$count\"> $datasetdef->name </td>
+                                align=\"center\" rowspan=\"{$count}\"> {$datasetdef->name} </td>
                         <td align=\"right\" valign=\"top\"
-                                rowspan=\"$count\">$datasetdef->itemcount</td>";
+                                rowspan=\"{$count}\">{$datasetdef->itemcount}</td>";
                 $line = 0;
                 foreach ($datasetdef->questions as $qu) {
                     // Limit the name length displayed.
-                    if (!empty($qu->name)) {
-                        $qu->name = (strlen($qu->name) > $lnamemax) ?
-                            substr($qu->name, 0, $lnamemax).'...' : $qu->name;
-                    } else {
-                        $qu->name = '';
-                    }
+                    $questionname = $this->get_short_question_name($qu->name, $lnamemax);
                     if ($line) {
                         $text .= "<tr>";
                     }
                     $line++;
-                    $text .= "<td align=\"left\" style=\"white-space:nowrap;\">$qu->name</td>";
-                    $nbofquiz = 0;
-                    $nbofattempts= 0;
-                    $usedinquiz = false;
-                    if ($list = $DB->get_records('quiz_question_instances',
-                            array('question' => $qu->id))) {
-                        $usedinquiz = true;
-                        foreach ($list as $key => $li) {
-                            $nbofquiz ++;
-                            if ($att = $DB->get_records('quiz_attempts',
-                                    array('quiz' => $li->quiz, 'preview' => '0'))) {
-                                $nbofattempts+= count($att);
-                            }
-                        }
-                    }
-                    if ($usedinquiz) {
-                        $text .= "<td align=\"center\">$nbofquiz</td>";
+                    $text .= "<td align=\"left\" style=\"white-space:nowrap;\">{$questionname}</td>";
+                    // TODO MDL-43779 should not have quiz-specific code here.
+                    $nbofquiz = $DB->count_records('quiz_slots', array('questionid' => $qu->id));
+                    $nbofattempts = $DB->count_records_sql("
+                            SELECT count(1)
+                              FROM {quiz_slots} slot
+                              JOIN {quiz_attempts} quiza ON quiza.quiz = slot.quizid
+                             WHERE slot.questionid = ?
+                               AND quiza.preview = 0", array($qu->id));
+                    if ($nbofquiz > 0) {
+                        $text .= "<td align=\"center\">{$nbofquiz}</td>";
+                        $text .= "<td align=\"center\">{$nbofattempts}";
                     } else {
                         $text .= "<td align=\"center\">0</td>";
-                    }
-                    if ($usedinquiz) {
-                        $text .= "<td align=\"center\">$nbofattempts";
-                    } else {
                         $text .= "<td align=\"left\"><br/>";
                     }
 
@@ -1738,17 +1781,6 @@ class qtype_calculated extends question_type {
             $text .= get_string('nosharedwildcard', 'qtype_calculated');
         }
         return $text;
-    }
-
-    public function find_math_equations($text) {
-        // Returns the possible dataset names found in the text as an array.
-        // The array has the dataset name for both key and value.
-        $equations = array();
-        while (preg_match('~\{=([^[:space:]}]*)}~', $text, $regs)) {
-            $equations[] = $regs[1];
-            $text = str_replace($regs[0], '', $text);
-        }
-        return $equations;
     }
 
     public function get_virtual_qtype() {
@@ -1875,8 +1907,8 @@ function qtype_calculated_calculate_answer($formula, $individualdata,
             }
         } else {
             // Stick to plain numeric format.
-            $answer *= "1e$p10";
-            if (0.1 <= $answer / "1e$answerlength") {
+            $answer *= "1e{$p10}";
+            if (0.1 <= $answer / "1e{$answerlength}") {
                 $calculated->answer = $sign.$answer;
             } else {
                 // Could be an idea to add some zeros here.
@@ -1899,24 +1931,33 @@ function qtype_calculated_calculate_answer($formula, $individualdata,
 }
 
 
+/**
+ * Validate a forumula.
+ * @param string $formula the formula to validate.
+ * @return string|boolean false if there are no problems. Otherwise a string error message.
+ */
 function qtype_calculated_find_formula_errors($formula) {
+    foreach (['//', '/*', '#', '<?', '?>'] as $commentstart) {
+        if (strpos($formula, $commentstart) !== false) {
+            return get_string('illegalformulasyntax', 'qtype_calculated', $commentstart);
+        }
+    }
+
     // Validates the formula submitted from the question edit page.
     // Returns false if everything is alright
     // otherwise it constructs an error message.
-    // Strip away dataset names.
-    while (preg_match('~\\{[[:alpha:]][^>} <{"\']*\\}~', $formula, $regs)) {
-        $formula = str_replace($regs[0], '1', $formula);
-    }
+    // Strip away dataset names. Use 1.0 to catch illegal concatenation like {a}{b}.
+    $formula = preg_replace(qtype_calculated::PLACEHODLER_REGEX, '1.0', $formula);
 
     // Strip away empty space and lowercase it.
     $formula = strtolower(str_replace(' ', '', $formula));
 
     $safeoperatorchar = '-+/*%>:^\~<?=&|!'; /* */
-    $operatorornumber = "[$safeoperatorchar.0-9eE]";
+    $operatorornumber = "[{$safeoperatorchar}.0-9eE]";
 
-    while (preg_match("~(^|[$safeoperatorchar,(])([a-z0-9_]*)" .
-            "\\(($operatorornumber+(,$operatorornumber+((,$operatorornumber+)+)?)?)?\\)~",
-        $formula, $regs)) {
+    while (preg_match("~(^|[{$safeoperatorchar},(])([a-z0-9_]*)" .
+            "\\(({$operatorornumber}+(,{$operatorornumber}+((,{$operatorornumber}+)+)?)?)?\\)~",
+            $formula, $regs)) {
         switch ($regs[2]) {
             // Simple parenthesis.
             case '':
@@ -1927,7 +1968,7 @@ function qtype_calculated_find_formula_errors($formula) {
 
                 // Zero argument functions.
             case 'pi':
-                if ($regs[3]) {
+                if (array_key_exists(3, $regs)) {
                     return get_string('functiontakesnoargs', 'qtype_calculated', $regs[2]);
                 }
                 break;
@@ -1970,21 +2011,44 @@ function qtype_calculated_find_formula_errors($formula) {
                 return get_string('unsupportedformulafunction', 'qtype_calculated', $regs[2]);
         }
 
-        // Exchange the function call with '1' and then check for
+        // Exchange the function call with '1.0' and then check for
         // another function call...
         if ($regs[1]) {
             // The function call is proceeded by an operator.
-            $formula = str_replace($regs[0], $regs[1] . '1', $formula);
+            $formula = str_replace($regs[0], $regs[1] . '1.0', $formula);
         } else {
             // The function call starts the formula.
-            $formula = preg_replace("~^$regs[2]\\([^)]*\\)~", '1', $formula);
+            $formula = preg_replace('~^' . preg_quote($regs[2], '~') . '\([^)]*\)~', '1.0', $formula);
         }
     }
 
-    if (preg_match("~[^$safeoperatorchar.0-9eE]+~", $formula, $regs)) {
+    if (preg_match("~[^{$safeoperatorchar}.0-9eE]+~", $formula, $regs)) {
         return get_string('illegalformulasyntax', 'qtype_calculated', $regs[0]);
     } else {
         // Formula just might be valid.
         return false;
     }
+}
+
+/**
+ * Validate all the forumulas in a bit of text.
+ * @param string $text the text in which to validate the formulas.
+ * @return string|boolean false if there are no problems. Otherwise a string error message.
+ */
+function qtype_calculated_find_formula_errors_in_text($text) {
+    $formulas = question_bank::get_qtype('calculated')->find_formulas($text);
+
+    $errors = array();
+    foreach ($formulas as $match) {
+        $error = qtype_calculated_find_formula_errors($match);
+        if ($error) {
+            $errors[] = $error;
+        }
+    }
+
+    if ($errors) {
+        return implode(' ', $errors);
+    }
+
+    return false;
 }

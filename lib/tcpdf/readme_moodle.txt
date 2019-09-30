@@ -1,10 +1,40 @@
-Description of TCPDF library import 5.9.209
-===========================================
-* delete cache/ doc/ examples/ config/tcpdf_config_alt.php config/lang/ images/
-* remove all fonts but the core ones (courier.php, helveticabi.php,
-    helveticab.php, helveticai.php, helvetica.php, symbol.php, timesbi.php,
-    timesb.php, timesi.php, times.php, zapfdingbats.php) and FreeFont
-* remove font/utils/
+Description of TCPDF library import 6.2.26
+==========================================
+* download library from https://github.com/tecnickcom/TCPDF/releases
+* delete examples/, tools/ and tcpdf_import.php
+* remove tcpdf_import.php from composer.json
+* remove all fonts that were not already present
+* visit http://127.0.0.1/lib/tests/other/pdflibtestpage.php and view the pdf
+
+Important
+---------
+A new version of the libray is being developed @ https://github.com/tecnickcom/tc-lib-pdf . Check periodically when it's ready
+and if it's a drop-in replacement for the legacy tcpdf one.
+
+2019/05/06
+----------
+Upgrade to tcpdf TCPDF 6.2.26 (MDL-64794)
+by Eloy Lafuente <stronk7@moodle.org>
+
+- https://github.com/tecnickcom/TCPDF/pull/74 has been already merged upstream (6.2.16 and up), so we don't need to apply it.
+- https://github.com/tecnickcom/TCPDF/pull/91 has been already merged upstream (6.2.19 and up), so we don't need to apply it.
+
+2017/10/02
+----------
+Upgrade to tcpdf_php5 TCPDF 6.2.13 (MDL-60237)
+by Marina Glancy <marina@moodle.com>
+
+* replaced the calls to function each() deprecated in PHP7.2
+
+2015/09/29
+----------
+Upgrade to tcpdf_php5 TCPDF 6.2.12 (MDL-51534)
+by Jun Pataleta <jun@moodle.com>
+
+2015/03/23
+----------
+Upgrade to tcpdf_php5 TCPDF 6.2.6 (MDL-49522)
+by Adrian Greeve <adrian@moodle.com>
 
 2011/10/29
 ----------

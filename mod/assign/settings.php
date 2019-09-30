@@ -26,22 +26,13 @@ defined('MOODLE_INTERNAL') || die;
 
 require_once($CFG->dirroot . '/mod/assign/adminlib.php');
 
-$ADMIN->add('modules', new admin_category('assignmentplugins',
-                new lang_string('assignmentplugins', 'assign'), $module->is_enabled() === false));
-$ADMIN->add('assignmentplugins', new admin_category('assignsubmissionplugins',
-                new lang_string('submissionplugins', 'assign'), $module->is_enabled() === false));
-$ADMIN->add('assignsubmissionplugins', new assign_admin_page_manage_assign_plugins('assignsubmission'));
-$ADMIN->add('assignmentplugins', new admin_category('assignfeedbackplugins',
-                new lang_string('feedbackplugins', 'assign'), $module->is_enabled() === false));
-$ADMIN->add('assignfeedbackplugins', new assign_admin_page_manage_assign_plugins('assignfeedback'));
+$ADMIN->add('modsettings', new admin_category('modassignfolder', new lang_string('pluginname', 'mod_assign'), $module->is_enabled() === false));
 
-
-assign_plugin_manager::add_admin_assign_plugin_settings('assignsubmission', $ADMIN, $settings, $module);
-assign_plugin_manager::add_admin_assign_plugin_settings('assignfeedback', $ADMIN, $settings, $module);
+$settings = new admin_settingpage($section, get_string('settings', 'mod_assign'), 'moodle/site:config', $module->is_enabled() === false);
 
 if ($ADMIN->fulltree) {
     $menu = array();
-    foreach (get_plugin_list('assignfeedback') as $type => $notused) {
+    foreach (core_component::get_plugin_list('assignfeedback') as $type => $notused) {
         $visible = !get_config('assignfeedback_' . $type, 'disabled');
         if ($visible) {
             $menu['assignfeedback_' . $type] = new lang_string('pluginname', 'assignfeedback_' . $type);
@@ -74,10 +65,47 @@ if ($ADMIN->fulltree) {
     $name = new lang_string('submissionstatement', 'mod_assign');
     $description = new lang_string('submissionstatement_help', 'mod_assign');
     $default = get_string('submissionstatementdefault', 'mod_assign');
-    $settings->add(new admin_setting_configtextarea('assign/submissionstatement',
+    $setting = new admin_setting_configtextarea('assign/submissionstatement',
                                                     $name,
                                                     $description,
-                                                    $default));
+                                                    $default);
+    $setting->set_force_ltr(false);
+    $settings->add($setting);
+
+    $name = new lang_string('submissionstatementteamsubmission', 'mod_assign');
+    $description = new lang_string('submissionstatement_help', 'mod_assign');
+    $default = get_string('submissionstatementteamsubmissiondefault', 'mod_assign');
+    $setting = new admin_setting_configtextarea('assign/submissionstatementteamsubmission',
+        $name,
+        $description,
+        $default);
+    $setting->set_force_ltr(false);
+    $settings->add($setting);
+
+    $name = new lang_string('submissionstatementteamsubmissionallsubmit', 'mod_assign');
+    $description = new lang_string('submissionstatement_help', 'mod_assign');
+    $default = get_string('submissionstatementteamsubmissionallsubmitdefault', 'mod_assign');
+    $setting = new admin_setting_configtextarea('assign/submissionstatementteamsubmissionallsubmit',
+        $name,
+        $description,
+        $default);
+    $setting->set_force_ltr(false);
+    $settings->add($setting);
+
+    $name = new lang_string('maxperpage', 'mod_assign');
+    $options = array(
+        -1 => get_string('unlimitedpages', 'mod_assign'),
+        10 => 10,
+        20 => 20,
+        50 => 50,
+        100 => 100,
+    );
+    $description = new lang_string('maxperpage_help', 'mod_assign');
+    $settings->add(new admin_setting_configselect('assign/maxperpage',
+                                                    $name,
+                                                    $description,
+                                                    -1,
+                                                    $options));
 
     $name = new lang_string('defaultsettings', 'mod_assign');
     $description = new lang_string('defaultsettings_help', 'mod_assign');
@@ -123,6 +151,16 @@ if ($ADMIN->fulltree) {
     $setting->set_advanced_flag_options(admin_setting_flag::ENABLED, false);
     $settings->add($setting);
 
+    $name = new lang_string('gradingduedate', 'mod_assign');
+    $description = new lang_string('gradingduedate_help', 'mod_assign');
+    $setting = new admin_setting_configduration('assign/gradingduedate',
+                                                    $name,
+                                                    $description,
+                                                    1209600);
+    $setting->set_enabled_flag_options(admin_setting_flag::ENABLED, true);
+    $setting->set_advanced_flag_options(admin_setting_flag::ENABLED, false);
+    $settings->add($setting);
+
     $name = new lang_string('submissiondrafts', 'mod_assign');
     $description = new lang_string('submissiondrafts_help', 'mod_assign');
     $setting = new admin_setting_configcheckbox('assign/submissiondrafts',
@@ -143,7 +181,7 @@ if ($ADMIN->fulltree) {
     $setting->set_locked_flag_options(admin_setting_flag::ENABLED, false);
     $settings->add($setting);
 
-    // Constants from locallib.php
+    // Constants from "locallib.php".
     $options = array(
         'none' => get_string('attemptreopenmethod_none', 'mod_assign'),
         'manual' => get_string('attemptreopenmethod_manual', 'mod_assign'),
@@ -160,7 +198,7 @@ if ($ADMIN->fulltree) {
     $setting->set_locked_flag_options(admin_setting_flag::ENABLED, false);
     $settings->add($setting);
 
-    // Constants from locallib.php
+    // Constants from "locallib.php".
     $options = array(-1 => get_string('unlimitedattempts', 'mod_assign'));
     $options += array_combine(range(1, 30), range(1, 30));
     $name = new lang_string('maxattempts', 'mod_assign');
@@ -180,6 +218,16 @@ if ($ADMIN->fulltree) {
                                                     $name,
                                                     $description,
                                                     0);
+    $setting->set_advanced_flag_options(admin_setting_flag::ENABLED, false);
+    $setting->set_locked_flag_options(admin_setting_flag::ENABLED, false);
+    $settings->add($setting);
+
+    $name = new lang_string('preventsubmissionnotingroup', 'mod_assign');
+    $description = new lang_string('preventsubmissionnotingroup_help', 'mod_assign');
+    $setting = new admin_setting_configcheckbox('assign/preventsubmissionnotingroup',
+        $name,
+        $description,
+        0);
     $setting->set_advanced_flag_options(admin_setting_flag::ENABLED, false);
     $setting->set_locked_flag_options(admin_setting_flag::ENABLED, false);
     $settings->add($setting);
@@ -222,9 +270,29 @@ if ($ADMIN->fulltree) {
     $setting->set_locked_flag_options(admin_setting_flag::ENABLED, false);
     $settings->add($setting);
 
+    $name = new lang_string('sendstudentnotificationsdefault', 'mod_assign');
+    $description = new lang_string('sendstudentnotificationsdefault_help', 'mod_assign');
+    $setting = new admin_setting_configcheckbox('assign/sendstudentnotifications',
+                                                    $name,
+                                                    $description,
+                                                    1);
+    $setting->set_advanced_flag_options(admin_setting_flag::ENABLED, false);
+    $setting->set_locked_flag_options(admin_setting_flag::ENABLED, false);
+    $settings->add($setting);
+
     $name = new lang_string('blindmarking', 'mod_assign');
     $description = new lang_string('blindmarking_help', 'mod_assign');
     $setting = new admin_setting_configcheckbox('assign/blindmarking',
+                                                    $name,
+                                                    $description,
+                                                    0);
+    $setting->set_advanced_flag_options(admin_setting_flag::ENABLED, false);
+    $setting->set_locked_flag_options(admin_setting_flag::ENABLED, false);
+    $settings->add($setting);
+
+    $name = new lang_string('hidegrader', 'mod_assign');
+    $description = new lang_string('hidegrader_help', 'mod_assign');
+    $setting = new admin_setting_configcheckbox('assign/hidegrader',
                                                     $name,
                                                     $description,
                                                     0);
@@ -251,4 +319,25 @@ if ($ADMIN->fulltree) {
     $setting->set_advanced_flag_options(admin_setting_flag::ENABLED, false);
     $setting->set_locked_flag_options(admin_setting_flag::ENABLED, false);
     $settings->add($setting);
+}
+
+$ADMIN->add('modassignfolder', $settings);
+// Tell core we already added the settings structure.
+$settings = null;
+
+$ADMIN->add('modassignfolder', new admin_category('assignsubmissionplugins',
+    new lang_string('submissionplugins', 'assign'), !$module->is_enabled()));
+$ADMIN->add('assignsubmissionplugins', new assign_admin_page_manage_assign_plugins('assignsubmission'));
+$ADMIN->add('modassignfolder', new admin_category('assignfeedbackplugins',
+    new lang_string('feedbackplugins', 'assign'), !$module->is_enabled()));
+$ADMIN->add('assignfeedbackplugins', new assign_admin_page_manage_assign_plugins('assignfeedback'));
+
+foreach (core_plugin_manager::instance()->get_plugins_of_type('assignsubmission') as $plugin) {
+    /** @var \mod_assign\plugininfo\assignsubmission $plugin */
+    $plugin->load_settings($ADMIN, 'assignsubmissionplugins', $hassiteconfig);
+}
+
+foreach (core_plugin_manager::instance()->get_plugins_of_type('assignfeedback') as $plugin) {
+    /** @var \mod_assign\plugininfo\assignfeedback $plugin */
+    $plugin->load_settings($ADMIN, 'assignfeedbackplugins', $hassiteconfig);
 }

@@ -17,7 +17,7 @@
 /**
  * Cohorts steps definitions.
  *
- * @package    core
+ * @package    core_cohort
  * @category   test
  * @copyright  2013 David Monllaó
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
@@ -27,12 +27,10 @@
 
 require_once(__DIR__ . '/../../../lib/behat/behat_base.php');
 
-use Behat\Behat\Context\Step\Given as Given;
-
 /**
  * Steps definitions for cohort actions.
  *
- * @package    core
+ * @package    core_cohort
  * @category   test
  * @copyright  2013 David Monllaó
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
@@ -40,41 +38,37 @@ use Behat\Behat\Context\Step\Given as Given;
 class behat_cohort extends behat_base {
 
     /**
-     * Adds the user to the specified cohort.
+     * Adds the user to the specified cohort. The user should be specified like "Firstname Lastname (user@example.com)".
      *
-     * @Given /^I add "(?P<user_username_string>(?:[^"]|\\")*)" user to "(?P<cohort_idnumber_string>(?:[^"]|\\")*)" cohort$/
-     * @param string $username
+     * @Given /^I add "(?P<user_fullname_string>(?:[^"]|\\")*)" user to "(?P<cohort_idnumber_string>(?:[^"]|\\")*)" cohort members$/
+     * @param string $user
      * @param string $cohortidnumber
      */
-    public function i_add_user_to_cohort($username, $cohortidnumber) {
-        global $DB;
-
-        // The user was created by the data generator, executed by the same PHP process that is
-        // running this step, not by any Selenium action.
-        $userid = $DB->get_field('user', 'id', array('username' => $username));
-
-        $steps = array(
-            new Given('I click on "Assign" "link" in the "//table[@id=\'cohorts\']//tr[contains(., \'' . $cohortidnumber . '\')]" "xpath_element"'),
-            new Given('I select "' . $userid . '" from "Potential users"'),
-            new Given('I press "Add"'),
-            new Given('I press "Back to cohorts"')
-        );
+    public function i_add_user_to_cohort_members($user, $cohortidnumber) {
 
         // If we are not in the cohorts management we should move there before anything else.
         if (!$this->getSession()->getPage()->find('css', 'input#cohort_search_q')) {
-            $steps = array_merge(
-                array(
-                    new Given('I am on homepage'),
-                    new Given('I collapse "Front page settings" node'),
-                    new Given('I expand "Site administration" node'),
-                    new Given('I expand "Users" node'),
-                    new Given('I expand "Accounts" node'),
-                    new Given('I follow "Cohorts"')
-                ),
-                $steps
+
+            // With JS enabled we should expand a few tree nodes.
+            $parentnodes = get_string('users', 'admin') . ' > ' .
+                get_string('accounts', 'admin');
+
+            $this->execute("behat_general::i_am_on_homepage");
+            $this->execute("behat_navigation::i_navigate_to_in_site_administration",
+                $parentnodes . ' > ' . get_string('cohorts', 'cohort')
             );
         }
 
-        return $steps;
+        $this->execute('behat_general::i_click_on_in_the',
+            array(get_string('assign', 'cohort'), "link", $this->escape($cohortidnumber), "table_row")
+        );
+
+        $this->execute("behat_forms::i_set_the_field_to",
+            array(get_string('potusers', 'cohort'), $this->escape($user))
+        );
+
+        $this->execute("behat_forms::press_button", get_string('add'));
+        $this->execute("behat_forms::press_button", get_string('backtocohorts', 'cohort'));
+
     }
 }

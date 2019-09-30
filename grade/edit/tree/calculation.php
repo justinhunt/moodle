@@ -39,12 +39,16 @@ if ($section !== 'calculation') {
 $PAGE->set_url($url);
 
 if (!$course = $DB->get_record('course', array('id' => $courseid))) {
-    print_error('nocourseid');
+    print_error('invalidcourseid');
 }
 
 require_login($course);
 $context = context_course::instance($course->id);
 require_capability('moodle/grade:manage', $context);
+
+$PAGE->set_pagelayout('admin');
+navigation_node::override_active_url(new moodle_url('/grade/edit/tree/index.php',
+    array('id'=>$course->id)));
 
 // default return url
 $gpr = new grade_plugin_return();
@@ -109,10 +113,8 @@ $strgrades          = get_string('grades');
 $strgraderreport    = get_string('graderreport', 'grades');
 $strcalculationedit = get_string('editcalculation', 'grades');
 
-grade_build_nav(__FILE__, $strcalculationedit, array('courseid' => $courseid));
-$PAGE->set_title($strgrades . ': ' . $strgraderreport);
-$PAGE->set_heading($course->fullname);
-echo $OUTPUT->header();
+$PAGE->navbar->add($strcalculationedit);
+print_grade_page_head($courseid, 'settings', null, $strcalculationedit, false, false, false);
 
 $mform->display();
 // Now show the gradetree with the idnumbers add/edit form
@@ -137,7 +139,7 @@ echo '
         </div>
     </fieldset>
     <div class="fitem" style="text-align: center;">
-        <input id="id_addidnumbers" type="submit" value="'.get_string('addidnumbers', 'grades').'" name="addidnumbers" />
+        <input id="id_addidnumbers" type="submit" class="btn btn-secondary" value="' . get_string('addidnumbers', 'grades') . '" name="addidnumbers" />
     </div>
 </form>';
 

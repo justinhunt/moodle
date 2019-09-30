@@ -117,9 +117,9 @@ class portfolio_exporter {
      * @param portfolio_caller_base $caller portfolio caller (passed by reference)
      * @param string $callercomponent the name of the callercomponent
      */
-    public function __construct(&$instance, &$caller, $callercomponent) {
-        $this->instance =& $instance;
-        $this->caller =& $caller;
+    public function __construct($instance, portfolio_caller_base $caller, $callercomponent) {
+        $this->instance = $instance;
+        $this->caller = $caller;
         if ($instance) {
             $this->instancefile = 'portfolio/' . $instance->get('plugin') . '/lib.php';
             $this->instance->set('exporter', $this);
@@ -434,9 +434,11 @@ class portfolio_exporter {
      * @return bool whether or not to process the next stage. this is important as the control function is called recursively.
      */
     public function process_stage_queueorwait() {
+        global $DB;
+
         $wait = $this->instance->get_export_config('wait');
         if (empty($wait)) {
-            events_trigger('portfolio_send', $this->id);
+            $DB->set_field('portfolio_tempdata', 'queued', 1, array('id' => $this->id));
             $this->queued = true;
             return $this->process_stage_finished(true);
         }

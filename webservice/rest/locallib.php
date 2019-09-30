@@ -150,7 +150,9 @@ class webservice_rest_server extends webservice_base_server {
         if ($this->restformat == 'json') {
             $errorobject = new stdClass;
             $errorobject->exception = get_class($ex);
-            $errorobject->errorcode = $ex->errorcode;
+            if (isset($ex->errorcode)) {
+                $errorobject->errorcode = $ex->errorcode;
+            }
             $errorobject->message = $ex->getMessage();
             if (debugging() and isset($ex->debuginfo)) {
                 $errorobject->debuginfo = $ex->debuginfo;
@@ -159,8 +161,10 @@ class webservice_rest_server extends webservice_base_server {
         } else {
             $error = '<?xml version="1.0" encoding="UTF-8" ?>'."\n";
             $error .= '<EXCEPTION class="'.get_class($ex).'">'."\n";
-            $error .= '<ERRORCODE>' . htmlspecialchars($ex->errorcode, ENT_COMPAT, 'UTF-8')
-                    . '</ERRORCODE>' . "\n";
+            if (isset($ex->errorcode)) {
+                $error .= '<ERRORCODE>' . htmlspecialchars($ex->errorcode, ENT_COMPAT, 'UTF-8')
+                        . '</ERRORCODE>' . "\n";
+            }
             $error .= '<MESSAGE>'.htmlspecialchars($ex->getMessage(), ENT_COMPAT, 'UTF-8').'</MESSAGE>'."\n";
             if (debugging() and isset($ex->debuginfo)) {
                 $error .= '<DEBUGINFO>'.htmlspecialchars($ex->debuginfo, ENT_COMPAT, 'UTF-8').'</DEBUGINFO>'."\n";
@@ -184,6 +188,9 @@ class webservice_rest_server extends webservice_base_server {
         header('Expires: '. gmdate('D, d M Y H:i:s', 0) .' GMT');
         header('Pragma: no-cache');
         header('Accept-Ranges: none');
+        // Allow cross-origin requests only for Web Services.
+        // This allow to receive requests done by Web Workers or webapps in different domains.
+        header('Access-Control-Allow-Origin: *');
     }
 
     /**
@@ -221,7 +228,8 @@ class webservice_rest_server extends webservice_base_server {
         } else if ($desc instanceof external_single_structure) {
             $single = '<SINGLE>'."\n";
             foreach ($desc->keys as $key=>$subdesc) {
-                $single .= '<KEY name="'.$key.'">'.self::xmlize_result($returns[$key], $subdesc).'</KEY>'."\n";
+                $value = isset($returns[$key]) ? $returns[$key] : null;
+                $single .= '<KEY name="'.$key.'">'.self::xmlize_result($value, $subdesc).'</KEY>'."\n";
             }
             $single .= '</SINGLE>'."\n";
             return $single;

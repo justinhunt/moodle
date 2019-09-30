@@ -27,7 +27,7 @@
 
 defined('MOODLE_INTERNAL') || die();
 
-require_once(dirname(__FILE__) . '/../interactive/behaviour.php');
+require_once(__DIR__ . '/../interactive/behaviour.php');
 
 
 /**
@@ -54,7 +54,7 @@ require_once(dirname(__FILE__) . '/../interactive/behaviour.php');
  *  - For the last part, they were wrong at the last try, so 0/3.
  * So, total mark is 6/12. (Really, a fraction of 0.5.)
  *
- * Of course, the details of the grading are acutally up to the particular
+ * Of course, the details of the grading are actually up to the particular
  * question type. The point is that the final grade can take into account all
  * of the tries the student made.
  *
@@ -62,7 +62,6 @@ require_once(dirname(__FILE__) . '/../interactive/behaviour.php');
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 class qbehaviour_interactivecountback extends qbehaviour_interactive {
-    const IS_ARCHETYPAL = false;
 
     public function is_compatible_question(question_definition $question) {
         return $question instanceof question_automatically_gradable_with_countback;

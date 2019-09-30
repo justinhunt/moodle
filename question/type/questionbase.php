@@ -106,6 +106,9 @@ abstract class question_definition {
     /** @var boolean whethre this question has been deleted/hidden in the question bank. */
     public $hidden = 0;
 
+    /** @var string question idnumber. */
+    public $idnumber;
+
     /** @var integer timestamp when this question was created. */
     public $timecreated;
 
@@ -154,7 +157,7 @@ abstract class question_definition {
      * one asked for. For example, you migth want to return a
      * qbehaviour_interactive_adapted_for_myqtype.
      *
-     * @param question_attempt $qa the attempt we are creating an behaviour for.
+     * @param question_attempt $qa the attempt we are creating a behaviour for.
      * @param string $preferredbehaviour the requested type of behaviour.
      * @return question_behaviour the new behaviour object.
      */
@@ -231,10 +234,22 @@ abstract class question_definition {
      * This method returns the lowest mark the question can return, on the
      * fraction scale. that is, where the maximum possible mark is 1.0.
      *
-     * @return number minimum fraction this question will ever return.
+     * @return float minimum fraction this question will ever return.
      */
     public function get_min_fraction() {
         return 0;
+    }
+
+    /**
+     * Some questions can return a mark greater than the maximum.
+     *
+     * This method returns the lowest highest the question can return, on the
+     * fraction scale. that is, where the nominal maximum mark is 1.0.
+     *
+     * @return float maximum fraction this question will ever return.
+     */
+    public function get_max_fraction() {
+        return 1;
     }
 
     /**
@@ -287,6 +302,49 @@ abstract class question_definition {
      */
     public abstract function get_correct_response();
 
+
+    /**
+     * Takes an array of values representing a student response represented in a way that is understandable by a human and
+     * transforms that to the response as the POST values returned from the HTML form that takes the student response during a
+     * student attempt. Primarily this is used when reading csv values from a file of student responses in order to be able to
+     * simulate the student interaction with a quiz.
+     *
+     * In most cases the array will just be returned as is. Some question types will need to transform the keys of the array,
+     * as the meaning of the keys in the html form is deliberately obfuscated so that someone looking at the html does not get an
+     * advantage. The values that represent the response might also be changed in order to more meaningful to a human.
+     *
+     * See the examples of question types that have overridden this in core and also see the csv files of simulated student
+     * responses used in unit tests in :
+     * - mod/quiz/tests/fixtures/stepsXX.csv
+     * - mod/quiz/report/responses/tests/fixtures/steps00.csv
+     * - mod/quiz/report/statistics/tests/fixtures/stepsXX.csv
+     *
+     * Also see {@link https://github.com/jamiepratt/moodle-quiz_simulate}, a quiz report plug in for uploading and downloading
+     * student responses as csv files.
+     *
+     * @param array $simulatedresponse an array of data representing a student response
+     * @return array a response array as would be returned from the html form (but without prefixes)
+     */
+    public function prepare_simulated_post_data($simulatedresponse) {
+        return $simulatedresponse;
+    }
+
+    /**
+     * Does the opposite of {@link prepare_simulated_post_data}.
+     *
+     * This takes a student response (the POST values returned from the HTML form that takes the student response during a
+     * student attempt) it then represents it in a way that is understandable by a human.
+     *
+     * Primarily this is used when creating a file of csv from real student responses in order later to be able to
+     * simulate the same student interaction with a quiz later.
+     *
+     * @param string[] $realresponse the response array as was returned from the form during a student attempt (without prefixes).
+     * @return string[] an array of data representing a student response.
+     */
+    public function get_student_response_values_for_simulation($realresponse) {
+        return $realresponse;
+    }
+
     /**
      * Apply {@link format_text()} to some content with appropriate settings for
      * this question.
@@ -317,7 +375,7 @@ abstract class question_definition {
      * @return string the equivalent plain text.
      */
     public function html_to_text($text, $format) {
-        return html_to_text(format_text($text, $format, array('noclean' => true)), 0, false);
+        return question_utils::to_plain_text($text, $format);
     }
 
     /** @return the result of applying {@link format_text()} to the question text. */
@@ -333,6 +391,20 @@ abstract class question_definition {
     }
 
     /**
+     * Take some HTML that should probably already be a single line, like a
+     * multiple choice choice, or the corresponding feedback, and make it so that
+     * it is suitable to go in a place where the HTML must be inline, like inside a <p> tag.
+     * @param string $html to HTML to fix up.
+     * @return string the fixed HTML.
+     */
+    public function make_html_inline($html) {
+        $html = preg_replace('~\s*<p>\s*~u', '', $html);
+        $html = preg_replace('~\s*</p>\s*~u', '<br />', $html);
+        $html = preg_replace('~(<br\s*/?>)+$~u', '', $html);
+        return trim($html);
+    }
+
+    /**
      * Checks whether the users is allow to be served a particular file.
      * @param question_attempt $qa the question attempt being displayed.
      * @param question_display_options $options the options that control display of the question.
@@ -344,11 +416,11 @@ abstract class question_definition {
      */
     public function check_file_access($qa, $options, $component, $filearea, $args, $forcedownload) {
         if ($component == 'question' && $filearea == 'questiontext') {
-            // Question text always visible.
-            return true;
+            // Question text always visible, but check it is the right question id.
+            return $args[0] == $this->id;
 
         } else if ($component == 'question' && $filearea == 'generalfeedback') {
-            return $options->generalfeedback;
+            return $options->generalfeedback && $args[0] == $this->id;
 
         } else {
             // Unrecognised component or filearea.
@@ -374,8 +446,7 @@ class question_information_item extends question_definition {
     }
 
     public function make_behaviour(question_attempt $qa, $preferredbehaviour) {
-        question_engine::load_behaviour_class('informationitem');
-        return new qbehaviour_informationitem($qa, $preferredbehaviour);
+        return question_engine::make_behaviour('informationitem', $qa, $preferredbehaviour);
     }
 
     public function get_expected_data() {
@@ -400,6 +471,17 @@ class question_information_item extends question_definition {
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 interface question_manually_gradable {
+    /**
+     * Use by many of the behaviours to determine whether the student
+     * has provided enough of an answer for the question to be graded automatically,
+     * or whether it must be considered aborted.
+     *
+     * @param array $response responses, as returned by
+     *      {@link question_attempt_step::get_qt_data()}.
+     * @return bool whether this response can be graded.
+     */
+    public function is_gradable_response(array $response);
+
     /**
      * Used by many of the behaviours, to work out whether the student's
      * response to the question is complete. That is, whether the question attempt
@@ -426,10 +508,20 @@ interface question_manually_gradable {
 
     /**
      * Produce a plain text summary of a response.
-     * @param $response a response, as might be passed to {@link grade_response()}.
+     * @param array $response a response, as might be passed to {@link grade_response()}.
      * @return string a plain text summary of that response, that could be used in reports.
      */
     public function summarise_response(array $response);
+
+    /**
+     * If possible, construct a response that could have lead to the given
+     * response summary. This is basically the opposite of {@link summarise_response()}
+     * but it is intended only to be used for testing.
+     *
+     * @param string $summary a string, which might have come from summarise_response
+     * @return array a response that could have lead to that.
+     */
+    public function un_summarise_response(string $summary);
 
     /**
      * Categorise the student's response according to the categories defined by
@@ -487,17 +579,6 @@ class question_classified_response {
  */
 interface question_automatically_gradable extends question_manually_gradable {
     /**
-     * Use by many of the behaviours to determine whether the student
-     * has provided enough of an answer for the question to be graded automatically,
-     * or whether it must be considered aborted.
-     *
-     * @param array $response responses, as returned by
-     *      {@link question_attempt_step::get_qt_data()}.
-     * @return bool whether this response can be graded.
-     */
-    public function is_gradable_response(array $response);
-
-    /**
      * In situations where is_gradable_response() returns false, this method
      * should generate a description of what the problem is.
      * @return string the message.
@@ -506,11 +587,11 @@ interface question_automatically_gradable extends question_manually_gradable {
 
     /**
      * Grade a response to the question, returning a fraction between
-     * get_min_fraction() and 1.0, and the corresponding {@link question_state}
+     * get_min_fraction() and get_max_fraction(), and the corresponding {@link question_state}
      * right, partial or wrong.
      * @param array $response responses, as returned by
      *      {@link question_attempt_step::get_qt_data()}.
-     * @return array (number, integer) the fraction, and the state.
+     * @return array (float, integer) the fraction, and the state.
      */
     public function grade_response(array $response);
 
@@ -569,6 +650,15 @@ abstract class question_with_responses extends question_definition
     public function classify_response(array $response) {
         return array();
     }
+
+    public function is_gradable_response(array $response) {
+        return $this->is_complete_response($response);
+    }
+
+    public function un_summarise_response(string $summary) {
+        throw new coding_exception('This question type (' . get_class($this) .
+                ' does not implement the un_summarise_response testing method.');
+    }
 }
 
 
@@ -583,10 +673,6 @@ abstract class question_graded_automatically extends question_with_responses
     /** @var Some question types have the option to show the number of sub-parts correct. */
     public $shownumcorrect = false;
 
-    public function is_gradable_response(array $response) {
-        return $this->is_complete_response($response);
-    }
-
     public function get_right_answer_summary() {
         $correctresponse = $this->get_correct_response();
         if (empty($correctresponse)) {
@@ -600,10 +686,17 @@ abstract class question_graded_automatically extends question_with_responses
      * @param question_attempt $qa the question attempt being displayed.
      * @param question_display_options $options the options that control display of the question.
      * @param string $filearea the name of the file area.
+     * @param array $args the remaining bits of the file path.
      * @return bool whether access to the file should be allowed.
      */
-    protected function check_combined_feedback_file_access($qa, $options, $filearea) {
+    protected function check_combined_feedback_file_access($qa, $options, $filearea, $args = null) {
         $state = $qa->get_state();
+
+        if ($args === null) {
+            debugging('You must pass $args as the fourth argument to check_combined_feedback_file_access.',
+                    DEBUG_DEVELOPER);
+            $args = array($this->id); // Fake it for now, so the rest of this method works.
+        }
 
         if (!$state->is_finished()) {
             $response = $qa->get_last_qt_data();
@@ -613,7 +706,8 @@ abstract class question_graded_automatically extends question_with_responses
             list($notused, $state) = $this->grade_response($response);
         }
 
-        return $options->feedback && $state->get_feedback_class() . 'feedback' == $filearea;
+        return $options->feedback && $state->get_feedback_class() . 'feedback' == $filearea &&
+                $args[0] == $this->id;
     }
 
     /**
@@ -768,7 +862,6 @@ class question_answer {
      * Constructor.
      * @param int $id the answer.
      * @param string $answer the answer.
-     * @param int $answerformat the format of the answer.
      * @param number $fraction the fraction this answer is worth.
      * @param string $feedback the feedback for this answer.
      * @param int $feedbackformat the format of the feedback.

@@ -22,14 +22,21 @@
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
-require_once(dirname(__FILE__) . '/../../config.php');
+require_once(__DIR__ . '/../../config.php');
 require_once($CFG->dirroot.'/mod/assign/adminlib.php');
 
-// Create the class for this controller.
-$pluginmanager = new assign_plugin_manager(required_param('subtype', PARAM_PLUGIN));
+$subtype = required_param('subtype', PARAM_PLUGIN);
+$action = optional_param('action', null, PARAM_PLUGIN);
+$plugin = optional_param('plugin', null, PARAM_PLUGIN);
 
-$PAGE->set_context(get_system_context());
+if (!empty($plugin)) {
+    require_sesskey();
+}
+
+// Create the class for this controller.
+$pluginmanager = new assign_plugin_manager($subtype);
+
+$PAGE->set_context(context_system::instance());
 
 // Execute the controller.
-$pluginmanager->execute(optional_param('action', null, PARAM_PLUGIN),
-                        optional_param('plugin', null, PARAM_PLUGIN));
+$pluginmanager->execute($action, $plugin);

@@ -287,8 +287,10 @@ class iCalendar_component {
                 if($parent_component == null) {
                     $parent_component = $this; // If there's no components on the stack, use the iCalendar object
                 }
-                if ($parent_component->add_component($component) === false) {
-                    $this->parser_error("Failed to add component on line $key");
+                if ($component !== null) {
+                    if ($parent_component->add_component($component) === false) {
+                        $this->parser_error("Failed to add component on line $key");
+                    }
                 }
                 if ($parent_component != $this) { // If we're not using the iCalendar
                         array_push($components, $parent_component); // Put the component back on the stack
@@ -409,7 +411,7 @@ class iCalendar_event extends iCalendar_component {
             // DTEND must be later than DTSTART
             // The standard is not clear on how to hande different value types though
             // TODO: handle this correctly even if the value types are different
-            if($this->properties['DTEND'][0]->value <= $this->properties['DTSTART'][0]->value) {
+            if($this->properties['DTEND'][0]->value < $this->properties['DTSTART'][0]->value) {
                 return false;
             }
 
@@ -684,6 +686,7 @@ class iCalendar_standard extends iCalendar_component {
             'RDATE'   =>  RFC2445_OPTIONAL,
             'RRULE'   =>  RFC2445_OPTIONAL,
             'TZNAME'   =>  RFC2445_OPTIONAL,
+            'TZURL'   =>  RFC2445_OPTIONAL,
             RFC2445_XNAME   =>  RFC2445_OPTIONAL,
         ); 
         parent::__construct();

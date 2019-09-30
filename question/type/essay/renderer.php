@@ -115,16 +115,26 @@ class qtype_essay_renderer extends qtype_renderer {
         $pickeroptions->itemid = $qa->prepare_response_files_draft_itemid(
                 'attachments', $options->context->id);
         $pickeroptions->context = $options->context;
-        $pickeroptions->return_types = FILE_INTERNAL;
+        $pickeroptions->return_types = FILE_INTERNAL | FILE_CONTROLLED_LINK;
 
         $pickeroptions->itemid = $qa->prepare_response_files_draft_itemid(
                 'attachments', $options->context->id);
+        $pickeroptions->accepted_types = $qa->get_question()->filetypeslist;
 
         $fm = new form_filemanager($pickeroptions);
         $filesrenderer = $this->page->get_renderer('core', 'files');
+
+        $text = '';
+        if (!empty($qa->get_question()->filetypeslist)) {
+            $text = html_writer::tag('p', get_string('acceptedfiletypes', 'qtype_essay'));
+            $filetypesutil = new \core_form\filetypes_util();
+            $filetypes = $qa->get_question()->filetypeslist;
+            $filetypedescriptions = $filetypesutil->describe_file_types($filetypes);
+            $text .= $this->render_from_template('core_form/filetypes-descriptions', $filetypedescriptions);
+        }
         return $filesrenderer->render($fm). html_writer::empty_tag(
                 'input', array('type' => 'hidden', 'name' => $qa->get_qt_field_name('attachments'),
-                'value' => $pickeroptions->itemid));
+                'value' => $pickeroptions->itemid)) . $text;
     }
 
     public function manual_comment(question_attempt $qa, question_display_options $options) {
@@ -178,6 +188,28 @@ abstract class qtype_essay_format_renderer_base extends plugin_renderer_base {
     protected abstract function class_name();
 }
 
+/**
+ * An essay format renderer for essays where the student should not enter
+ * any inline response.
+ *
+ * @copyright  2013 Binghamton University
+ * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
+ */
+class qtype_essay_format_noinline_renderer extends plugin_renderer_base {
+
+    protected function class_name() {
+        return 'qtype_essay_noinline';
+    }
+
+    public function response_area_read_only($name, $qa, $step, $lines, $context) {
+        return '';
+    }
+
+    public function response_area_input($name, $qa, $step, $lines, $context) {
+        return '';
+    }
+
+}
 
 /**
  * An essay format renderer for essays where the student should use the HTML
@@ -211,9 +243,10 @@ class qtype_essay_format_editor_renderer extends plugin_renderer_base {
             $formats[$fid] = $strformats[$fid];
         }
 
-        list($draftitemid, $reponse) = $this->prepare_response_for_editing(
+        list($draftitemid, $response) = $this->prepare_response_for_editing(
                 $name, $step, $context);
 
+        $editor->set_text($response);
         $editor->use_editor($id, $this->get_editor_options($context),
                 $this->get_filepicker_options($context, $draftitemid));
 
@@ -221,7 +254,7 @@ class qtype_essay_format_editor_renderer extends plugin_renderer_base {
         $output .= html_writer::start_tag('div', array('class' =>
                 $this->class_name() . ' qtype_essay_response'));
 
-        $output .= html_writer::tag('div', html_writer::tag('textarea', s($reponse),
+        $output .= html_writer::tag('div', html_writer::tag('textarea', s($response),
                 array('id' => $id, 'name' => $inputname, 'rows' => $lines, 'cols' => 60)));
 
         $output .= html_writer::start_tag('div');
@@ -280,7 +313,8 @@ class qtype_essay_format_editor_renderer extends plugin_renderer_base {
      * @return array options for the editor.
      */
     protected function get_editor_options($context) {
-        return array('context' => $context);
+        // Disable the text-editor autosave because quiz has it's own auto save function.
+        return array('context' => $context, 'autosave' => false);
     }
 
     /**
@@ -334,26 +368,28 @@ class qtype_essay_format_editorfilepicker_renderer extends qtype_essay_format_ed
                 $name, $context->id, $step->get_qt_var($name));
     }
 
+    /**
+     * Get editor options for question response text area.
+     * @param object $context the context the attempt belongs to.
+     * @return array options for the editor.
+     */
     protected function get_editor_options($context) {
-        return array(
-            'subdirs' => 0,
-            'maxbytes' => 0,
-            'maxfiles' => -1,
-            'context' => $context,
-            'noclean' => 0,
-            'trusttext'=>0
-        );
+        return question_utils::get_editor_options($context);
     }
 
     /**
      * Get the options required to configure the filepicker for one of the editor
      * toolbar buttons.
+     * @deprecated since 3.5
      * @param mixed $acceptedtypes array of types of '*'.
      * @param int $draftitemid the draft area item id.
      * @param object $context the context.
      * @return object the required options.
      */
     protected function specific_filepicker_options($acceptedtypes, $draftitemid, $context) {
+        debugging('qtype_essay_format_editorfilepicker_renderer::specific_filepicker_options() is deprecated, ' .
+            'use question_utils::specific_filepicker_options() instead.', DEBUG_DEVELOPER);
+
         $filepickeroptions = new stdClass();
         $filepickeroptions->accepted_types = $acceptedtypes;
         $filepickeroptions->return_types = FILE_INTERNAL | FILE_EXTERNAL;
@@ -369,17 +405,13 @@ class qtype_essay_format_editorfilepicker_renderer extends qtype_essay_format_ed
         return $options;
     }
 
+    /**
+     * @param object $context the context the attempt belongs to.
+     * @param int $draftitemid draft item id.
+     * @return array filepicker options for the editor.
+     */
     protected function get_filepicker_options($context, $draftitemid) {
-        global $CFG;
-
-        return array(
-            'image' => $this->specific_filepicker_options(array('image'),
-                            $draftitemid, $context),
-            'media' => $this->specific_filepicker_options(array('video', 'audio'),
-                            $draftitemid, $context),
-            'link'  => $this->specific_filepicker_options('*',
-                            $draftitemid, $context),
-        );
+        return question_utils::get_filepicker_options($context, $draftitemid);
     }
 
     protected function filepicker_html($inputname, $draftitemid) {

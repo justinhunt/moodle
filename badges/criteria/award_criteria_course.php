@@ -38,8 +38,26 @@ class award_criteria_course extends award_criteria {
     /* @var int Criteria [BADGE_CRITERIA_TYPE_COURSE] */
     public $criteriatype = BADGE_CRITERIA_TYPE_COURSE;
 
+    private $courseid;
+    private $course;
+
     public $required_param = 'course';
     public $optional_params = array('grade', 'bydate');
+
+    public function __construct($record) {
+        global $DB;
+        parent::__construct($record);
+
+        $this->course = $DB->get_record_sql('SELECT c.id, c.enablecompletion, c.cacherev, c.startdate
+                        FROM {badge} b LEFT JOIN {course} c ON b.courseid = c.id
+                        WHERE b.id = :badgeid ', array('badgeid' => $this->badgeid), MUST_EXIST);
+
+        // If the course doesn't exist but we're sure the badge does (thanks to the LEFT JOIN), then use the site as the course.
+        if (empty($this->course->id)) {
+            $this->course = get_course(SITEID);
+        }
+        $this->courseid = $this->course->id;
+    }
 
     /**
      * Add appropriate form elements to the criteria form
@@ -61,6 +79,15 @@ class award_criteria_course extends award_criteria {
         }
         echo $OUTPUT->heading($this->get_title() . $OUTPUT->help_icon('criteria_' . $this->criteriatype, 'badges'), 3, 'main help');
 
+        if (!empty($this->description)) {
+            echo $OUTPUT->box(
+                format_text($this->description, $this->descriptionformat,
+                        array('context' => context_course::instance($this->courseid))
+                ),
+                'criteria-description'
+            );
+        }
+
         if (!empty($this->params)) {
             echo $OUTPUT->box(get_string('criteria_descr_' . $this->criteriatype, 'badges') . $this->get_details(), array('clearfix'));
         }
@@ -73,7 +100,7 @@ class award_criteria_course extends award_criteria {
      * @return string
      */
     public function get_details($short = '') {
-        global $DB;
+        global $DB, $OUTPUT;
         $param = reset($this->params);
 
         $course = $DB->get_record('course', array('id' => $param['course']));
@@ -151,18 +178,21 @@ class award_criteria_course extends award_criteria {
      * Review this criteria and decide if it has been completed
      *
      * @param int $userid User whose criteria completion needs to be reviewed.
+     * @param bool $filtered An additional parameter indicating that user list
+     *        has been reduced and some expensive checks can be skipped.
+     *
      * @return bool Whether criteria is complete
      */
-    public function review($userid) {
-        global $DB;
+    public function review($userid, $filtered = false) {
+        $course = $this->course;
+
+        if ($this->course->startdate > time()) {
+            return false;
+        }
+
+        $info = new completion_info($course);
+
         foreach ($this->params as $param) {
-            $course = $DB->get_record('course', array('id' => $param['course']));
-
-            if ($course->startdate > time()) {
-                return false;
-            }
-
-            $info = new completion_info($course);
             $check_grade = true;
             $check_date = true;
 
@@ -171,7 +201,7 @@ class award_criteria_course extends award_criteria {
                 $check_grade = ($grade->grade >= $param['grade']);
             }
 
-            if (isset($param['bydate'])) {
+            if (!$filtered && isset($param['bydate'])) {
                 $cparams = array(
                         'userid' => $userid,
                         'course' => $course->id,
@@ -187,5 +217,28 @@ class award_criteria_course extends award_criteria {
         }
 
         return false;
+    }
+
+    /**
+     * Returns array with sql code and parameters returning all ids
+     * of users who meet this particular criterion.
+     *
+     * @return array list($join, $where, $params)
+     */
+    public function get_completed_criteria_sql() {
+        // We have only one criterion here, so taking the first one.
+        $coursecriteria = reset($this->params);
+
+        $join = " LEFT JOIN {course_completions} cc ON cc.userid = u.id AND cc.timecompleted > 0";
+        $where = ' AND cc.course = :courseid ';
+        $params['courseid'] = $this->courseid;
+
+        // Add by date parameter.
+        if (isset($param['bydate'])) {
+            $where .= ' AND cc.timecompleted <= :completebydate';
+            $params['completebydate'] = $coursecriteria['bydate'];
+        }
+
+        return array($join, $where, $params);
     }
 }

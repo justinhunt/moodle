@@ -126,6 +126,7 @@ function stats_run_query($sql, $parameters = array()) {
  */
 function stats_cron_daily($maxdays=1) {
     global $CFG, $DB;
+    require_once($CFG->libdir.'/adminlib.php');
 
     $now = time();
 
@@ -137,29 +138,12 @@ function stats_cron_daily($maxdays=1) {
         set_config('statslastdaily', $timestart);
     }
 
-    // calculate scheduled time
-    $scheduledtime = stats_get_base_daily() + $CFG->statsruntimestarthour*60*60 + $CFG->statsruntimestartminute*60;
-
-    // Note: This will work fine for sites running cron each 4 hours or less (hopefully, 99.99% of sites). MDL-16709
-    // check to make sure we're due to run, at least 20 hours after last run
-    if (isset($CFG->statslastexecution) && ((time() - 20*60*60) < $CFG->statslastexecution)) {
-        mtrace("...preventing stats to run, last execution was less than 20 hours ago.");
-        return false;
-    // also check that we are a max of 4 hours after scheduled time, stats won't run after that
-    } else if (time() > $scheduledtime + 4*60*60) {
-        mtrace("...preventing stats to run, more than 4 hours since scheduled time.");
-        return false;
-    } else {
-        set_config('statslastexecution', time()); /// Grab this execution as last one
-    }
-
     $nextmidnight = stats_get_next_day_start($timestart);
 
     // are there any days that need to be processed?
     if ($now < $nextmidnight) {
         return true; // everything ok and up-to-date
     }
-
 
     $timeout = empty($CFG->statsmaxruntime) ? 60*60*24 : $CFG->statsmaxruntime;
 
@@ -208,7 +192,7 @@ function stats_cron_daily($maxdays=1) {
         }
 
         $days++;
-        @set_time_limit($timeout - 200);
+        core_php_time_limit::raise($timeout - 200);
 
         if ($days > 1) {
             // move the lock
@@ -259,6 +243,7 @@ function stats_cron_daily($maxdays=1) {
             $failed = true;
             break;
         }
+        $DB->update_temp_table_stats();
 
         stats_progress('1');
 
@@ -385,6 +370,10 @@ function stats_cron_daily($maxdays=1) {
             $failed = true;
             break;
         }
+        // The steps up until this point, all add to {temp_stats_daily} and don't use new tables.
+        // There is no point updating statistics as they won't be used until the DELETE below.
+        $DB->update_temp_table_stats();
+
         stats_progress('7');
 
         // Default frontpage role enrolments are all site users (not deleted)
@@ -581,6 +570,7 @@ function stats_cron_daily($maxdays=1) {
             $failed = true;
             break;
         }
+        $DB->update_temp_table_stats();
         stats_progress('15');
 
         // How many view actions for guests or not-logged-in on frontpage
@@ -646,6 +636,7 @@ function stats_cron_daily($maxdays=1) {
  */
 function stats_cron_weekly() {
     global $CFG, $DB;
+    require_once($CFG->libdir.'/adminlib.php');
 
     $now = time();
 
@@ -677,7 +668,7 @@ function stats_cron_weekly() {
 
     $weeks = 0;
     while ($now > $nextstartweek) {
-        @set_time_limit($timeout - 200);
+        core_php_time_limit::raise($timeout - 200);
         $weeks++;
 
         if ($weeks > 1) {
@@ -685,7 +676,6 @@ function stats_cron_weekly() {
             set_cron_lock('statsrunning', time() + $timeout, true);
         }
 
-        $logtimesql  = "l.time >= $timestart AND l.time < $nextstartweek";
         $stattimesql = "timeend > $timestart AND timeend <= $nextstartweek";
 
         $weekstart = time();
@@ -694,14 +684,14 @@ function stats_cron_weekly() {
     /// process login info first
         $sql = "INSERT INTO {stats_user_weekly} (stattype, timeend, courseid, userid, statsreads)
 
-                SELECT 'logins', timeend, courseid, userid, COUNT(statsreads)
+                SELECT 'logins', timeend, courseid, userid, SUM(statsreads)
                   FROM (
-                           SELECT $nextstartweek AS timeend, ".SITEID." as courseid, l.userid, l.id AS statsreads
-                             FROM {log} l
-                            WHERE action = 'login' AND $logtimesql
+                           SELECT $nextstartweek AS timeend, courseid, userid, statsreads
+                             FROM {stats_user_daily} sd
+                            WHERE stattype = 'logins' AND $stattimesql
                        ) inline_view
               GROUP BY timeend, courseid, userid
-                HAVING COUNT(statsreads) > 0";
+                HAVING SUM(statsreads) > 0";
 
         $DB->execute($sql);
 
@@ -786,6 +776,7 @@ function stats_cron_weekly() {
  */
 function stats_cron_monthly() {
     global $CFG, $DB;
+    require_once($CFG->libdir.'/adminlib.php');
 
     $now = time();
 
@@ -820,7 +811,7 @@ function stats_cron_monthly() {
 
     $months = 0;
     while ($now > $nextstartmonth) {
-        @set_time_limit($timeout - 200);
+        core_php_time_limit::raise($timeout - 200);
         $months++;
 
         if ($months > 1) {
@@ -828,7 +819,6 @@ function stats_cron_monthly() {
             set_cron_lock('statsrunning', time() + $timeout, true);
         }
 
-        $logtimesql  = "l.time >= $timestart AND l.time < $nextstartmonth";
         $stattimesql = "timeend > $timestart AND timeend <= $nextstartmonth";
 
         $monthstart = time();
@@ -837,13 +827,14 @@ function stats_cron_monthly() {
     /// process login info first
         $sql = "INSERT INTO {stats_user_monthly} (stattype, timeend, courseid, userid, statsreads)
 
-                SELECT 'logins', timeend, courseid, userid, COUNT(statsreads)
+                SELECT 'logins', timeend, courseid, userid, SUM(statsreads)
                   FROM (
-                           SELECT $nextstartmonth AS timeend, ".SITEID." as courseid, l.userid, l.id AS statsreads
-                             FROM {log} l
-                            WHERE action = 'login' AND $logtimesql
+                           SELECT $nextstartmonth AS timeend, courseid, userid, statsreads
+                             FROM {stats_user_daily} sd
+                            WHERE stattype = 'logins' AND $stattimesql
                        ) inline_view
-              GROUP BY timeend, courseid, userid";
+              GROUP BY timeend, courseid, userid
+                HAVING SUM(statsreads) > 0";
 
         $DB->execute($sql);
 
@@ -937,9 +928,31 @@ function stats_get_start_from($str) {
     // decide what to do based on our config setting (either all or none or a timestamp)
     switch ($CFG->statsfirstrun) {
         case 'all':
-            if ($firstlog = $DB->get_field_sql('SELECT MIN(time) FROM {log}')) {
+            $manager = get_log_manager();
+            $stores = $manager->get_readers();
+            $firstlog = false;
+            foreach ($stores as $store) {
+                if ($store instanceof \core\log\sql_internal_table_reader) {
+                    $logtable = $store->get_internal_log_table_name();
+                    if (!$logtable) {
+                        continue;
+                    }
+                    $first = $DB->get_field_sql("SELECT MIN(timecreated) FROM {{$logtable}}");
+                    if ($first and (!$firstlog or $firstlog > $first)) {
+                        $firstlog = $first;
+                    }
+                }
+            }
+
+            $first = $DB->get_field_sql('SELECT MIN(time) FROM {log}');
+            if ($first and (!$firstlog or $firstlog > $first)) {
+                $firstlog = $first;
+            }
+
+            if ($firstlog) {
                 return $firstlog;
             }
+
         default:
             if (is_numeric($CFG->statsfirstrun)) {
                 return time() - $CFG->statsfirstrun;
@@ -953,74 +966,61 @@ function stats_get_start_from($str) {
 /**
  * Start of day
  * @param int $time timestamp
- * @return start of day
+ * @return int start of day
  */
 function stats_get_base_daily($time=0) {
-    global $CFG;
-
     if (empty($time)) {
         $time = time();
     }
-    if ($CFG->timezone == 99) {
-        $time = strtotime(date('d-M-Y', $time));
-        return $time;
-    } else {
-        $offset = get_timezone_offset($CFG->timezone);
-        $gtime = $time + $offset;
-        $gtime = intval($gtime / (60*60*24)) * 60*60*24;
-        return $gtime - $offset;
-    }
+
+    core_date::set_default_server_timezone();
+    $time = strtotime(date('d-M-Y', $time));
+
+    return $time;
 }
 
 /**
  * Start of week
  * @param int $time timestamp
- * @return start of week
+ * @return int start of week
  */
 function stats_get_base_weekly($time=0) {
     global $CFG;
 
-    $time = stats_get_base_daily($time);
+    $datetime = new DateTime();
+    $datetime->setTimestamp(stats_get_base_daily($time));
     $startday = $CFG->calendar_startwday;
-    if ($CFG->timezone == 99) {
-        $thisday = date('w', $time);
-    } else {
-        $offset = get_timezone_offset($CFG->timezone);
-        $gtime = $time + $offset;
-        $thisday = gmdate('w', $gtime);
-    }
+
+    core_date::set_default_server_timezone();
+    $thisday = date('w', $time);
+
+    $days = 0;
+
     if ($thisday > $startday) {
-        $time = $time - (($thisday - $startday) * 60*60*24);
+        $days = $thisday - $startday;
     } else if ($thisday < $startday) {
-        $time = $time - ((7 + $thisday - $startday) * 60*60*24);
+        $days = 7 + $thisday - $startday;
     }
-    return $time;
+
+    $datetime->sub(new DateInterval("P{$days}D"));
+
+    return $datetime->getTimestamp();
 }
 
 /**
  * Start of month
  * @param int $time timestamp
- * @return start of month
+ * @return int start of month
  */
 function stats_get_base_monthly($time=0) {
-    global $CFG;
-
     if (empty($time)) {
         $time = time();
     }
-    if ($CFG->timezone == 99) {
-        return strtotime(date('1-M-Y', $time));
 
-    } else {
-        $time = stats_get_base_daily($time);
-        $offset = get_timezone_offset($CFG->timezone);
-        $gtime = $time + $offset;
-        $day = gmdate('d', $gtime);
-        if ($day == 1) {
-            return $time;
-        }
-        return $gtime - (($day-1) * 60*60*24);
-    }
+    core_date::set_default_server_timezone();
+    $return = strtotime(date('1-M-Y', $time));
+
+    return $return;
 }
 
 /**
@@ -1030,13 +1030,10 @@ function stats_get_base_monthly($time=0) {
  */
 function stats_get_next_day_start($time) {
     $next = stats_get_base_daily($time);
-    $next = $next + 60*60*26;
-    $next = stats_get_base_daily($next);
-    if ($next <= $time) {
-        //DST trouble - prevent infinite loops
-        $next = $next + 60*60*24;
-    }
-    return $next;
+    $nextdate = new DateTime();
+    $nextdate->setTimestamp($next);
+    $nextdate->add(new DateInterval('P1D'));
+    return $nextdate->getTimestamp();
 }
 
 /**
@@ -1046,13 +1043,10 @@ function stats_get_next_day_start($time) {
  */
 function stats_get_next_week_start($time) {
     $next = stats_get_base_weekly($time);
-    $next = $next + 60*60*24*9;
-    $next = stats_get_base_weekly($next);
-    if ($next <= $time) {
-        //DST trouble - prevent infinite loops
-        $next = $next + 60*60*24*7;
-    }
-    return $next;
+    $nextdate = new DateTime();
+    $nextdate->setTimestamp($next);
+    $nextdate->add(new DateInterval('P1W'));
+    return $nextdate->getTimestamp();
 }
 
 /**
@@ -1062,13 +1056,10 @@ function stats_get_next_week_start($time) {
  */
 function stats_get_next_month_start($time) {
     $next = stats_get_base_monthly($time);
-    $next = $next + 60*60*24*33;
-    $next = stats_get_base_monthly($next);
-    if ($next <= $time) {
-        //DST trouble - prevent infinite loops
-        $next = $next + 60*60*24*31;
-    }
-    return $next;
+    $nextdate = new DateTime();
+    $nextdate->setTimestamp($next);
+    $nextdate->add(new DateInterval('P1M'));
+    return $nextdate->getTimestamp();
 }
 
 /**
@@ -1171,7 +1162,12 @@ function stats_get_parameters($time,$report,$courseid,$mode,$roleid=0) {
     case STATS_REPORT_ACTIVITYBYROLE;
         $param->fields = 'stat1 AS line1, stat2 AS line2';
         $param->stattype = 'activity';
-        $rolename = $DB->get_field('role','name', array('id'=>$roleid));
+        $rolename = '';
+        if ($roleid <> 0) {
+            if ($role = $DB->get_record('role', ['id' => $roleid])) {
+                $rolename = role_get_name($role, context_course::instance($courseid)) . ' ';
+            }
+        }
         $param->line1 = $rolename . get_string('statsreads');
         $param->line2 = $rolename . get_string('statswrites');
         if ($courseid == SITEID) {
@@ -1200,11 +1196,13 @@ function stats_get_parameters($time,$report,$courseid,$mode,$roleid=0) {
         break;
 
     case STATS_REPORT_USER_VIEW:
-        $param->fields = 'statsreads as line1, statswrites as line2, statsreads+statswrites as line3';
+        $param->fields = 'timeend, SUM(statsreads) AS line1, SUM(statswrites) AS line2, SUM(statsreads+statswrites) AS line3';
+        $param->fieldscomplete = true;
         $param->line1 = get_string('statsuserreads');
         $param->line2 = get_string('statsuserwrites');
         $param->line3 = get_string('statsuseractivity');
         $param->stattype = 'activity';
+        $param->extras = "GROUP BY timeend";
         break;
 
     // ******************** STATS_MODE_RANKED ******************** //
@@ -1212,7 +1210,7 @@ function stats_get_parameters($time,$report,$courseid,$mode,$roleid=0) {
         $param->fields = 'sum(stat1+stat2) AS line1';
         $param->stattype = 'activity';
         $param->orderby = 'line1 DESC';
-        $param->line1 = get_string('activity');
+        $param->line1 = get_string('useractivity');
         $param->graphline = 'line1';
         break;
 
@@ -1238,7 +1236,7 @@ function stats_get_parameters($time,$report,$courseid,$mode,$roleid=0) {
                       ) enrolments
                       ON (activity.courseid = enrolments.courseid)
                       ORDER BY line3 DESC';
-        $param->line1 = get_string('activity');
+        $param->line1 = get_string('useractivity');
         $param->line2 = get_string('users');
         $param->line3 = get_string('activityweighted');
         $param->graphline = 'line3';
@@ -1411,10 +1409,13 @@ function stats_get_report_options($courseid,$mode) {
     case STATS_MODE_GENERAL:
         $reportoptions[STATS_REPORT_ACTIVITY] = get_string('statsreport'.STATS_REPORT_ACTIVITY);
         if ($courseid != SITEID && $context = context_course::instance($courseid)) {
-            $sql = 'SELECT r.id, r.name FROM {role} r JOIN {stats_daily} s ON s.roleid = r.id WHERE s.courseid = :courseid GROUP BY r.id, r.name';
+            $sql = 'SELECT r.id, r.name, r.shortname FROM {role} r JOIN {stats_daily} s ON s.roleid = r.id
+                 WHERE s.courseid = :courseid GROUP BY r.id, r.name, r.shortname';
             if ($roles = $DB->get_records_sql($sql, array('courseid' => $courseid))) {
+                $roles = array_intersect_key($roles, get_viewable_roles($context));
                 foreach ($roles as $role) {
-                    $reportoptions[STATS_REPORT_ACTIVITYBYROLE.$role->id] = get_string('statsreport'.STATS_REPORT_ACTIVITYBYROLE). ' '.$role->name;
+                    $reportoptions[STATS_REPORT_ACTIVITYBYROLE.$role->id] = get_string('statsreport'.STATS_REPORT_ACTIVITYBYROLE).
+                        ' ' . role_get_name($role, $context);
                 }
             }
         }
@@ -1693,9 +1694,9 @@ function stats_temp_table_drop() {
  *
  * This function is meant to be called once at the start of stats generation
  *
- * @param timestart timestamp of the start time of logs view
- * @param timeend timestamp of the end time of logs view
- * @returns boolen success (true) or failure(false)
+ * @param int timestart timestamp of the start time of logs view
+ * @param int timeend timestamp of the end time of logs view
+ * @return bool success (true) or failure(false)
  */
 function stats_temp_table_setup() {
     global $DB;
@@ -1716,25 +1717,87 @@ function stats_temp_table_setup() {
  *
  * This function is meant to be called to get a new day of data
  *
- * @param timestart timestamp of the start time of logs view
- * @param timeend timestamp of the end time of logs view
- * @returns boolen success (true) or failure(false)
+ * @param int timestamp of the start time of logs view
+ * @param int timestamp of the end time of logs view
+ * @return bool success (true) or failure(false)
  */
 function stats_temp_table_fill($timestart, $timeend) {
     global $DB;
 
-    $sql = 'INSERT INTO {temp_log1} (userid, course, action)
+    // First decide from where we want the data.
 
-            SELECT userid, course, action FROM {log}
-             WHERE time >= ? AND time < ?';
+    $params = array('timestart' => $timestart,
+                    'timeend' => $timeend,
+                    'participating' => \core\event\base::LEVEL_PARTICIPATING,
+                    'teaching' => \core\event\base::LEVEL_TEACHING,
+                    'loginevent1' => '\core\event\user_loggedin',
+                    'loginevent2' => '\core\event\user_loggedin',
+    );
 
-    $DB->execute($sql, array($timestart, $timeend));
+    $filled = false;
+    $manager = get_log_manager();
+    $stores = $manager->get_readers();
+    foreach ($stores as $store) {
+        if ($store instanceof \core\log\sql_internal_table_reader) {
+            $logtable = $store->get_internal_log_table_name();
+            if (!$logtable) {
+                continue;
+            }
+
+            $sql = "SELECT COUNT('x')
+                      FROM {{$logtable}}
+                     WHERE timecreated >= :timestart AND timecreated < :timeend";
+
+            if (!$DB->get_field_sql($sql, $params)) {
+                continue;
+            }
+
+            // Let's fake the old records using new log data.
+            // We want only data relevant to educational process
+            // done by real users.
+
+            $sql = "INSERT INTO {temp_log1} (userid, course, action)
+
+            SELECT userid,
+                   CASE
+                      WHEN courseid IS NULL THEN ".SITEID."
+                      WHEN courseid = 0 THEN ".SITEID."
+                      ELSE courseid
+                   END,
+                   CASE
+                       WHEN eventname = :loginevent1 THEN 'login'
+                       WHEN crud = 'r' THEN 'view'
+                       ELSE 'update'
+                   END
+              FROM {{$logtable}}
+             WHERE timecreated >= :timestart AND timecreated < :timeend
+                   AND (origin = 'web' OR origin = 'ws')
+                   AND (edulevel = :participating OR edulevel = :teaching OR eventname = :loginevent2)";
+
+            $DB->execute($sql, $params);
+            $filled = true;
+        }
+    }
+
+    if (!$filled) {
+        // Fallback to legacy data.
+        $sql = "INSERT INTO {temp_log1} (userid, course, action)
+
+            SELECT userid, course, action
+              FROM {log}
+             WHERE time >= :timestart AND time < :timeend";
+
+        $DB->execute($sql, $params);
+    }
 
     $sql = 'INSERT INTO {temp_log2} (userid, course, action)
 
             SELECT userid, course, action FROM {temp_log1}';
 
     $DB->execute($sql);
+
+    // We have just loaded all the temp tables, collect statistics for that.
+    $DB->update_temp_table_stats();
 
     return true;
 }
@@ -1743,7 +1806,7 @@ function stats_temp_table_fill($timestart, $timeend) {
 /**
  * Deletes summary logs table for stats calculation
  *
- * @returns boolen success (true) or failure(false)
+ * @return bool success (true) or failure(false)
  */
 function stats_temp_table_clean() {
     global $DB;

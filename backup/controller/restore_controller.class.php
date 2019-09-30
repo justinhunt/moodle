@@ -30,9 +30,9 @@
  *
  * TODO: Finish phpdocs
  */
-class restore_controller extends backup implements loggable {
+class restore_controller extends base_controller {
 
-    protected $tempdir;   // Directory under tempdir/backup awaiting restore
+    protected $tempdir;   // Directory under $CFG->backuptempdir awaiting restore
     protected $restoreid; // Unique identificator for this restore
 
     protected $courseid; // courseid where restore is going to happen
@@ -50,25 +50,38 @@ class restore_controller extends backup implements loggable {
     protected $precheck;    // Results of the execution of restore prechecks
 
     protected $info;   // Information retrieved from backup contents
+    /** @var restore_plan */
     protected $plan;   // Restore execution plan
 
-    protected $execution;     // inmediate/delayed
+    /**
+     * Immediate/delayed execution type.
+     * @var integer
+     */
+    protected $execution;
     protected $executiontime; // epoch time when we want the restore to be executed (requires cron to run)
-
-    protected $logger;      // Logging chain object (moodle, inline, fs, db, syslog)
 
     protected $checksum; // Cache @checksumable results for lighter @is_checksum_correct() uses
 
+    /** @var int Number of restore_controllers that are currently executing */
+    protected static $executing = 0;
+
     /**
+     * Constructor.
      *
-     * @param string $tempdir Directory under tempdir/backup awaiting restore
+     * If you specify a progress monitor, this will be used to report progress
+     * while loading the plan, as well as for future use. (You can change it
+     * for a different one later using set_progress.)
+     *
+     * @param string $tempdir Directory under $CFG->backuptempdir awaiting restore
      * @param int $courseid Course id where restore is going to happen
      * @param bool $interactive backup::INTERACTIVE_YES[true] or backup::INTERACTIVE_NO[false]
      * @param int $mode backup::MODE_[ GENERAL | HUB | IMPORT | SAMESITE ]
      * @param int $userid
      * @param int $target backup::TARGET_[ NEW_COURSE | CURRENT_ADDING | CURRENT_DELETING | EXISTING_ADDING | EXISTING_DELETING ]
+     * @param \core\progress\base $progress Optional progress monitor
      */
-    public function __construct($tempdir, $courseid, $interactive, $mode, $userid, $target){
+    public function __construct($tempdir, $courseid, $interactive, $mode, $userid, $target,
+            \core\progress\base $progress = null) {
         $this->tempdir = $tempdir;
         $this->courseid = $courseid;
         $this->interactive = $interactive;
@@ -79,7 +92,6 @@ class restore_controller extends backup implements loggable {
         // Apply some defaults
         $this->type = '';
         $this->format = backup::FORMAT_UNKNOWN;
-        $this->execution = backup::EXECUTION_INMEDIATE;
         $this->operation = backup::OPERATION_RESTORE;
         $this->executiontime = 0;
         $this->samesite = false;
@@ -101,7 +113,23 @@ class restore_controller extends backup implements loggable {
         // Default logger chain (based on interactive/execution)
         $this->logger = backup_factory::get_logger_chain($this->interactive, $this->execution, $this->restoreid);
 
-        // Instantiate the output_controller singleton and active it if interactive and inmediate
+        // Set execution based on backup mode.
+        if ($mode == backup::MODE_ASYNC) {
+            $this->execution = backup::EXECUTION_DELAYED;
+        } else {
+            $this->execution = backup::EXECUTION_INMEDIATE;
+        }
+
+        // By default there is no progress reporter unless you specify one so it
+        // can be used during loading of the plan.
+        if ($progress) {
+            $this->progress = $progress;
+        } else {
+            $this->progress = new \core\progress\none();
+        }
+        $this->progress->start_progress('Constructing restore_controller');
+
+        // Instantiate the output_controller singleton and active it if interactive and immediate.
         $oc = output_controller::get_instance();
         if ($this->interactive == backup::INTERACTIVE_YES && $this->execution == backup::EXECUTION_INMEDIATE) {
             $oc->set_active(true);
@@ -124,6 +152,9 @@ class restore_controller extends backup implements loggable {
             // Load plan
             $this->load_plan();
 
+            // Apply all default settings (based on type/format/mode).
+            $this->apply_defaults();
+
             // Perform all initial security checks and apply (2nd param) them to settings automatically
             restore_check::check_security($this, true);
 
@@ -133,6 +164,9 @@ class restore_controller extends backup implements loggable {
                 $this->set_status(backup::STATUS_NEED_PRECHECK);
             }
         }
+
+        // Tell progress monitor that we finished loading.
+        $this->progress->end_progress();
     }
 
     /**
@@ -150,6 +184,8 @@ class restore_controller extends backup implements loggable {
     public function destroy() {
         // Only need to destroy circulars under the plan. Delegate to it.
         $this->plan->destroy();
+        // Loggers may have also chained references, destroy them. Also closing resources when needed.
+        $this->logger->destroy();
     }
 
     public function finish_ui() {
@@ -172,24 +208,29 @@ class restore_controller extends backup implements loggable {
         // TODO: Check it's a correct status.
         $this->status = $status;
         // Ensure that, once set to backup::STATUS_AWAITING | STATUS_NEED_PRECHECK, controller is stored in DB.
-        if ($status == backup::STATUS_AWAITING || $status == backup::STATUS_NEED_PRECHECK) {
+        // Also save if executing so we can better track progress.
+        if ($status == backup::STATUS_AWAITING || $status == backup::STATUS_NEED_PRECHECK || $status == backup::STATUS_EXECUTING) {
             $this->save_controller();
             $tbc = self::load_controller($this->restoreid);
             $this->logger = $tbc->logger; // wakeup loggers
-            $tbc->destroy(); // Clean temp controller structures
+            $tbc->plan->destroy(); // Clean plan controller structures, keeping logger alive.
 
         } else if ($status == backup::STATUS_FINISHED_OK) {
             // If the operation has ended without error (backup::STATUS_FINISHED_OK)
             // proceed by cleaning the object from database. MDL-29262.
             $this->save_controller(false, true);
+        } else if ($status == backup::STATUS_FINISHED_ERR) {
+            // If the operation has ended with an error save the controller
+            // preserving the object in the database. We may want it for debugging.
+            $this->save_controller();
         }
     }
 
     public function set_execution($execution, $executiontime = 0) {
         $this->log('setting controller execution', backup::LOG_DEBUG);
-        // TODO: Check valid execution mode
-        // TODO: Check time in future
-        // TODO: Check time = 0 if inmediate
+        // TODO: Check valid execution mode.
+        // TODO: Check time in future.
+        // TODO: Check time = 0 if immediate.
         $this->execution = $execution;
         $this->executiontime = $executiontime;
 
@@ -291,28 +332,66 @@ class restore_controller extends backup implements loggable {
     public function get_plan() {
         return $this->plan;
     }
+    /**
+     * Gets the value for the requested setting
+     *
+     * @param string $name
+     * @param bool $default
+     * @return mixed
+     */
+    public function get_setting_value($name, $default = false) {
+        try {
+            return $this->get_plan()->get_setting($name)->get_value();
+        } catch (Exception $e) {
+            debugging('Failed to find the setting: '.$name, DEBUG_DEVELOPER);
+            return $default;
+        }
+    }
 
     public function get_info() {
         return $this->info;
     }
 
-    public function get_logger() {
-        return $this->logger;
-    }
-
     public function execute_plan() {
         // Basic/initial prevention against time/memory limits
-        set_time_limit(1 * 60 * 60); // 1 hour for 1 course initially granted
+        core_php_time_limit::raise(1 * 60 * 60); // 1 hour for 1 course initially granted
         raise_memory_limit(MEMORY_EXTRA);
-        // If this is not a course restore, inform the plan we are not
+
+        // Do course cleanup precheck, if required. This was originally in restore_ui. Moved to handle async backup/restore.
+        if ($this->get_target() == backup::TARGET_CURRENT_DELETING || $this->get_target() == backup::TARGET_EXISTING_DELETING) {
+            $options = array();
+            $options['keep_roles_and_enrolments'] = $this->get_setting_value('keep_roles_and_enrolments');
+            $options['keep_groups_and_groupings'] = $this->get_setting_value('keep_groups_and_groupings');
+            restore_dbops::delete_course_content($this->get_courseid(), $options);
+        }
+        // If this is not a course restore or single activity restore (e.g. duplicate), inform the plan we are not
         // including all the activities for sure. This will affect any
         // task/step executed conditionally to stop processing information
         // for section and activity restore. MDL-28180.
-        if ($this->get_type() !== backup::TYPE_1COURSE) {
+        if ($this->get_type() !== backup::TYPE_1COURSE && $this->get_type() !== backup::TYPE_1ACTIVITY) {
             $this->log('notifying plan about excluded activities by type', backup::LOG_DEBUG);
             $this->plan->set_excluding_activities();
         }
-        return $this->plan->execute();
+        self::$executing++;
+        try {
+            $this->plan->execute();
+        } catch (Exception $e) {
+            self::$executing--;
+            throw $e;
+        }
+        self::$executing--;
+    }
+
+    /**
+     * Checks whether restore is currently executing. Certain parts of code that
+     * is called during restore, but not directly part of the restore system, may
+     * need to behave differently during restore (e.g. do not bother resetting a
+     * cache because we know it will be reset at end of operation).
+     *
+     * @return bool True if any restore is currently executing
+     */
+    public static function is_executing() {
+        return self::$executing > 0;
     }
 
     /**
@@ -335,6 +414,9 @@ class restore_controller extends backup implements loggable {
         if ($this->status != backup::STATUS_NEED_PRECHECK) {
             throw new restore_controller_exception('cannot_precheck_wrong_status', $this->status);
         }
+        // Basic/initial prevention against time/memory limits
+        core_php_time_limit::raise(1 * 60 * 60); // 1 hour for 1 course initially granted
+        raise_memory_limit(MEMORY_EXTRA);
         $this->precheck = restore_prechecks_helper::execute_prechecks($this, $droptemptablesafter);
         if (!array_key_exists('errors', $this->precheck)) { // No errors, can be executed
             $this->set_status(backup::STATUS_AWAITING);
@@ -362,10 +444,6 @@ class restore_controller extends backup implements loggable {
             throw new restore_controller_exception('precheck_not_executed');
         }
         return $this->precheck;
-    }
-
-    public function log($message, $level, $a = null, $depth = null, $display = false) {
-        backup_helper::log($message, $level, $a, $depth, $display, $this->logger);
     }
 
     /**
@@ -408,8 +486,9 @@ class restore_controller extends backup implements loggable {
         require_once($CFG->dirroot . '/backup/util/helper/convert_helper.class.php');
 
         // Basic/initial prevention against time/memory limits
-        set_time_limit(1 * 60 * 60); // 1 hour for 1 course initially granted
+        core_php_time_limit::raise(1 * 60 * 60); // 1 hour for 1 course initially granted
         raise_memory_limit(MEMORY_EXTRA);
+        $this->progress->start_progress('Backup format conversion');
 
         if ($this->status != backup::STATUS_REQUIRE_CONV) {
             throw new restore_controller_exception('cannot_convert_not_required_status');
@@ -440,6 +519,7 @@ class restore_controller extends backup implements loggable {
         } else {
             $this->set_status(backup::STATUS_NEED_PRECHECK);
         }
+        $this->progress->end_progress();
     }
 
 // Protected API starts here
@@ -470,6 +550,15 @@ class restore_controller extends backup implements loggable {
         $this->plan = new restore_plan($this);
         $this->plan->build(); // Build plan for this controller
         $this->set_status(backup::STATUS_PLANNED);
+    }
+
+    /**
+     * Apply defaults from the global admin settings
+     */
+    protected function apply_defaults() {
+        $this->log('applying restore defaults', backup::LOG_DEBUG);
+        restore_controller_dbops::apply_config_defaults($this);
+        $this->set_status(backup::STATUS_CONFIGURED);
     }
 }
 

@@ -1,5 +1,4 @@
 <?php
-
 // This file is part of Moodle - http://moodle.org/
 //
 // Moodle is free software: you can redistribute it and/or modify
@@ -25,3 +24,4 @@
 
 $string['login:addinstance'] = 'Add a new login block';
 $string['pluginname'] = 'Login';
+$string['privacy:metadata'] = 'The Login block only provides a way to log in and does not store any data itself.';

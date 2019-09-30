@@ -18,14 +18,13 @@
 /**
  * Assess an example submission
  *
- * @package    mod
- * @subpackage workshop
+ * @package    mod_workshop
  * @copyright  2009 David Mudrak <david.mudrak@gmail.com>
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
-require_once(dirname(dirname(dirname(__FILE__))).'/config.php');
-require_once(dirname(__FILE__).'/locallib.php');
+require(__DIR__.'/../../config.php');
+require_once(__DIR__.'/locallib.php');
 
 $asid       = required_param('asid', PARAM_INT);  // assessment id
 $assessment = $DB->get_record('workshop_assessments', array('id' => $asid), '*', MUST_EXIST);
@@ -87,19 +86,6 @@ $mform->set_data($currentdata);
 if ($mform->is_cancelled()) {
     redirect($workshop->view_url());
 } elseif ($assessmenteditable and ($data = $mform->get_data())) {
-    if ($canmanage) {
-        if (is_null($assessment->grade)) {
-            $workshop->log('add reference assessment', $workshop->exassess_url($assessment->id), $assessment->submissionid);
-        } else {
-            $workshop->log('update reference assessment', $workshop->exassess_url($assessment->id), $assessment->submissionid);
-        }
-    } else {
-        if (is_null($assessment->grade)) {
-            $workshop->log('add example assessment', $workshop->exassess_url($assessment->id), $assessment->submissionid);
-        } else {
-            $workshop->log('update example assessment', $workshop->exassess_url($assessment->id), $assessment->submissionid);
-        }
-    }
 
     // Let the grading strategy subplugin save its data.
     $rawgrade = $strategy->save_assessment($assessment, $data);
@@ -126,7 +112,10 @@ if ($mform->is_cancelled()) {
         // Remember the last one who edited the reference assessment.
         $coredata->reviewerid = $USER->id;
     }
-    $DB->update_record('workshop_assessments', $coredata);
+    // Update the assessment data if there is something other than just the 'id'.
+    if (count((array)$coredata) > 1 ) {
+        $DB->update_record('workshop_assessments', $coredata);
+    }
 
     if (!is_null($rawgrade) and isset($data->saveandclose)) {
         if ($canmanage) {
@@ -144,7 +133,8 @@ if ($mform->is_cancelled()) {
 // output starts here
 $output = $PAGE->get_renderer('mod_workshop');      // workshop renderer
 echo $output->header();
-echo $output->heading(get_string('assessedexample', 'workshop'), 2);
+echo $output->heading(format_string($workshop->name));
+echo $output->heading(get_string('assessedexample', 'workshop'), 3);
 
 $example = $workshop->get_example_by_id($example->id);     // reload so can be passed to the renderer
 echo $output->render($workshop->prepare_example_submission(($example)));
@@ -153,7 +143,7 @@ echo $output->render($workshop->prepare_example_submission(($example)));
 // for evaluating the assessment
 if (trim($workshop->instructreviewers)) {
     $instructions = file_rewrite_pluginfile_urls($workshop->instructreviewers, 'pluginfile.php', $PAGE->context->id,
-        'mod_workshop', 'instructreviewers', 0, workshop::instruction_editors_options($PAGE->context));
+        'mod_workshop', 'instructreviewers', null, workshop::instruction_editors_options($PAGE->context));
     print_collapsible_region_start('', 'workshop-viewlet-instructreviewers', get_string('instructreviewers', 'workshop'));
     echo $output->box(format_text($instructions, $workshop->instructreviewersformat, array('overflowdiv'=>true)), array('generalbox', 'instructions'));
     print_collapsible_region_end();

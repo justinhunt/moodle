@@ -4,11 +4,10 @@
 
     require_once('../config.php');
     require_once('lib.php');
-    require_once($CFG->libdir.'/conditionlib.php');
     require_once($CFG->libdir.'/completionlib.php');
 
     $id          = optional_param('id', 0, PARAM_INT);
-    $name        = optional_param('name', '', PARAM_RAW);
+    $name        = optional_param('name', '', PARAM_TEXT);
     $edit        = optional_param('edit', -1, PARAM_BOOL);
     $hide        = optional_param('hide', 0, PARAM_INT);
     $show        = optional_param('show', 0, PARAM_INT);
@@ -18,7 +17,6 @@
     $move        = optional_param('move', 0, PARAM_INT);
     $marker      = optional_param('marker',-1 , PARAM_INT);
     $switchrole  = optional_param('switchrole',-1, PARAM_INT); // Deprecated, use course/switchrole.php instead.
-    $modchooser  = optional_param('modchooser', -1, PARAM_BOOL);
     $return      = optional_param('return', 0, PARAM_LOCALURL);
 
     $params = array();
@@ -49,7 +47,7 @@
     // Prevent caching of this page to stop confusion when changing page after making AJAX changes
     $PAGE->set_cacheable(false);
 
-    preload_course_contexts($course->id);
+    context_helper::preload_course($course->id);
     $context = context_course::instance($course->id, MUST_EXIST);
 
     // Remove any switched roles before checking login
@@ -94,11 +92,10 @@
 
     require_once($CFG->dirroot.'/calendar/lib.php');    /// This is after login because it needs $USER
 
-    $logparam = 'id='. $course->id;
-    $loglabel = 'view';
-    $infoid = $course->id;
+    // Must set layout before gettting section info. See MDL-47555.
+    $PAGE->set_pagelayout('course');
+
     if ($section and $section > 0) {
-        $loglabel = 'view section';
 
         // Get section details and check it exists.
         $modinfo = get_fast_modinfo($course);
@@ -106,20 +103,24 @@
 
         // Check user is allowed to see it.
         if (!$coursesections->uservisible) {
-            // Note: We actually already know they don't have this capability
-            // or uservisible would have been true; this is just to get the
-            // correct error message shown.
-            require_capability('moodle/course:viewhiddensections', $context);
+            // Check if coursesection has conditions affecting availability and if
+            // so, output availability info.
+            if ($coursesections->visible && $coursesections->availableinfo) {
+                $sectionname     = get_section_name($course, $coursesections);
+                $message = get_string('notavailablecourse', '', $sectionname);
+                redirect(course_get_url($course), $message, null, \core\output\notification::NOTIFY_ERROR);
+            } else {
+                // Note: We actually already know they don't have this capability
+                // or uservisible would have been true; this is just to get the
+                // correct error message shown.
+                require_capability('moodle/course:viewhiddensections', $context);
+            }
         }
-        $infoid = $coursesections->id;
-        $logparam .= '&sectionid='. $infoid;
     }
-    add_to_log($course->id, 'course', $loglabel, "view.php?". $logparam, $infoid);
 
     // Fix course format if it is no longer installed
     $course->format = course_get_format($course)->get_format();
 
-    $PAGE->set_pagelayout('course');
     $PAGE->set_pagetype('course-view-' . $course->format);
     $PAGE->set_other_editing_capability('moodle/course:update');
     $PAGE->set_other_editing_capability('moodle/course:manageactivities');
@@ -176,11 +177,6 @@
                 redirect($PAGE->url);
             }
         }
-        if (($modchooser == 1) && confirm_sesskey()) {
-            set_user_preference('usemodchooser', $modchooser);
-        } else if (($modchooser == 0) && confirm_sesskey()) {
-            set_user_preference('usemodchooser', $modchooser);
-        }
 
         if (has_capability('moodle/course:sectionvisibility', $context)) {
             if ($hide && confirm_sesskey()) {
@@ -220,9 +216,7 @@
     }
 
     $completion = new completion_info($course);
-    if ($completion->is_enabled() && ajaxenabled()) {
-        $PAGE->requires->string_for_js('completion-title-manual-y', 'completion');
-        $PAGE->requires->string_for_js('completion-title-manual-n', 'completion');
+    if ($completion->is_enabled()) {
         $PAGE->requires->string_for_js('completion-alt-manual-y', 'completion');
         $PAGE->requires->string_for_js('completion-alt-manual-n', 'completion');
 
@@ -237,11 +231,29 @@
         $PAGE->set_button($buttons);
     }
 
-    $PAGE->set_title(get_string('course') . ': ' . $course->fullname);
+    // If viewing a section, make the title more specific
+    if ($section and $section > 0 and course_format_uses_sections($course->format)) {
+        $sectionname = get_string('sectionname', "format_$course->format");
+        $sectiontitle = get_section_name($course, $section);
+        $PAGE->set_title(get_string('coursesectiontitle', 'moodle', array('course' => $course->fullname, 'sectiontitle' => $sectiontitle, 'sectionname' => $sectionname)));
+    } else {
+        $PAGE->set_title(get_string('coursetitle', 'moodle', array('course' => $course->fullname)));
+    }
+
     $PAGE->set_heading($course->fullname);
     echo $OUTPUT->header();
 
-    if ($completion->is_enabled() && ajaxenabled()) {
+    if ($USER->editing == 1 && !empty($CFG->enableasyncbackup)) {
+
+        // MDL-65321 The backup libraries are quite heavy, only require the bare minimum.
+        require_once($CFG->dirroot . '/backup/util/helper/async_helper.class.php');
+
+        if (async_helper::is_async_pending($id, 'course', 'backup')) {
+            echo $OUTPUT->notification(get_string('pendingasyncedit', 'backup'), 'warning');
+        }
+    }
+
+    if ($completion->is_enabled()) {
         // This value tracks whether there has been a dynamic change to the page.
         // It is used so that if a user does this - (a) set some tickmarks, (b)
         // go to another page, (c) clicks Back button - the page will
@@ -279,6 +291,11 @@
     // Content wrapper end.
 
     echo html_writer::end_tag('div');
+
+    // Trigger course viewed event.
+    // We don't trust $context here. Course format inclusion above executes in the global space. We can't assume
+    // anything after that point.
+    course_view(context_course::instance($course->id), $section);
 
     // Include course AJAX
     include_course_ajax($course, $modnamesused);

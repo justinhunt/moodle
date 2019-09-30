@@ -17,12 +17,12 @@
 /**
  * Upgrade script for the scorm module.
  *
- * @package    mod
- * @subpackage scorm
- * @copyright 1999 onwards Martin Dougiamas  {@link http://moodle.com}
+ * @package    mod_scorm
+ * @copyright  1999 onwards Martin Dougiamas  {@link http://moodle.com}
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
+defined('MOODLE_INTERNAL') || die();
 
 /**
  * @global moodle_database $DB
@@ -34,72 +34,53 @@ function xmldb_scorm_upgrade($oldversion) {
 
     $dbman = $DB->get_manager();
 
-
-    // Moodle v2.2.0 release upgrade line
-    // Put any upgrade step following this
-
-    if ($oldversion < 2012032100) {
-        unset_config('updatetime', 'scorm');
-        upgrade_mod_savepoint(true, 2012032100, 'scorm');
-    }
-
-    // Adding completion fields to scorm table
-    if ($oldversion < 2012032101) {
-        $table = new xmldb_table('scorm');
-
-        $field = new xmldb_field('completionstatusrequired', XMLDB_TYPE_INTEGER, '1', XMLDB_UNSIGNED, null, null, null, 'timemodified');
-        if (!$dbman->field_exists($table, $field)) {
-            $dbman->add_field($table, $field);
-        }
-
-        $field = new xmldb_field('completionscorerequired', XMLDB_TYPE_INTEGER, '2', XMLDB_UNSIGNED, null, null, null, 'completionstatusrequired');
-        if (!$dbman->field_exists($table, $field)) {
-            $dbman->add_field($table, $field);
-        }
-
-        upgrade_mod_savepoint(true, 2012032101, 'scorm');
-    }
-
-    // Moodle v2.3.0 release upgrade line
-    // Put any upgrade step following this
-
-    //rename config var from maxattempts to maxattempt
-    if ($oldversion < 2012061701) {
-        $maxattempts = get_config('scorm', 'maxattempts');
-        $maxattempts_adv = get_config('scorm', 'maxattempts_adv');
-        set_config('maxattempt', $maxattempts, 'scorm');
-        set_config('maxattempt_adv', $maxattempts_adv, 'scorm');
-
-        unset_config('maxattempts', 'scorm'); //remove old setting.
-        unset_config('maxattempts_adv', 'scorm'); //remove old setting.
-        upgrade_mod_savepoint(true, 2012061701, 'scorm');
-    }
-
-
-    // Moodle v2.4.0 release upgrade line
-    // Put any upgrade step following this
-
-    // Remove old imsrepository type - convert any existing records to external type to help prevent major errors.
-    if ($oldversion < 2013050101) {
-        $scorms = $DB->get_recordset('scorm', array('scormtype' => 'imsrepository'));
-        foreach($scorms as $scorm) {
-            $scorm->scormtype = SCORM_TYPE_EXTERNAL;
-            if (!empty($CFG->repository)) { // Fix path to imsmanifest if $CFG->repository is set.
-                $scorm->reference = $CFG->repository.substr($scorm->reference, 1).'/imsmanifest.xml';
-                $scorm->sha1hash = sha1($scorm->reference);
-            }
-            $scorm->revision++;
-            $DB->update_record('scorm', $scorm);
-        }
-        upgrade_mod_savepoint(true, 2013050101, 'scorm');
-    }
-
-
-    // Moodle v2.5.0 release upgrade line.
+    // Automatically generated Moodle v3.3.0 release upgrade line.
     // Put any upgrade step following this.
 
+    // Automatically generated Moodle v3.4.0 release upgrade line.
+    // Put any upgrade step following this.
+
+    if ($oldversion < 2018032300) {
+        set_config('scormstandard', get_config('scorm', 'scorm12standard'), 'scorm');
+        unset_config('scorm12standard', 'scorm');
+
+        upgrade_mod_savepoint(true, 2018032300, 'scorm');
+    }
+
+    if ($oldversion < 2018041100) {
+
+        // Changing precision of field completionscorerequired on table scorm to (10).
+        $table = new xmldb_table('scorm');
+        $field = new xmldb_field('completionscorerequired', XMLDB_TYPE_INTEGER, '10', null, null, null, null, 'completionstatusrequired');
+
+        // Launch change of precision for field completionscorerequired.
+        $dbman->change_field_precision($table, $field);
+
+        // Scorm savepoint reached.
+        upgrade_mod_savepoint(true, 2018041100, 'scorm');
+    }
+
+    // Automatically generated Moodle v3.5.0 release upgrade line.
+    // Put any upgrade step following this.
+
+    // Automatically generated Moodle v3.6.0 release upgrade line.
+    // Put any upgrade step following this.
+
+    if ($oldversion < 2018123100) {
+
+        // Remove un-used/large index on element field.
+        $table = new xmldb_table('scorm_scoes_track');
+        $index = new xmldb_index('element', XMLDB_INDEX_UNIQUE, ['element']);
+        if ($dbman->index_exists($table, $index)) {
+            $dbman->drop_index($table, $index);
+        }
+
+        // Scorm savepoint reached.
+        upgrade_mod_savepoint(true, 2018123100, 'scorm');
+    }
+
+    // Automatically generated Moodle v3.7.0 release upgrade line.
+    // Put any upgrade step following this.
 
     return true;
 }
-
-

@@ -24,13 +24,13 @@
  */
 
 
-require_once(dirname(__FILE__) . '/../config.php');
+require_once(__DIR__ . '/../config.php');
 require_once($CFG->dirroot . '/question/editlib.php');
 require_once($CFG->dirroot . '/question/import_form.php');
 require_once($CFG->dirroot . '/question/format.php');
 
 list($thispageurl, $contexts, $cmid, $cm, $module, $pagevars) =
-        question_edit_setup('import', '/question/import.php', false, false);
+        question_edit_setup('import', '/question/import.php');
 
 // get display strings
 $txt = new stdClass();
@@ -72,6 +72,10 @@ if ($import_form->is_cancelled()){
 $PAGE->set_title($txt->importquestions);
 $PAGE->set_heading($COURSE->fullname);
 echo $OUTPUT->header();
+
+// Print horizontal nav if needed.
+$renderer = $PAGE->get_renderer('core_question', 'bank');
+echo $renderer->extra_horizontal_navigation();
 
 // file upload form sumitted
 if ($form = $import_form->get_data()) {
@@ -116,7 +120,7 @@ if ($form = $import_form->get_data()) {
     }
 
     // Process the uploaded file
-    if (!$qformat->importprocess($category)) {
+    if (!$qformat->importprocess()) {
         print_error('cannotimport', '', $thispageurl->out());
     }
 
@@ -124,6 +128,14 @@ if ($form = $import_form->get_data()) {
     if (!$qformat->importpostprocess()) {
         print_error('cannotimport', '', $thispageurl->out());
     }
+
+    // Log the import into this category.
+    $eventparams = [
+            'contextid' => $qformat->category->contextid,
+            'other' => ['format' => $form->format, 'categoryid' => $qformat->category->id],
+    ];
+    $event = \core\event\questions_imported::create($eventparams);
+    $event->trigger();
 
     $params = $thispageurl->params() + array(
         'category' => $qformat->category->id . ',' . $qformat->category->contextid);

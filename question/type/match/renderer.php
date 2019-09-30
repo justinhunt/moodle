@@ -17,7 +17,7 @@
 /**
  * Matching question renderer class.
  *
- * @package   qtypematch
+ * @package   qtype_match
  * @copyright 2009 The Open University
  * @license   http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
@@ -58,9 +58,7 @@ class qtype_match_renderer extends qtype_with_combined_feedback_renderer {
             $result .= html_writer::start_tag('tr', array('class' => 'r' . $parity));
             $fieldname = 'sub' . $key;
 
-            $result .= html_writer::tag('td', $question->format_text(
-                    $question->stems[$stemid], $question->stemformat[$stemid],
-                    $qa, 'qtype_match', 'subquestion', $stemid),
+            $result .= html_writer::tag('td', $this->format_stem_text($qa, $stemid),
                     array('class' => 'text'));
 
             $classes = 'control';
@@ -84,7 +82,7 @@ class qtype_match_renderer extends qtype_with_combined_feedback_renderer {
                             'menu' . $qa->get_qt_field_name('sub' . $key), false,
                             array('class' => 'accesshide')) .
                     html_writer::select($choices, $qa->get_qt_field_name('sub' . $key), $selected,
-                            array('0' => 'choose'), array('disabled' => $options->readonly)) .
+                            array('0' => 'choose'), array('disabled' => $options->readonly, 'class' => 'custom-select ml-1')) .
                     ' ' . $feedbackimage, array('class' => $classes));
 
             $result .= html_writer::end_tag('tr');
@@ -109,11 +107,24 @@ class qtype_match_renderer extends qtype_with_combined_feedback_renderer {
         return $this->combined_feedback($qa);
     }
 
+    /**
+     * Format each question stem. Overwritten by randomsamatch renderer.
+     *
+     * @param question_attempt $qa
+     * @param integer $stemid stem index
+     * @return string
+     */
+    public function format_stem_text($qa, $stemid) {
+        $question = $qa->get_question();
+        return $question->format_text(
+                    $question->stems[$stemid], $question->stemformat[$stemid],
+                    $qa, 'qtype_match', 'subquestion', $stemid);
+    }
+
     protected function format_choices($question) {
         $choices = array();
         foreach ($question->get_choice_order() as $key => $choiceid) {
-            $choices[$key] = format_string($question->choices[$choiceid], true,
-                    array('context' => $question->contextid));
+            $choices[$key] = format_string($question->choices[$choiceid]);
         }
         return $choices;
     }
@@ -125,9 +136,10 @@ class qtype_match_renderer extends qtype_with_combined_feedback_renderer {
         $choices = $this->format_choices($question);
         $right = array();
         foreach ($stemorder as $key => $stemid) {
-            $right[] = $question->format_text($question->stems[$stemid],
-                    $question->stemformat[$stemid], $qa,
-                    'qtype_match', 'subquestion', $stemid) . ' – ' .
+            if (!isset($choices[$question->get_right_choice_for($stemid)])) {
+                continue;
+            }
+            $right[] = $question->make_html_inline($this->format_stem_text($qa, $stemid)) . ' &#x2192; ' .
                     $choices[$question->get_right_choice_for($stemid)];
         }
 

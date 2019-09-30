@@ -18,8 +18,7 @@
 /**
  * Short answer
  *
- * @package    mod
- * @subpackage lesson
+ * @package mod_lesson
  * @copyright  2009 Sam Hemelryk
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  **/
@@ -58,8 +57,58 @@ class lesson_page_type_shortanswer extends lesson_page {
             $data->answer = s($attempt->useranswer);
         }
         $mform->set_data($data);
+
+        // Trigger an event question viewed.
+        $eventparams = array(
+            'context' => context_module::instance($PAGE->cm->id),
+            'objectid' => $this->properties->id,
+            'other' => array(
+                    'pagetype' => $this->get_typestring()
+                )
+            );
+
+        $event = \mod_lesson\event\question_viewed::create($eventparams);
+        $event->trigger();
         return $mform->display();
     }
+
+    /**
+     * Creates answers for this page type.
+     *
+     * @param  object $properties The answer properties.
+     */
+    public function create_answers($properties) {
+        if (isset($properties->enableotheranswers) && $properties->enableotheranswers) {
+            $properties->response_editor = array_values($properties->response_editor);
+            $properties->jumpto = array_values($properties->jumpto);
+            $properties->score = array_values($properties->score);
+            $wrongresponse = end($properties->response_editor);
+            $wrongkey = key($properties->response_editor);
+            $properties->answer_editor[$wrongkey] = LESSON_OTHER_ANSWERS;
+        }
+        parent::create_answers($properties);
+    }
+
+    /**
+     * Update the answers for this page type.
+     *
+     * @param  object $properties The answer properties.
+     * @param  context $context The context for this module.
+     * @param  int $maxbytes The maximum bytes for any uploades.
+     */
+    public function update($properties, $context = null, $maxbytes = null) {
+        if ($properties->enableotheranswers) {
+            $properties->response_editor = array_values($properties->response_editor);
+            $properties->jumpto = array_values($properties->jumpto);
+            $properties->score = array_values($properties->score);
+            $wrongresponse = end($properties->response_editor);
+            $wrongkey = key($properties->response_editor);
+            $properties->answer_editor[$wrongkey] = LESSON_OTHER_ANSWERS;
+        }
+        parent::update($properties, $context, $maxbytes);
+    }
+
+
     public function check_answer() {
         global $CFG;
         $result = parent::check_answer();
@@ -77,8 +126,10 @@ class lesson_page_type_shortanswer extends lesson_page {
         $i=0;
         $answers = $this->get_answers();
         foreach ($answers as $answer) {
+            $answer = parent::rewrite_answers_urls($answer, false);
             $i++;
-            $expectedanswer  = $answer->answer; // for easier handling of $answer->answer
+            // Applying PARAM_TEXT as it is applied to the answer submitted by the user.
+            $expectedanswer  = clean_param($answer->answer, PARAM_TEXT);
             $ismatch         = false;
             $markit          = false;
             $useregexp       = ($this->qoption);
@@ -90,9 +141,9 @@ class lesson_page_type_shortanswer extends lesson_page {
                     $ignorecase = 'i';
                 }
             } else {
-                $expectedanswer = str_replace('*', '#####', $expectedanswer);
+                $expectedanswer = str_replace('*', '%@@%@@%', $expectedanswer);
                 $expectedanswer = preg_quote($expectedanswer, '/');
-                $expectedanswer = str_replace('#####', '.*', $expectedanswer);
+                $expectedanswer = str_replace('%@@%@@%', '.*', $expectedanswer);
             }
             // see if user typed in any of the correct answers
             if ((!$this->lesson->custom && $this->lesson->jumpto_is_correct($this->properties->id, $answer->jumpto)) or ($this->lesson->custom && $answer->score > 0) ) {
@@ -155,13 +206,34 @@ class lesson_page_type_shortanswer extends lesson_page {
             }
             if ($ismatch) {
                 $result->newpageid = $answer->jumpto;
-                if (trim(strip_tags($answer->response))) {
-                    $result->response = $answer->response;
-                }
+                $options = new stdClass();
+                $options->para = false;
+                $options->noclean = true;
+                $result->response = format_text($answer->response, $answer->responseformat, $options);
                 $result->answerid = $answer->id;
                 break; // quit answer analysis immediately after a match has been found
             }
         }
+
+        // We could check here to see if we have a wrong answer jump to use.
+        if ($result->answerid == 0) {
+            // Use the all other answers jump details if it is set up.
+            $lastanswer = end($answers);
+            // Double check that this is the @#wronganswer#@ answer.
+            if (strpos($lastanswer->answer, LESSON_OTHER_ANSWERS) !== false) {
+                $otheranswers = end($answers);
+                $result->newpageid = $otheranswers->jumpto;
+                $options = new stdClass();
+                $options->para = false;
+                $result->response = format_text($otheranswers->response, $otheranswers->responseformat, $options);
+                // Does this also need to do the jumpto_is_correct?
+                if ($this->lesson->custom) {
+                    $result->correctanswer = ($otheranswers->score > 0);
+                }
+                $result->answerid = $otheranswers->id;
+            }
+        }
+
         $result->userresponse = $studentanswer;
         //clean student answer as it goes to output.
         $result->studentanswer = s($studentanswer);
@@ -182,33 +254,34 @@ class lesson_page_type_shortanswer extends lesson_page {
         $options->para = false;
         $i = 1;
         foreach ($answers as $answer) {
+            $answer = parent::rewrite_answers_urls($answer, false);
             $cells = array();
             if ($this->lesson->custom && $answer->score > 0) {
                 // if the score is > 0, then it is correct
-                $cells[] = '<span class="labelcorrect">'.get_string("answer", "lesson")." $i</span>: \n";
+                $cells[] = '<label class="correct">' . get_string('answer', 'lesson') . ' ' . $i . '</label>:';
             } else if ($this->lesson->custom) {
-                $cells[] = '<span class="label">'.get_string("answer", "lesson")." $i</span>: \n";
+                $cells[] = '<label>' . get_string('answer', 'lesson') . ' ' . $i . '</label>:';
             } else if ($this->lesson->jumpto_is_correct($this->properties->id, $answer->jumpto)) {
                 // underline correct answers
-                $cells[] = '<span class="correct">'.get_string("answer", "lesson")." $i</span>: \n";
+                $cells[] = '<span class="correct">' . get_string('answer', 'lesson') . ' ' . $i . '</span>:' . "\n";
             } else {
-                $cells[] = '<span class="labelcorrect">'.get_string("answer", "lesson")." $i</span>: \n";
+                $cells[] = '<label class="correct">' . get_string('answer', 'lesson') . ' ' . $i . '</label>:';
             }
             $cells[] = format_text($answer->answer, $answer->answerformat, $options);
             $table->data[] = new html_table_row($cells);
 
             $cells = array();
-            $cells[] = "<span class=\"label\">".get_string("response", "lesson")." $i</span>";
+            $cells[] = '<label>' . get_string('response', 'lesson') . ' ' . $i . '</label>:';
             $cells[] = format_text($answer->response, $answer->responseformat, $options);
             $table->data[] = new html_table_row($cells);
 
             $cells = array();
-            $cells[] = "<span class=\"label\">".get_string("score", "lesson").'</span>';
+            $cells[] = '<label>' . get_string('score', 'lesson') . '</label>:';
             $cells[] = $answer->score;
             $table->data[] = new html_table_row($cells);
 
             $cells = array();
-            $cells[] = "<span class=\"label\">".get_string("jump", "lesson").'</span>';
+            $cells[] = '<label>' . get_string('jump', 'lesson') . '</label>:';
             $cells[] = $this->get_jump_name($answer->jumpto);
             $table->data[] = new html_table_row($cells);
             if ($i === 1){
@@ -239,10 +312,13 @@ class lesson_page_type_shortanswer extends lesson_page {
     }
 
     public function report_answers($answerpage, $answerdata, $useranswer, $pagestats, &$i, &$n) {
+        global $PAGE;
+
         $answers = $this->get_answers();
         $formattextdefoptions = new stdClass;
         $formattextdefoptions->para = false;  //I'll use it widely in this page
         foreach ($answers as $answer) {
+            $answer = parent::rewrite_answers_urls($answer, false);
             if ($useranswer == null && $i == 0) {
                 // I have the $i == 0 because it is easier to blast through it all at once.
                 if (isset($pagestats[$this->properties->id])) {
@@ -250,7 +326,8 @@ class lesson_page_type_shortanswer extends lesson_page {
                     $total = $stats["total"];
                     unset($stats["total"]);
                     foreach ($stats as $valentered => $ntimes) {
-                        $data = '<input type="text" size="50" disabled="disabled" readonly="readonly" value="'.s($valentered).'" />';
+                        $data = '<input type="text" size="50" disabled="disabled" class="form-control" ' .
+                                'readonly="readonly" value="'.s($valentered).'" />';
                         $percent = $ntimes / $total * 100;
                         $percent = round($percent, 2);
                         $percent .= "% ".get_string("enteredthis", "lesson");
@@ -262,7 +339,8 @@ class lesson_page_type_shortanswer extends lesson_page {
                 $i++;
             } else if ($useranswer != null && ($answer->id == $useranswer->answerid || $answer == end($answers))) {
                  // get in here when what the user entered is not one of the answers
-                $data = '<input type="text" size="50" disabled="disabled" readonly="readonly" value="'.s($useranswer->useranswer).'">';
+                $data = '<input type="text" size="50" disabled="disabled" class="form-control" ' .
+                        'readonly="readonly" value="'.s($useranswer->useranswer).'">';
                 if (isset($pagestats[$this->properties->id][$useranswer->useranswer])) {
                     $percent = $pagestats[$this->properties->id][$useranswer->useranswer] / $pagestats[$this->properties->id]["total"] * 100;
                     $percent = round($percent, 2);
@@ -305,12 +383,41 @@ class lesson_page_type_shortanswer extends lesson_page {
         }
         return $answerpage;
     }
+
+    /**
+     * Make updates to the form data if required. In this case to put the all other answer data into the write section of the form.
+     *
+     * @param stdClass $data The form data to update.
+     * @return stdClass The updated fom data.
+     */
+    public function update_form_data(stdClass $data) : stdClass {
+        $answercount = count($this->get_answers());
+        // Check for other answer entry.
+        $lastanswer = $data->{'answer_editor[' . ($answercount - 1) . ']'};
+        if (strpos($lastanswer, LESSON_OTHER_ANSWERS) !== false) {
+            $data->{'answer_editor[' . ($this->lesson->maxanswers + 1) . ']'} =
+                    $data->{'answer_editor[' . ($answercount - 1) . ']'};
+            $data->{'response_editor[' . ($this->lesson->maxanswers + 1) . ']'} =
+                    $data->{'response_editor[' . ($answercount - 1) . ']'};
+            $data->{'jumpto[' . ($this->lesson->maxanswers + 1) . ']'} = $data->{'jumpto[' . ($answercount - 1) . ']'};
+            $data->{'score[' . ($this->lesson->maxanswers + 1) . ']'} = $data->{'score[' . ($answercount - 1) . ']'};
+            $data->enableotheranswers = true;
+            // Unset the old values.
+            unset($data->{'answer_editor[' . ($answercount - 1) . ']'});
+            unset($data->{'response_editor[' . ($answercount - 1) . ']'});
+            unset($data->{'jumpto[' . ($answercount - 1) . ']'});
+            unset($data->{'score[' . ($answercount - 1) . ']'});
+        }
+        return $data;
+    }
 }
 
 
 class lesson_add_page_form_shortanswer extends lesson_add_page_form_base {
     public $qtype = 'shortanswer';
     public $qtypestring = 'shortanswer';
+    protected $answerformat = '';
+    protected $responseformat = LESSON_ANSWER_HTML;
 
     public function custom_definition() {
 
@@ -318,13 +425,23 @@ class lesson_add_page_form_shortanswer extends lesson_add_page_form_base {
         $this->_form->setDefault('qoption', 0);
         $this->_form->addHelpButton('qoption', 'casesensitive', 'lesson');
 
-        for ($i = 0; $i < $this->_customdata['lesson']->maxanswers; $i++) {
+        $answercount = $this->_customdata['lesson']->maxanswers;
+        for ($i = 0; $i < $answercount; $i++) {
             $this->_form->addElement('header', 'answertitle'.$i, get_string('answer').' '.($i+1));
-            $this->add_answer($i);
+            // Only first answer is required.
+            $this->add_answer($i, null, ($i < 1));
             $this->add_response($i);
             $this->add_jumpto($i, null, ($i == 0 ? LESSON_NEXTPAGE : LESSON_THISPAGE));
             $this->add_score($i, null, ($i===0)?1:0);
         }
+
+        // Other answer jump.
+        $this->_form->addElement('header', 'wronganswer', get_string('allotheranswers', 'lesson'));
+        $newcount = $answercount + 1;
+        $this->_form->addElement('advcheckbox', 'enableotheranswers', get_string('enabled', 'lesson'));
+        $this->add_response($newcount);
+        $this->add_jumpto($newcount, get_string('allotheranswersjump', 'lesson'), LESSON_NEXTPAGE);
+        $this->add_score($newcount, get_string('allotheranswersscore', 'lesson'), 0);
     }
 }
 
@@ -345,21 +462,34 @@ class lesson_display_answer_form_shortanswer extends moodleform {
             }
         }
 
+        $placeholder = false;
+        if (preg_match('/_____+/', $contents, $matches)) {
+            $placeholder = $matches[0];
+            $contentsparts = explode( $placeholder, $contents, 2);
+            $attrs['size'] = round(strlen($placeholder) * 1.1);
+        }
+
+        // Disable shortforms.
+        $mform->setDisableShortforms();
+
         $mform->addElement('header', 'pageheader');
-
-        $mform->addElement('html', $OUTPUT->container($contents, 'contents'));
-
-        $options = new stdClass;
-        $options->para = false;
-        $options->noclean = true;
-
         $mform->addElement('hidden', 'id');
         $mform->setType('id', PARAM_INT);
 
         $mform->addElement('hidden', 'pageid');
         $mform->setType('pageid', PARAM_INT);
 
-        $mform->addElement('text', 'answer', get_string('youranswer', 'lesson'), $attrs);
+        if ($placeholder) {
+            $contentsgroup = array();
+            $contentsgroup[] = $mform->createElement('static', '', '', $contentsparts[0]);
+            $contentsgroup[] = $mform->createElement('text', 'answer', '', $attrs);
+            $contentsgroup[] = $mform->createElement('static', '', '', $contentsparts[1]);
+            $mform->addGroup($contentsgroup, '', '', '', false);
+        } else {
+            $mform->addElement('html', $OUTPUT->container($contents, 'contents'));
+            $mform->addElement('text', 'answer', get_string('youranswer', 'lesson'), $attrs);
+
+        }
         $mform->setType('answer', PARAM_TEXT);
 
         if ($hasattempt) {

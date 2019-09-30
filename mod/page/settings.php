@@ -18,8 +18,7 @@
 /**
  * Page module admin settings and defaults
  *
- * @package    mod
- * @subpackage page
+ * @package mod_page
  * @copyright  2009 Petr Skoda (http://skodak.org)
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
@@ -33,8 +32,6 @@ if ($ADMIN->fulltree) {
     $defaultdisplayoptions = array(RESOURCELIB_DISPLAY_OPEN);
 
     //--- general settings -----------------------------------------------------------------------------------
-    $settings->add(new admin_setting_configcheckbox('page/requiremodintro',
-        get_string('requiremodintro', 'admin'), get_string('configrequiremodintro', 'admin'), 1));
     $settings->add(new admin_setting_configmultiselect('page/displayoptions',
         get_string('displayoptions', 'page'), get_string('configdisplayoptions', 'page'),
         $defaultdisplayoptions, $displayoptions));
@@ -46,6 +43,8 @@ if ($ADMIN->fulltree) {
         get_string('printheading', 'page'), get_string('printheadingexplain', 'page'), 1));
     $settings->add(new admin_setting_configcheckbox('page/printintro',
         get_string('printintro', 'page'), get_string('printintroexplain', 'page'), 0));
+    $settings->add(new admin_setting_configcheckbox('page/printlastmodified',
+        get_string('printlastmodified', 'page'), get_string('printlastmodifiedexplain', 'page'), 1));
     $settings->add(new admin_setting_configselect('page/display',
         get_string('displayselect', 'page'), get_string('displayselectexplain', 'page'), RESOURCELIB_DISPLAY_OPEN, $displayoptions));
     $settings->add(new admin_setting_configtext('page/popupwidth',

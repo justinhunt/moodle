@@ -26,6 +26,7 @@
 
 defined('MOODLE_INTERNAL') || die();
 
+require_once($CFG->dirroot . '/question/type/questionbase.php');
 
 /**
  * Represents a true-false question.
@@ -55,6 +56,16 @@ class qtype_truefalse_question extends question_graded_automatically {
             return get_string('true', 'qtype_truefalse');
         } else {
             return get_string('false', 'qtype_truefalse');
+        }
+    }
+
+    public function un_summarise_response(string $summary) {
+        if ($summary === get_string('true', 'qtype_truefalse')) {
+            return ['answer' => '1'];
+        } else if ($summary === get_string('false', 'qtype_truefalse')) {
+            return ['answer' => '0'];
+        } else {
+            return [];
         }
     }
 

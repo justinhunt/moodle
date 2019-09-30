@@ -15,7 +15,9 @@
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
 /**
- * Restore subplugin class that provides the necessary information needed to restore
+ * Restore subplugin class.
+ *
+ * Provides the necessary information needed to restore
  * one assign_submission subplugin.
  *
  * @package   assignfeedback_comments
@@ -26,7 +28,9 @@
 defined('MOODLE_INTERNAL') || die();
 
 /**
- * Restore subplugin class that provides the necessary information needed to restore
+ * Restore subplugin class.
+ *
+ * Provides the necessary information needed to restore
  * one assignfeedback subplugin.
  *
  * @package   assignfeedback_comments
@@ -67,5 +71,13 @@ class restore_assignfeedback_comments_subplugin extends restore_subplugin {
         $data->grade = $this->get_mappingid('grade', $data->grade);
 
         $DB->insert_record('assignfeedback_comments', $data);
+
+        $this->add_related_files(
+            'assignfeedback_comments',
+            'feedback',
+            'grade',
+            null,
+            $oldgradeid
+        );
     }
 }

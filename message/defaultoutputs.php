@@ -20,16 +20,16 @@
  * @package   core_message
  * @copyright 2011 Lancaster University Network Services Limited
  * @license   http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
+ *
+ * @deprecated since Moodle 3.7 MDL-64495. Please use /admin/message.php instead.
+ * @todo       MDL-64866 This will be deleted in Moodle 4.1.
  */
-require_once(dirname(__FILE__) . '/../config.php');
+require_once(__DIR__ . '/../config.php');
 require_once($CFG->dirroot . '/message/lib.php');
 require_once($CFG->libdir.'/adminlib.php');
 
 // This is an admin page
 admin_externalpage_setup('defaultmessageoutputs');
-
-// Require site configuration capability
-require_capability('moodle/site:config', context_system::instance());
 
 // Fetch processors
 $processors = get_message_processors(true);
@@ -41,6 +41,15 @@ if (($form = data_submitted()) && confirm_sesskey()) {
     // Prepare default message outputs settings
     foreach ( $providers as $provider) {
         $componentproviderbase = $provider->component.'_'.$provider->name;
+        $disableprovidersetting = $componentproviderbase.'_disable';
+        $providerdisabled = false;
+        if (!isset($form->$disableprovidersetting)) {
+            $providerdisabled = true;
+            $preferences[$disableprovidersetting] = 1;
+        } else {
+            $preferences[$disableprovidersetting] = 0;
+        }
+
         foreach (array('permitted', 'loggedin', 'loggedoff') as $setting){
             $value = null;
             $componentprovidersetting = $componentproviderbase.'_'.$setting;
@@ -56,13 +65,13 @@ if (($form = data_submitted()) && confirm_sesskey()) {
                     }
                     // Ensure that loggedin loggedoff options are set correctly
                     // for this permission
-                    if ($value == 'forced') {
-                        $form->{$componentproviderbase.'_loggedin'}[$processor->name] = 1;
-                        $form->{$componentproviderbase.'_loggedoff'}[$processor->name] = 1;
-                    } else if ($value == 'disallowed') {
+                    if (($value == 'disallowed') || $providerdisabled) {
                         // It might be better to unset them, but I can't figure out why that cause error
                         $form->{$componentproviderbase.'_loggedin'}[$processor->name] = 0;
                         $form->{$componentproviderbase.'_loggedoff'}[$processor->name] = 0;
+                    } else if ($value == 'forced') {
+                        $form->{$componentproviderbase.'_loggedin'}[$processor->name] = 1;
+                        $form->{$componentproviderbase.'_loggedoff'}[$processor->name] = 1;
                     }
                     // record the site preference
                     $preferences[$processor->name.'_provider_'.$componentprovidersetting] = $value;

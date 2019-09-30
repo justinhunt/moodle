@@ -32,28 +32,33 @@ defined('MOODLE_INTERNAL') || die();
  * Question behaviour for the interactive model.
  *
  * Each question has a submit button next to it which the student can use to
- * submit it. Once the qustion is submitted, it is not possible for the
+ * submit it. Once the question is submitted, it is not possible for the
  * student to change their answer any more, but the student gets full feedback
  * straight away.
  *
  * @copyright  2009 The Open University
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
-class qbehaviour_interactive extends question_behaviour_with_save {
-    const IS_ARCHETYPAL = true;
-
+class qbehaviour_interactive extends question_behaviour_with_multiple_tries {
     /**
-     * Special value used for {@link question_display_options::$readonly when
-     * we are showing the try again button to the student during an attempt.
-     * The particular number was chosen randomly. PHP will treat it the same
-     * as true, but in the renderer we reconginse it display the try again
-     * button enabled even though the rest of the question is disabled.
-     * @var integer
+     * Constant used only in {@link adjust_display_options()} below and
+     * {@link (qbehaviour_interactive_renderer}.
+     * @var int
      */
-    const READONLY_EXCEPT_TRY_AGAIN = 23485299;
+    const TRY_AGAIN_VISIBLE = 0x10;
+    /**
+     * Constant used only in {@link adjust_display_options()} below and
+     * {@link (qbehaviour_interactive_renderer}.
+     * @var int
+     */
+    const TRY_AGAIN_VISIBLE_READONLY = 0x11;
 
     public function is_compatible_question(question_definition $question) {
         return $question instanceof question_automatically_gradable;
+    }
+
+    public function can_finish_during_attempt() {
+        return true;
     }
 
     public function get_right_answer_summary() {
@@ -63,7 +68,7 @@ class qbehaviour_interactive extends question_behaviour_with_save {
     /**
      * @return bool are we are currently in the try_again state.
      */
-    protected function is_try_again_state() {
+    public function is_try_again_state() {
         $laststep = $this->qa->get_last_step();
         return $this->qa->get_state()->is_active() && $laststep->has_behaviour_var('submit') &&
                 $laststep->has_behaviour_var('_triesleft');
@@ -73,8 +78,20 @@ class qbehaviour_interactive extends question_behaviour_with_save {
         // We only need different behaviour in try again states.
         if (!$this->is_try_again_state()) {
             parent::adjust_display_options($options);
+            if ($this->qa->get_state() == question_state::$invalid &&
+                    $options->marks == question_display_options::MARK_AND_MAX) {
+                $options->marks = question_display_options::MAX_ONLY;
+            }
             return;
         }
+
+        // The question in in a try-again state. We need the to let the renderer know this.
+        // The API for question-rendering is defined by the question engine, but we
+        // don't want to add logic in the renderer, so we are limited in how we can do this.
+        // However, when the question is in this state, all the question-type controls
+        // need to be rendered read-only. Therefore, we can conveniently pass this information
+        // by setting special true-like values in $options->readonly (but this is a bit of a hack).
+        $options->readonly = $options->readonly ? self::TRY_AGAIN_VISIBLE_READONLY : self::TRY_AGAIN_VISIBLE;
 
         // Let the hint adjust the options.
         $hint = $this->get_applicable_hint();
@@ -87,12 +104,6 @@ class qbehaviour_interactive extends question_behaviour_with_save {
         parent::adjust_display_options($options);
         $options->feedback = $save->feedback;
         $options->numpartscorrect = $save->numpartscorrect;
-
-        // In a try-again state, everything except the try again button
-        // Should be read-only. This is a mild hack to achieve this.
-        if (!$options->readonly) {
-            $options->readonly = self::READONLY_EXCEPT_TRY_AGAIN;
-        }
     }
 
     public function get_applicable_hint() {
@@ -130,12 +141,8 @@ class qbehaviour_interactive extends question_behaviour_with_save {
             return parent::get_state_string($showcorrectness);
         }
 
-        if ($this->is_try_again_state()) {
-            return get_string('notcomplete', 'qbehaviour_interactive');
-        } else {
-            return get_string('triesremaining', 'qbehaviour_interactive',
-                    $this->qa->get_last_behaviour_var('_triesleft'));
-        }
+        return get_string('triesremaining', 'qbehaviour_interactive',
+                $this->qa->get_last_behaviour_var('_triesleft'));
     }
 
     public function init_first_step(question_attempt_step $step, $variant) {

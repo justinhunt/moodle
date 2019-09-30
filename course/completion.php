@@ -53,7 +53,16 @@ if ($id) {
         print_error('invalidcourseid');
     }
     require_login($course);
-    require_capability('moodle/course:update', context_course::instance($course->id));
+    $context = context_course::instance($course->id);
+    if (!has_capability('moodle/course:update', $context)) {
+        // User is not allowed to modify course completion.
+        // Check if they can see default completion or edit bulk completion and redirect there.
+        if ($tabs = core_completion\manager::get_available_completion_tabs($course)) {
+            redirect($tabs[0]->link);
+        } else {
+            require_capability('moodle/course:update', $context);
+        }
+    }
 
 } else {
     require_login();
@@ -65,7 +74,7 @@ $PAGE->set_course($course);
 $PAGE->set_url('/course/completion.php', array('id' => $course->id));
 $PAGE->set_title($course->shortname);
 $PAGE->set_heading($course->fullname);
-$PAGE->set_pagelayout('standard');
+$PAGE->set_pagelayout('admin');
 
 // Create the settings form instance.
 $form = new course_completion_form('completion.php?id='.$id, array('course' => $course));
@@ -134,17 +143,27 @@ if ($form->is_cancelled()){
     $aggregation->setMethod($data->role_aggregation);
     $aggregation->save();
 
-    // Log changes.
-    add_to_log($course->id, 'course', 'completion updated', 'completion.php?id='.$course->id);
+    // Trigger an event for course module completion changed.
+    $event = \core\event\course_completion_updated::create(
+            array(
+                'courseid' => $course->id,
+                'context' => context_course::instance($course->id)
+                )
+            );
+    $event->trigger();
 
     // Redirect to the course main page.
     $url = new moodle_url('/course/view.php', array('id' => $course->id));
     redirect($url);
 }
 
+$renderer = $PAGE->get_renderer('core_course', 'bulk_activity_completion');
+
 // Print the form.
 echo $OUTPUT->header();
 echo $OUTPUT->heading(get_string('editcoursecompletionsettings', 'core_completion'));
+
+echo $renderer->navigation($course, 'completion');
 
 $form->display();
 

@@ -17,8 +17,7 @@
 /**
  * This script lists all the instances of quiz in a particular course
  *
- * @package    mod
- * @subpackage quiz
+ * @package    mod_quiz
  * @copyright  1999 onwards Martin Dougiamas  {@link http://moodle.com}
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
@@ -36,26 +35,19 @@ $coursecontext = context_course::instance($id);
 require_login($course);
 $PAGE->set_pagelayout('incourse');
 
-add_to_log($course->id, "quiz", "view all", "index.php?id=$course->id", "");
+$params = array(
+    'context' => $coursecontext
+);
+$event = \mod_quiz\event\course_module_instance_list_viewed::create($params);
+$event->trigger();
 
 // Print the header.
 $strquizzes = get_string("modulenameplural", "quiz");
-$streditquestions = '';
-$editqcontexts = new question_edit_contexts($coursecontext);
-if ($editqcontexts->have_one_edit_tab_cap('questions')) {
-    $streditquestions =
-            "<form target=\"_parent\" method=\"get\" action=\"$CFG->wwwroot/question/edit.php\">
-               <div>
-               <input type=\"hidden\" name=\"courseid\" value=\"$course->id\" />
-               <input type=\"submit\" value=\"".get_string("editquestions", "quiz")."\" />
-               </div>
-             </form>";
-}
 $PAGE->navbar->add($strquizzes);
 $PAGE->set_title($strquizzes);
-$PAGE->set_button($streditquestions);
 $PAGE->set_heading($course->fullname);
 echo $OUTPUT->header();
+echo $OUTPUT->heading($strquizzes, 2);
 
 // Get all the appropriate data.
 if (!$quizzes = get_all_instances_in_course("quiz", $course)) {
@@ -63,17 +55,13 @@ if (!$quizzes = get_all_instances_in_course("quiz", $course)) {
     die;
 }
 
-// Check if we need the closing date header.
-$showclosingheader = false;
+// Check if we need the feedback header.
 $showfeedback = false;
 foreach ($quizzes as $quiz) {
-    if ($quiz->timeclose!=0) {
-        $showclosingheader=true;
-    }
     if (quiz_has_feedback($quiz)) {
         $showfeedback=true;
     }
-    if ($showclosingheader && $showfeedback) {
+    if ($showfeedback) {
         break;
     }
 }
@@ -82,12 +70,14 @@ foreach ($quizzes as $quiz) {
 $headings = array(get_string('name'));
 $align = array('left');
 
-if ($showclosingheader) {
-    array_push($headings, get_string('quizcloses', 'quiz'));
-    array_push($align, 'left');
-}
+array_push($headings, get_string('quizcloses', 'quiz'));
+array_push($align, 'left');
 
-array_unshift($headings, get_string('sectionname', 'format_'.$course->format));
+if (course_format_uses_sections($course->format)) {
+    array_unshift($headings, get_string('sectionname', 'format_'.$course->format));
+} else {
+    array_unshift($headings, '');
+}
 array_unshift($align, 'center');
 
 $showing = '';
@@ -121,6 +111,8 @@ $table->align = $align;
 
 // Populate the table with the list of instances.
 $currentsection = '';
+// Get all closing dates.
+$timeclosedates = quiz_get_user_timeclose($course->id);
 foreach ($quizzes as $quiz) {
     $cm = get_coursemodule_from_instance('quiz', $quiz->id);
     $context = context_module::instance($cm->id);
@@ -149,10 +141,10 @@ foreach ($quizzes as $quiz) {
             format_string($quiz->name, true) . '</a>';
 
     // Close date.
-    if ($quiz->timeclose) {
-        $data[] = userdate($quiz->timeclose);
-    } else if ($showclosingheader) {
-        $data[] = '';
+    if (($timeclosedates[$quiz->id]->usertimeclose != 0)) {
+        $data[] = userdate($timeclosedates[$quiz->id]->usertimeclose);
+    } else {
+        $data[] = get_string('noclose', 'quiz');
     }
 
     if ($showing == 'stats') {
@@ -164,7 +156,7 @@ foreach ($quizzes as $quiz) {
         // Grade and feedback.
         $attempts = quiz_get_user_attempts($quiz->id, $USER->id, 'all');
         list($someoptions, $alloptions) = quiz_get_combined_reviewoptions(
-                $quiz, $attempts, $context);
+                $quiz, $attempts);
 
         $grade = '';
         $feedback = '';

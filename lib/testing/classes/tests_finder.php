@@ -63,10 +63,10 @@ class tests_finder {
     private static function get_all_plugins_with_tests($testtype) {
         $pluginswithtests = array();
 
-        $plugintypes = get_plugin_types();
+        $plugintypes = core_component::get_plugin_types();
         ksort($plugintypes);
         foreach ($plugintypes as $type => $unused) {
-            $plugs = get_plugin_list($type);
+            $plugs = core_component::get_plugin_list($type);
             ksort($plugs);
             foreach ($plugs as $plug => $fullplug) {
                 // Look for tests recursively
@@ -125,15 +125,30 @@ class tests_finder {
     private static function get_all_directories_with_tests($testtype) {
         global $CFG;
 
+        // List of directories to exclude from test file searching.
+        $excludedir = array('node_modules', 'vendor');
+
+        // Get first level directories in which tests should be searched.
+        $directoriestosearch = array();
+        $alldirs = glob($CFG->dirroot . DIRECTORY_SEPARATOR . '*' , GLOB_ONLYDIR);
+        foreach ($alldirs as $dir) {
+            if (!in_array(basename($dir), $excludedir) && (filetype($dir) != 'link')) {
+                $directoriestosearch[] = $dir;
+            }
+        }
+
+        // Search for tests in valid directories.
         $dirs = array();
-        $dirite = new RecursiveDirectoryIterator($CFG->dirroot);
-        $iteite = new RecursiveIteratorIterator($dirite);
-        $regexp = self::get_regexp($testtype);
-        $regite = new RegexIterator($iteite, $regexp);
-        foreach ($regite as $path => $element) {
-            $key = dirname(dirname($path));
-            $value = trim(str_replace('/', '_', str_replace($CFG->dirroot, '', $key)), '_');
-            $dirs[$key] = $value;
+        foreach ($directoriestosearch as $dir) {
+            $dirite = new RecursiveDirectoryIterator($dir);
+            $iteite = new RecursiveIteratorIterator($dirite);
+            $regexp = self::get_regexp($testtype);
+            $regite = new RegexIterator($iteite, $regexp);
+            foreach ($regite as $path => $element) {
+                $key = dirname(dirname($path));
+                $value = trim(str_replace(DIRECTORY_SEPARATOR, '_', str_replace($CFG->dirroot, '', $key)), '_');
+                $dirs[$key] = $value;
+            }
         }
         ksort($dirs);
         return array_flip($dirs);
@@ -181,6 +196,9 @@ class tests_finder {
                 break;
             case 'stepsdefinitions':
                 $regexp = '|'.$sep.'tests'.$sep.'behat'.$sep.'behat_.*\.php$|';
+                break;
+            case 'behat':
+                $regexp = '!'.$sep.'tests'.$sep.'behat'.$sep.'(.*\.feature)|(behat_.*\.php)$!';
                 break;
         }
 

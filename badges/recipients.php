@@ -24,14 +24,13 @@
  * @author     Yuliya Bozhko <yuliya.bozhko@totaralms.com>
  */
 
-require_once(dirname(dirname(__FILE__)) . '/config.php');
+require_once(__DIR__ . '/../config.php');
 require_once($CFG->libdir . '/badgeslib.php');
 
 $badgeid    = required_param('id', PARAM_INT);
 $sortby     = optional_param('sort', 'dateissued', PARAM_ALPHA);
 $sorthow    = optional_param('dir', 'DESC', PARAM_ALPHA);
 $page       = optional_param('page', 0, PARAM_INT);
-$updatepref = optional_param('updatepref', false, PARAM_BOOL);
 
 require_login();
 
@@ -61,15 +60,18 @@ if ($badge->type == BADGE_TYPE_COURSE) {
     }
     require_login($badge->courseid);
     $navurl = new moodle_url('/badges/index.php', array('type' => $badge->type, 'id' => $badge->courseid));
+    $PAGE->set_pagelayout('standard');
+    navigation_node::override_active_url($navurl);
+} else {
+    $PAGE->set_pagelayout('admin');
+    navigation_node::override_active_url($navurl, true);
 }
 
 $PAGE->set_context($context);
 $PAGE->set_url('/badges/recipients.php', array('id' => $badgeid, 'sort' => $sortby, 'dir' => $sorthow));
-$PAGE->set_pagelayout('standard');
 $PAGE->set_heading($badge->name);
 $PAGE->set_title($badge->name);
 $PAGE->navbar->add($badge->name);
-navigation_node::override_active_url($navurl);
 
 $output = $PAGE->get_renderer('core', 'badges');
 
@@ -85,17 +87,18 @@ if ($badge->has_manual_award_criteria() && has_capability('moodle/badges:awardba
     echo $OUTPUT->box($OUTPUT->single_button($url, get_string('award', 'badges')), 'clearfix mdl-align');
 }
 
-$sql = "SELECT b.userid, b.dateissued, b.uniquehash, u.firstname, u.lastname
+$namefields = get_all_user_name_fields(true, 'u');
+$sql = "SELECT b.userid, b.dateissued, b.uniquehash, $namefields
     FROM {badge_issued} b INNER JOIN {user} u
         ON b.userid = u.id
-    WHERE b.badgeid = :badgeid
+    WHERE b.badgeid = :badgeid AND u.deleted = 0
     ORDER BY $sortby $sorthow";
 
 $totalcount = $DB->count_records('badge_issued', array('badgeid' => $badge->id));
 
 if ($badge->has_awards()) {
     $users = $DB->get_records_sql($sql, array('badgeid' => $badge->id), $page * BADGE_PERPAGE, BADGE_PERPAGE);
-    $recipients             = new badge_recipients($users);
+    $recipients             = new core_badges\output\badge_recipients($users);
     $recipients->sort       = $sortby;
     $recipients->dir        = $sorthow;
     $recipients->page       = $page;

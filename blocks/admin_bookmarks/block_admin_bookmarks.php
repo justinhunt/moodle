@@ -17,13 +17,11 @@
 /**
  * Admin Bookmarks Block page.
  *
- * @package    block
- * @subpackage admin_bookmarks
+ * @package    block_admin_bookmarks
  * @copyright  2011 Moodle
  * @author     2006 vinkmar
  *             2011 Rossiani Wijaya (updated)
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
- *
  */
 
 /**
@@ -98,6 +96,10 @@ class block_admin_bookmarks extends block_base {
                     $contenturl = new moodle_url($temp->url);
                     $contentlink = html_writer::link($contenturl, $temp->visiblename);
                     $contents[] = html_writer::tag('li', $contentlink);
+                } else if ($temp instanceof admin_category) {
+                    $contenturl = new moodle_url('/admin/category.php', array('category' => $bookmark));
+                    $contentlink = html_writer::link($contenturl, $temp->visiblename);
+                    $contents[] = html_writer::tag('li', $contentlink);
                 }
             }
             $this->content->text = html_writer::tag('ol', implode('', $contents), array('class' => 'list'));
@@ -107,7 +109,7 @@ class block_admin_bookmarks extends block_base {
 
         $this->content->footer = '';
         $this->page->settingsnav->initialise();
-        $node = $this->page->settingsnav->get('root', navigation_node::TYPE_SETTING);
+        $node = $this->page->settingsnav->get('root', navigation_node::TYPE_SITE_ADMIN);
         if (!$node || !$node->contains_active_node()) {
             return $this->content;
         }

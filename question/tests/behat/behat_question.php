@@ -25,10 +25,9 @@
 
 // NOTE: no MOODLE_INTERNAL test here, this file may be required by behat before including /config.php.
 
-require_once(__DIR__ . '/../../../lib/behat/behat_base.php');
+require_once(__DIR__ . '/behat_question_base.php');
 
-use Behat\Behat\Context\Step\Given as Given,
-    Behat\Gherkin\Node\TableNode as TableNode,
+use Behat\Gherkin\Node\TableNode as TableNode,
     Behat\Mink\Exception\ExpectationException as ExpectationException,
     Behat\Mink\Exception\ElementNotFoundException as ElementNotFoundException;
 
@@ -40,28 +39,25 @@ use Behat\Behat\Context\Step\Given as Given,
  * @copyright  2013 David Monllaó
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
-class behat_question extends behat_base {
+class behat_question extends behat_question_base {
 
     /**
      * Creates a question in the current course questions bank with the provided data. This step can only be used when creating question types composed by a single form.
      *
      * @Given /^I add a "(?P<question_type_name_string>(?:[^"]|\\")*)" question filling the form with:$/
      * @param string $questiontypename The question type name
-     * @param TableNode $questiondata The data to fill the question type form
+     * @param TableNode $questiondata The data to fill the question type form.
      */
     public function i_add_a_question_filling_the_form_with($questiontypename, TableNode $questiondata) {
 
-        $questiontypexpath = "//span[@class='qtypename'][.='" . $questiontypename . "']" .
-            "/ancestor::div[@class='qtypeoption']/descendant::input";
+        // Go to question bank.
+        $this->execute("behat_general::click_link", get_string('questionbank', 'question'));
 
-        return array(
-            new Given('I follow "' . get_string('questionbank', 'question') . '"'),
-            new Given('I press "' . get_string('createnewquestion', 'question') . '"'),
-            new Given('I click on "' . $questiontypexpath . '" "xpath_element"'),
-            new Given('I click on "Next" "button" in the "#qtypechoicecontainer" "css_element"'),
-            new Given('I fill the moodle form with:', $questiondata),
-            new Given('I press "Save changes"')
-        );
+        // Click on create question.
+        $this->execute('behat_forms::press_button', get_string('createnewquestion', 'question'));
+
+        // Add question.
+        $this->finish_adding_question($questiontypename, $questiondata);
     }
 
     /**
@@ -75,15 +71,19 @@ class behat_question extends behat_base {
      */
     public function the_state_of_question_is_shown_as($questiondescription, $state) {
 
+        // Using xpath literal to avoid quotes problems.
+        $questiondescriptionliteral = behat_context_helper::escape($questiondescription);
+        $stateliteral = behat_context_helper::escape($state);
+
         // Split in two checkings to give more feedback in case of exception.
         $exception = new ElementNotFoundException($this->getSession(), 'Question "' . $questiondescription . '" ');
-        $questionxpath = "//div[contains(concat(' ', @class, ' '), ' qtext ')][contains(., '" . $questiondescription . "')]";
+        $questionxpath = "//div[contains(concat(' ', normalize-space(@class), ' '), ' que ')]" .
+                "[contains(div[@class='content']/div[contains(concat(' ', normalize-space(@class), ' '), ' formulation ')]," .
+                "{$questiondescriptionliteral})]";
         $this->find('xpath', $questionxpath, $exception);
 
         $exception = new ExpectationException('Question "' . $questiondescription . '" state is not "' . $state . '"', $this->getSession());
-        $xpath = $questionxpath . "/ancestor::div[contains(concat(' ', @class, ' '), ' que ')]" .
-            "/descendant::div[@class='state'][contains(., '" . $state . "')]";
+        $xpath = $questionxpath . "/div[@class='info']/div[@class='state' and contains(., {$stateliteral})]";
         $this->find('xpath', $xpath, $exception);
     }
-
 }

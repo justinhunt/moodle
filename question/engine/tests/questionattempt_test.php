@@ -30,8 +30,8 @@
 defined('MOODLE_INTERNAL') || die();
 
 global $CFG;
-require_once(dirname(__FILE__) . '/../lib.php');
-require_once(dirname(__FILE__) . '/helpers.php');
+require_once(__DIR__ . '/../lib.php');
+require_once(__DIR__ . '/helpers.php');
 
 
 /**
@@ -42,9 +42,12 @@ require_once(dirname(__FILE__) . '/helpers.php');
  * @copyright  2009 The Open University
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
-class question_attempt_test extends advanced_testcase {
+class question_attempt_testcase extends advanced_testcase {
+    /** @var question_definition a question that can be used in the tests. */
     private $question;
+    /** @var int fake question_usage id used in some tests. */
     private $usageid;
+    /** @var question_attempt a question attempt that can be used in the tests. */
     private $qa;
 
     protected function setUp() {
@@ -109,33 +112,14 @@ class question_attempt_test extends advanced_testcase {
                 'reallyunlikelyvariablename', PARAM_BOOL));
     }
 
-    public function test_get_submitted_var_param_mark_not_present() {
-        $this->assertNull($this->qa->get_submitted_var(
-                'name', question_attempt::PARAM_MARK, array()));
-    }
-
-    public function test_get_submitted_var_param_mark_blank() {
-        $this->assertSame('', $this->qa->get_submitted_var(
-                'name', question_attempt::PARAM_MARK, array('name' => '')));
-    }
-
-    public function test_get_submitted_var_param_mark_number() {
-        $this->assertSame(123.0, $this->qa->get_submitted_var(
-                'name', question_attempt::PARAM_MARK, array('name' => '123')));
-    }
-
-    public function test_get_submitted_var_param_mark_number_uk_decimal() {
-        $this->assertSame(123.45, $this->qa->get_submitted_var(
-                'name', question_attempt::PARAM_MARK, array('name' => '123.45')));
-    }
-
-    public function test_get_submitted_var_param_mark_number_eu_decimal() {
-        $this->assertSame(123.45, $this->qa->get_submitted_var(
-                'name', question_attempt::PARAM_MARK, array('name' => '123,45')));
-    }
-
-    public function test_get_submitted_var_param_mark_invalid() {
-        $this->assertSame(0.0, $this->qa->get_submitted_var(
-                'name', question_attempt::PARAM_MARK, array('name' => 'frog')));
+    public function test_get_all_submitted_qt_vars() {
+        $this->qa->set_usage_id('MDOgzdhS4W');
+        $this->qa->set_slot(1);
+        $this->assertEquals(array('omval_response1' => 1, 'omval_response2' => 666, 'omact_gen_14' => 'Check'),
+                $this->qa->get_all_submitted_qt_vars(array(
+                    'qMDOgzdhS4W:1_omval_response1' => 1,
+                    'qMDOgzdhS4W:1_omval_response2' => 666,
+                    'qMDOgzdhS4W:1_omact_gen_14' => 'Check',
+                )));
     }
 }

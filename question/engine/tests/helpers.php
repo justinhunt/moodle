@@ -27,7 +27,8 @@
 defined('MOODLE_INTERNAL') || die();
 
 global $CFG;
-require_once(dirname(__FILE__) . '/../lib.php');
+require_once(__DIR__ . '/../lib.php');
+require_once($CFG->dirroot . '/lib/phpunit/lib.php');
 
 
 /**
@@ -42,6 +43,9 @@ class testable_question_attempt extends question_attempt {
     }
     public function set_min_fraction($fraction) {
         $this->minfraction = $fraction;
+    }
+    public function set_max_fraction($fraction) {
+        $this->maxfraction = $fraction;
     }
     public function set_behaviour(question_behaviour $behaviour) {
         $this->behaviour = $behaviour;
@@ -80,6 +84,14 @@ class testable_question_engine_unit_of_work extends question_engine_unit_of_work
     public function get_steps_deleted() {
         return $this->stepsdeleted;
     }
+
+    public function get_metadata_added() {
+        return $this->metadataadded;
+    }
+
+    public function get_metadata_modified() {
+        return $this->metadatamodified;
+    }
 }
 
 
@@ -96,6 +108,29 @@ abstract class question_test_helper {
      * this question type.
      */
     abstract public function get_test_questions();
+
+    /**
+     * Set up a form to create a question in $cat. This method also sets cat and contextid on $questiondata object.
+     * @param object $cat the category
+     * @param object $questiondata form initialisation requires question data.
+     * @return moodleform
+     */
+    public static function get_question_editing_form($cat, $questiondata) {
+        $catcontext = context::instance_by_id($cat->contextid, MUST_EXIST);
+        $contexts = new question_edit_contexts($catcontext);
+        $dataforformconstructor = new stdClass();
+        $dataforformconstructor->createdby = $questiondata->createdby;
+        $dataforformconstructor->qtype = $questiondata->qtype;
+        $dataforformconstructor->contextid = $questiondata->contextid = $catcontext->id;
+        $dataforformconstructor->category = $questiondata->category = $cat->id;
+        $dataforformconstructor->formoptions = new stdClass();
+        $dataforformconstructor->formoptions->canmove = true;
+        $dataforformconstructor->formoptions->cansaveasnew = true;
+        $dataforformconstructor->formoptions->canedit = true;
+        $dataforformconstructor->formoptions->repeatelements = true;
+        $qtype = question_bank::get_qtype($questiondata->qtype);
+        return  $qtype->create_editing_form('question.php', $dataforformconstructor, $cat, $contexts, true);
+    }
 }
 
 
@@ -135,6 +170,7 @@ class test_question_maker {
 
         $q->id = 0;
         $q->category = 0;
+        $q->idnumber = null;
         $q->parent = 0;
         $q->questiontextformat = FORMAT_HTML;
         $q->generalfeedbackformat = FORMAT_HTML;
@@ -155,6 +191,7 @@ class test_question_maker {
 
         $qdata->id = 0;
         $qdata->category = 0;
+        $qdata->idnumber = null;
         $qdata->contextid = 0;
         $qdata->parent = 0;
         $qdata->questiontextformat = FORMAT_HTML;
@@ -172,18 +209,6 @@ class test_question_maker {
         $qdata->hints = array();
     }
 
-    public static function initialise_question_form_data($qdata) {
-        $formdata = new stdClass();
-        $formdata->id = 0;
-        $formdata->category = '0,0';
-        $formdata->usecurrentcat = 1;
-        $formdata->categorymoveto = '0,0';
-        $formdata->tags = array();
-        $formdata->penalty = 0.3333333;
-        $formdata->questiontextformat = FORMAT_HTML;
-        $formdata->generalfeedbackformat = FORMAT_HTML;
-    }
-
     /**
      * Get the test helper class for a particular question type.
      * @param $qtype the question type name, e.g. 'multichoice'.
@@ -196,7 +221,7 @@ class test_question_maker {
             return self::$testhelpers[$qtype];
         }
 
-        $file = get_plugin_directory('qtype', $qtype) . '/tests/helper.php';
+        $file = core_component::get_plugin_directory('qtype', $qtype) . '/tests/helper.php';
         if (!is_readable($file)) {
             throw new coding_exception('Question type ' . $qtype .
                 ' does not have test helper code.');
@@ -237,7 +262,7 @@ class test_question_maker {
             array($qtype,    $which), $methodtemplate);
 
         if (!method_exists($helper, $method)) {
-            throw new coding_exception('Method ' . $method . ' does not exist on the' .
+            throw new coding_exception('Method ' . $method . ' does not exist on the ' .
                 $qtype . ' question type test helper class.');
         }
 
@@ -390,8 +415,12 @@ class test_question_maker {
         $essay->qtype = question_bank::get_qtype('essay');
 
         $essay->responseformat = 'editor';
+        $essay->responserequired = 1;
         $essay->responsefieldlines = 15;
         $essay->attachments = 0;
+        $essay->attachmentsrequired = 0;
+        $essay->responsetemplate = '';
+        $essay->responsetemplateformat = FORMAT_MOODLE;
         $essay->graderinfo = '';
         $essay->graderinfoformat = FORMAT_MOODLE;
 
@@ -412,6 +441,19 @@ class test_question_maker {
         $q->shownumcorrect = true;
         $q->incorrectfeedback = self::STANDARD_OVERALL_INCORRECT_FEEDBACK;
         $q->incorrectfeedbackformat = FORMAT_HTML;
+    }
+
+    /**
+     * Add some standard overall feedback to a question's form data.
+     */
+    public static function set_standard_combined_feedback_form_data($form) {
+        $form->correctfeedback = array('text' => self::STANDARD_OVERALL_CORRECT_FEEDBACK,
+                                    'format' => FORMAT_HTML);
+        $form->partiallycorrectfeedback = array('text' => self::STANDARD_OVERALL_PARTIALLYCORRECT_FEEDBACK,
+                                             'format' => FORMAT_HTML);
+        $form->shownumcorrect = true;
+        $form->incorrectfeedback = array('text' => self::STANDARD_OVERALL_INCORRECT_FEEDBACK,
+                                    'format' => FORMAT_HTML);
     }
 }
 
@@ -515,10 +557,10 @@ abstract class question_testcase extends advanced_testcase {
             $compare = (array)$compare;
             foreach ($expect as $k=>$v) {
                 if (!array_key_exists($k, $compare)) {
-                    $this->fail("Property $k does not exist");
+                    $this->fail("Property {$k} does not exist");
                 }
                 if ($v != $compare[$k]) {
-                    $this->fail("Property $k is different");
+                    $this->fail("Property {$k} is different");
                 }
             }
             $this->assertTrue(true);
@@ -531,6 +573,48 @@ abstract class question_testcase extends advanced_testcase {
         }
 
         throw new coding_exception('Unknown expectiontion:'.get_class($expectation));
+    }
+
+    /**
+     * Use this function rather than assert when checking the value of options within a select element.
+     *
+     * @param question_contains_select_expectation $expectation The select expectation class
+     * @param string $html The rendered output to check against
+     */
+    public function assert_select_options($expectation, $html) {
+        if (get_class($expectation) !== 'question_contains_select_expectation') {
+            throw new coding_exception('Unsuitable expectiontion: '.get_class($expectation));
+        }
+        $dom = new DOMDocument();
+        $dom->loadHTML($html);
+        $selects = $dom->getElementsByTagName('select');
+        foreach ($selects as $select) {
+            if ($select->getAttribute('name') == $expectation->name) {
+                $options = $select->getElementsByTagName('option');
+                foreach ($options as $key => $option) {
+                    if ($key == 0) {
+                        // Check the value of the first option. This is often 'Choose...' or a nbsp.
+                        // Note it is necessary to pass a nbsp character in the test here and not just ' '.
+                        // Many tests do not require checking of this option.
+                        if (isset($expectation->choices[$option->getAttribute('value')])) {
+                            $this->assertEquals($expectation->choices[$option->getAttribute('value')], $option->textContent);
+                        }
+                        continue;
+                    }
+                    // Check the value of the options in the select.
+                    $this->assertEquals($expectation->choices[$option->getAttribute('value')], $option->textContent);
+                    if ($expectation->selected && $option->getAttribute('value') == $expectation->selected) {
+                        // Check the right option is selected.
+                        $this->assertTrue(!empty($option->getAttribute('selected')));
+                    }
+                }
+                if ($expectation->enabled) {
+                    // Check the select element is enabled.
+                    $this->assertTrue(!$select->getAttribute('disabled'));
+                }
+            }
+        }
+        return;
     }
 }
 
@@ -642,8 +726,78 @@ class question_no_pattern_expectation {
 
 
 /**
- * Helper base class for tests that walk a question through a sequents of
- * interactions under the control of a particular behaviour.
+ * Helper base class for question walk-through tests.
+ *
+ * The purpose of tests that use this base class is to simulate the entire
+ * interaction of a student making an attempt at a question. Therefore,
+ * these are not really unit tests. They would more accurately be described
+ * as integration tests. However, whether they are unit tests or not,
+ * it works well to implement them in PHPUnit.
+ *
+ * Historically, tests like this were made because Moodle did not have anything
+ * like Behat for end-to-end testing. Even though we do now have Behat, it makes
+ * sense to keep these walk-through tests. They run massively faster than Behat
+ * tests, which gives you a much faster feedback loop while doing development.
+ * They also make it quite easy to test things like regrading the attempt after
+ * the question has been edited, which would be possible but very fiddly in Behat.
+ *
+ * Ideally, the full set of tests for the question class of a question type would be:
+ *
+ * 1. A lot of unit tests for each qtype_myqtype_question class method
+ *    like grade_response, is_complete_response, is_same_response, ...
+ *
+ * 2. Several of these walk-through tests, to test the end-to-end interaction
+ *    of a student with a question, for example with different behaviours.
+ *
+ * 3. Just one Behat test, using question preview, to verify that everything
+ *    is plugged together correctly and works when used through the UI.
+ *
+ * What one would expect to see in one of these walk-through tests is:
+ *
+ * // 1. Set up a question: $q.
+ *
+ * // 2. A call to $this->start_attempt_at_question($q, ...); with the relevant options.
+ *
+ * // 3. Some number of calls to $this->process_submission passing an array of simulated
+ * //    POST data that matches what would be sent back be submitting a form that contains
+ * //    the form fields that are output by rendering the question. This is like clicking
+ * //    the 'Check' button in a question, or navigating to the next page in a quiz.
+ *
+ * // 4. A call to $this->finish(); which is the equivalent of clicking
+ * //    'Submit all and finish' in the quiz.
+ *
+ * // 5. After each of steps 2-4 above, one would expect to see a certain amount of
+ * //    validation of the state of the question and how the question is rendered,
+ * //    using methods like $this->check_current_state(), $this->check_current_output, etc.
+ *
+ * The best way to work out how to write tests like this is probably to look at
+ * some examples in other question types or question behaviours.
+ *
+ * In writing these tests, it is worth noting the following points:
+ *
+ * a) The easiest mistake to make is at step 3. You need to ensure that your
+ *    simulated post data actually matches what gets sent back when the
+ *    question is submitted in the browser. Try checking it against the
+ *    HTTP POST requests you see in your browser when the question is submitted.
+ *    Some question types have a $q->prepare_simulated_post_data() method that
+ *    can help with this.
+ *
+ * b) In the past, tests like these used to contain even more repetitive code,
+ *    and so they were re-factored to add the helper methods like
+ *    start_attempt_at_question, process_submission, finish. That change had
+ *    good effects, like reducing duplicate code. However, there were down-sides.
+ *    The extra layers of indirection hide what is going on, which means these
+ *    tests are harder to understand until you know what the helpers are doing.
+ *    If you want an interesting exercise, take one of the walk-through tests,
+ *    and inline all the helpers. This might be a good way to understand more about
+ *    the question engine API. However, having made the everything-inlined code
+ *    and learned from the process, you should then just throw it away.
+ *
+ * c) The way check_current_output works is weird. When these tests were first written
+ *    Moodle used SimpleTest for unit tests and check_current_output os written in a
+ *    style that made sense there. When we moved to PHPUnit, a quick and dirty
+ *    conversion was done. That was a pragmatic move at the time, and we just have
+ *    to live with the result. Sorry. (And: don't copy that style for new things.)
  *
  * @copyright  2009 The Open University
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
@@ -736,6 +890,20 @@ abstract class qbehaviour_walkthrough_test_base extends question_testcase {
         $this->quba = null;
     }
 
+    /**
+     * Asserts if the manual comment for the question is equal to the provided arguments.
+     * @param $comment Comment text
+     * @param $commentformat Comment format
+     */
+    protected function check_comment($comment, $commentformat) {
+        $actualcomment = $this->quba->get_question_attempt($this->slot)->get_manual_comment();
+
+        $this->assertEquals(
+                [$comment, $commentformat],
+                [$actualcomment[0], $actualcomment[1]]
+        );
+    }
+
     protected function check_current_state($state) {
         $this->assertEquals($state, $this->quba->get_question_state($this->slot),
             'Questions is in the wrong state.');
@@ -824,6 +992,22 @@ abstract class qbehaviour_walkthrough_test_base extends question_testcase {
                 'Looking for a hidden input with attributes ' . html_writer::attributes($attributes) . ' in ' . $this->currentoutput);
     }
 
+    protected function check_output_contains($string) {
+        $this->render();
+        $this->assertContains($string, $this->currentoutput,
+                'Expected string ' . $string . ' not found in ' . $this->currentoutput);
+    }
+
+    protected function check_output_does_not_contain($string) {
+        $this->render();
+        $this->assertNotContains($string, $this->currentoutput,
+                'String ' . $string . ' unexpectedly found in ' . $this->currentoutput);
+    }
+
+    protected function check_output_contains_lang_string($identifier, $component = '', $a = null) {
+        $this->check_output_contains(get_string($identifier, $component, $a));
+    }
+
     protected function get_tag_matcher($tag, $attributes) {
         return array(
             'tag' => $tag,
@@ -838,6 +1022,20 @@ abstract class qbehaviour_walkthrough_test_base extends question_testcase {
         $html = $this->quba->render_question($this->slot, $this->displayoptions);
         foreach (func_get_args() as $condition) {
             $this->assert($condition, $html);
+        }
+    }
+
+    /**
+     * Use this function rather than check_current_output for select expectations where
+     * checking the value of the options is required. check_current_output only checks
+     * that the right number of options are available.
+     *
+     * @param question_contains_select_expectation $expectations One or more expectations.
+     */
+    protected function check_output_contains_selectoptions(...$expectations) {
+        $html = $this->quba->render_question($this->slot, $this->displayoptions);
+        foreach ($expectations as $expectation) {
+            $this->assert_select_options($expectation, $html);
         }
     }
 
@@ -1048,9 +1246,25 @@ abstract class qbehaviour_walkthrough_test_base extends question_testcase {
         return new question_contains_tag_with_attributes('input', $expectedattributes, $forbiddenattributes);
     }
 
+    /**
+     * Returns an epectation that a string contains the HTML of a button with
+     * name {question-attempt prefix}-submit, and eiter enabled or not.
+     * @param bool $enabled if not null, check the enabled/disabled state of the button. True = enabled.
+     * @return question_contains_tag_with_attributes an expectation for use with check_current_output.
+     */
     protected function get_contains_submit_button_expectation($enabled = null) {
         return $this->get_contains_button_expectation(
             $this->quba->get_field_prefix($this->slot) . '-submit', null, $enabled);
+    }
+
+    /**
+     * Returns an epectation that a string does not contain the HTML of a button with
+     * name {question-attempt prefix}-submit.
+     * @return question_contains_tag_with_attributes an expectation for use with check_current_output.
+     */
+    protected function get_does_not_contain_submit_button_expectation() {
+        return new question_no_pattern_expectation('/name="' .
+                $this->quba->get_field_prefix($this->slot) . '-submit"/');
     }
 
     protected function get_tries_remaining_expectation($n) {
@@ -1169,5 +1383,24 @@ class question_test_recordset extends moodle_recordset {
 
     public function close() {
         $this->records = null;
+    }
+}
+
+/**
+ * Helper class for tests that help to test core_question_renderer.
+ *
+ * @copyright  2018 Huong Nguyen <huongnv13@gmail.com>
+ * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
+ */
+class testable_core_question_renderer extends core_question_renderer {
+
+    /**
+     * Test the private number function.
+     *
+     * @param null|string $number
+     * @return HTML
+     */
+    public function number($number) {
+        return parent::number($number);
     }
 }

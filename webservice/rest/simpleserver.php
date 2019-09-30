@@ -28,28 +28,13 @@
  */
 define('NO_DEBUG_DISPLAY', true);
 
-/**
- * NO_MOODLE_COOKIES - no cookies with web service
- */
-define('NO_MOODLE_COOKIES', true);
+define('WS_SERVER', true);
 
 require('../../config.php');
 require_once("$CFG->dirroot/webservice/rest/locallib.php");
 
 if (!webservice_protocol_is_enabled('rest')) {
     die;
-}
-
-$restformat = optional_param('moodlewsrestformat', 'xml', PARAM_ALPHA);
-//remove the alt from the request
-if (isset($_REQUEST['moodlewsrestformat'])) {
-    unset($_REQUEST['moodlewsrestformat']);
-}
-if (isset($_GET['moodlewsrestformat'])) {
-    unset($_GET['moodlewsrestformat']);
-}
-if (isset($_POST['moodlewsrestformat'])) {
-    unset($_POST['moodlewsrestformat']);
 }
 
 $server = new webservice_rest_server(WEBSERVICE_AUTHMETHOD_USERNAME);

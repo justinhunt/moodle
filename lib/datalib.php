@@ -42,8 +42,16 @@ define('MAX_COURSE_CATEGORIES', 10000);
 
 /**
  * Number of seconds to wait before updating lastaccess information in DB.
+ *
+ * We allow overwrites from config.php, useful to ensure coherence in performance
+ * tests results.
+ *
+ * Note: For web service requests in the external_tokens field, we use a different constant
+ * webservice::TOKEN_LASTACCESS_UPDATE_SECS.
  */
-define('LASTACCESS_UPDATE_SECS', 60);
+if (!defined('LASTACCESS_UPDATE_SECS')) {
+    define('LASTACCESS_UPDATE_SECS', 60);
+}
 
 /**
  * Returns $user object of the main admin user
@@ -177,14 +185,17 @@ function search_users($courseid, $groupid, $searchtext, $sort='', array $excepti
 
         } else {
             $context = context_course::instance($courseid);
-            $contextlists = get_related_contexts_string($context);
+
+            // We want to query both the current context and parent contexts.
+            list($relatedctxsql, $relatedctxparams) = $DB->get_in_or_equal($context->get_parent_context_ids(true), SQL_PARAMS_NAMED, 'relatedctx');
 
             $sql = "SELECT u.id, u.firstname, u.lastname, u.email
                       FROM {user} u
                       JOIN {role_assignments} ra ON ra.userid = u.id
-                     WHERE $select AND ra.contextid $contextlists
+                     WHERE $select AND ra.contextid $relatedctxsql
                            $except
                     $order";
+            $params = array_merge($params, $relatedctxparams);
             return $DB->get_records_sql($sql, $params);
         }
     }
@@ -507,10 +518,11 @@ function get_users_listing($sort='lastaccess', $dir='ASC', $page=0, $recordsperp
                 array('id', 'username', 'email', 'firstname', 'lastname', 'city', 'country',
                 'lastaccess', 'confirmed', 'mnethostid'));
     }
+    $namefields = get_all_user_name_fields(true);
+    $extrafields = "$extrafields, $namefields";
 
     // warning: will return UNCONFIRMED USERS
-    return $DB->get_records_sql("SELECT id, username, email, firstname, lastname, city, country,
-                                        lastaccess, confirmed, mnethostid, suspended $extrafields
+    return $DB->get_records_sql("SELECT id, username, email, city, country, lastaccess, confirmed, mnethostid, suspended $extrafields
                                    FROM {user}
                                   WHERE $select
                                   $sort", $params, $page, $recordsperpage);
@@ -588,6 +600,9 @@ function get_course($courseid, $clone = true) {
  *            we are using distinct. You almost _NEVER_ need all the fields
  *            in such a large SELECT
  *
+ * Consider using core_course_category::get_courses()
+ * or core_course_category::search_courses() instead since they use caching.
+ *
  * @global object
  * @global object
  * @global object
@@ -618,7 +633,9 @@ function get_courses($categoryid="all", $sort="c.sortorder ASC", $fields="c.*") 
 
     $visiblecourses = array();
 
-    list($ccselect, $ccjoin) = context_instance_preload_sql('c.id', CONTEXT_COURSE, 'ctx');
+    $ccselect = ', ' . context_helper::get_preload_record_columns_sql('ctx');
+    $ccjoin = "LEFT JOIN {context} ctx ON (ctx.instanceid = c.id AND ctx.contextlevel = :contextlevel)";
+    $params['contextlevel'] = CONTEXT_COURSE;
 
     $sql = "SELECT $fields $ccselect
               FROM {course} c
@@ -631,90 +648,12 @@ function get_courses($categoryid="all", $sort="c.sortorder ASC", $fields="c.*") 
 
         // loop throught them
         foreach ($courses as $course) {
-            context_instance_preload($course);
-            if (isset($course->visible) && $course->visible <= 0) {
-                // for hidden courses, require visibility check
-                if (has_capability('moodle/course:viewhiddencourses', context_course::instance($course->id))) {
-                    $visiblecourses [$course->id] = $course;
-                }
-            } else {
+            context_helper::preload_from_record($course);
+            if (core_course_category::can_view_course_info($course)) {
                 $visiblecourses [$course->id] = $course;
             }
         }
     }
-    return $visiblecourses;
-}
-
-
-/**
- * Returns list of courses, for whole site, or category
- *
- * Similar to get_courses, but allows paging
- * Important: Using c.* for fields is extremely expensive because
- *            we are using distinct. You almost _NEVER_ need all the fields
- *            in such a large SELECT
- *
- * @global object
- * @global object
- * @global object
- * @uses CONTEXT_COURSE
- * @param string|int $categoryid Either a category id or 'all' for everything
- * @param string $sort A field and direction to sort by
- * @param string $fields The additional fields to return
- * @param int $totalcount Reference for the number of courses
- * @param string $limitfrom The course to start from
- * @param string $limitnum The number of courses to limit to
- * @return array Array of courses
- */
-function get_courses_page($categoryid="all", $sort="c.sortorder ASC", $fields="c.*",
-                          &$totalcount, $limitfrom="", $limitnum="") {
-    global $USER, $CFG, $DB;
-
-    $params = array();
-
-    $categoryselect = "";
-    if ($categoryid !== "all" && is_numeric($categoryid)) {
-        $categoryselect = "WHERE c.category = :catid";
-        $params['catid'] = $categoryid;
-    } else {
-        $categoryselect = "";
-    }
-
-    list($ccselect, $ccjoin) = context_instance_preload_sql('c.id', CONTEXT_COURSE, 'ctx');
-
-    $totalcount = 0;
-    if (!$limitfrom) {
-        $limitfrom = 0;
-    }
-    $visiblecourses = array();
-
-    $sql = "SELECT $fields $ccselect
-              FROM {course} c
-              $ccjoin
-           $categoryselect
-          ORDER BY $sort";
-
-    // pull out all course matching the cat
-    $rs = $DB->get_recordset_sql($sql, $params);
-    // iteration will have to be done inside loop to keep track of the limitfrom and limitnum
-    foreach($rs as $course) {
-        context_instance_preload($course);
-        if ($course->visible <= 0) {
-            // for hidden courses, require visibility check
-            if (has_capability('moodle/course:viewhiddencourses', context_course::instance($course->id))) {
-                $totalcount++;
-                if ($totalcount > $limitfrom && (!$limitnum or count($visiblecourses) < $limitnum)) {
-                    $visiblecourses [$course->id] = $course;
-                }
-            }
-        } else {
-            $totalcount++;
-            if ($totalcount > $limitfrom && (!$limitnum or count($visiblecourses) < $limitnum)) {
-                $visiblecourses [$course->id] = $course;
-            }
-        }
-    }
-    $rs->close();
     return $visiblecourses;
 }
 
@@ -728,9 +667,13 @@ function get_courses_page($categoryid="all", $sort="c.sortorder ASC", $fields="c
  * @param int $page The page number to get
  * @param int $recordsperpage The number of records per page
  * @param int $totalcount Passed in by reference.
- * @return object {@link $COURSE} records
+ * @param array $requiredcapabilities Extra list of capabilities used to filter courses
+ * @param array $searchcond additional search conditions, for example ['c.enablecompletion = :p1']
+ * @param array $params named parameters for additional search conditions, for example ['p1' => 1]
+ * @return stdClass[] {@link $COURSE} records
  */
-function get_courses_search($searchterms, $sort, $page, $recordsperpage, &$totalcount) {
+function get_courses_search($searchterms, $sort, $page, $recordsperpage, &$totalcount,
+                            $requiredcapabilities = array(), $searchcond = [], $params = []) {
     global $CFG, $DB;
 
     if ($DB->sql_regex_supported()) {
@@ -738,8 +681,6 @@ function get_courses_search($searchterms, $sort, $page, $recordsperpage, &$total
         $NOTREGEXP = $DB->sql_regex(false);
     }
 
-    $searchcond = array();
-    $params     = array();
     $i = 0;
 
     // Thanks Oracle for your non-ansi concat and type limits in coalesce. MDL-29912
@@ -772,7 +713,7 @@ function get_courses_search($searchterms, $sort, $page, $recordsperpage, &$total
             $searchcond[] = "$concat $REGEXP :ss$i";
             $params['ss'.$i] = "(^|[^a-zA-Z0-9])$searchterm([^a-zA-Z0-9]|$)";
 
-        } else if (substr($searchterm,0,1) == "-") {
+        } else if ((substr($searchterm,0,1) == "-") && (core_text::strlen($searchterm) > 1)) {
             $searchterm = trim($searchterm, '+-');
             $searchterm = preg_quote($searchterm, '|');
             $searchcond[] = "$concat $NOTREGEXP :ss$i";
@@ -785,8 +726,7 @@ function get_courses_search($searchterms, $sort, $page, $recordsperpage, &$total
     }
 
     if (empty($searchcond)) {
-        $totalcount = 0;
-        return array();
+        $searchcond = array('1 = 1');
     }
 
     $searchcond = implode(" AND ", $searchcond);
@@ -798,21 +738,27 @@ function get_courses_search($searchterms, $sort, $page, $recordsperpage, &$total
     $limitfrom = $page * $recordsperpage;
     $limitto   = $limitfrom + $recordsperpage;
 
-    list($ccselect, $ccjoin) = context_instance_preload_sql('c.id', CONTEXT_COURSE, 'ctx');
-    $fields = array_diff(array_keys($DB->get_columns('course')), array('modinfo', 'sectioncache'));
-    $sql = "SELECT c.".join(',c.',$fields)." $ccselect
+    $ccselect = ', ' . context_helper::get_preload_record_columns_sql('ctx');
+    $ccjoin = "LEFT JOIN {context} ctx ON (ctx.instanceid = c.id AND ctx.contextlevel = :contextlevel)";
+    $params['contextlevel'] = CONTEXT_COURSE;
+
+    $sql = "SELECT c.* $ccselect
               FROM {course} c
            $ccjoin
              WHERE $searchcond AND c.id <> ".SITEID."
           ORDER BY $sort";
 
+    $mycourses = enrol_get_my_courses();
     $rs = $DB->get_recordset_sql($sql, $params);
     foreach($rs as $course) {
-        if (!$course->visible) {
-            // preload contexts only for hidden courses or courses we need to return
-            context_instance_preload($course);
-            $coursecontext = context_course::instance($course->id);
-            if (!has_capability('moodle/course:viewhiddencourses', $coursecontext)) {
+        // Preload contexts only for hidden courses or courses we need to return.
+        context_helper::preload_from_record($course);
+        $coursecontext = context_course::instance($course->id);
+        if (!array_key_exists($course->id, $mycourses) && !core_course_category::can_view_course_info($course)) {
+            continue;
+        }
+        if (!empty($requiredcapabilities)) {
+            if (!has_all_capabilities($requiredcapabilities, $coursecontext)) {
                 continue;
             }
         }
@@ -1142,35 +1088,6 @@ function get_my_remotehosts() {
     return false;
 }
 
-/**
- * This function creates a default separated/connected scale
- *
- * This function creates a default separated/connected scale
- * so there's something in the database.  The locations of
- * strings and files is a bit odd, but this is because we
- * need to maintain backward compatibility with many different
- * existing language translations and older sites.
- *
- * @global object
- * @return void
- */
-function make_default_scale() {
-    global $DB;
-
-    $defaultscale = new stdClass();
-    $defaultscale->courseid = 0;
-    $defaultscale->userid = 0;
-    $defaultscale->name  = get_string('separateandconnected');
-    $defaultscale->description = get_string('separateandconnectedinfo');
-    $defaultscale->scale = get_string('postrating1', 'forum').','.
-                           get_string('postrating2', 'forum').','.
-                           get_string('postrating3', 'forum');
-    $defaultscale->timemodified = time();
-
-    $defaultscale->id = $DB->insert_record('scale', $defaultscale);
-    $DB->execute("UPDATE {forum} SET scale = ?", array($defaultscale->id));
-}
-
 
 /**
  * Returns a menu of all available scales from the site as well as the given course
@@ -1182,43 +1099,49 @@ function make_default_scale() {
 function get_scales_menu($courseid=0) {
     global $DB;
 
-    $sql = "SELECT id, name
+    $sql = "SELECT id, name, courseid
               FROM {scale}
              WHERE courseid = 0 or courseid = ?
           ORDER BY courseid ASC, name ASC";
     $params = array($courseid);
-
-    if ($scales = $DB->get_records_sql_menu($sql, $params)) {
-        return $scales;
+    $scales = array();
+    $results = $DB->get_records_sql($sql, $params);
+    foreach ($results as $index => $record) {
+        $context = empty($record->courseid) ? context_system::instance() : context_course::instance($record->courseid);
+        $scales[$index] = format_string($record->name, false, ["context" => $context]);
     }
-
-    make_default_scale();
-
-    return $DB->get_records_sql_menu($sql, $params);
+    // Format: [id => 'scale name'].
+    return $scales;
 }
 
-
-
 /**
- * Given a set of timezone records, put them in the database,  replacing what is there
+ * Increment standard revision field.
  *
- * @global object
- * @param array $timezones An array of timezone records
- * @return void
+ * The revision are based on current time and are incrementing.
+ * There is a protection for runaway revisions, it may not go further than
+ * one hour into future.
+ *
+ * The field has to be XMLDB_TYPE_INTEGER with size 10.
+ *
+ * @param string $table
+ * @param string $field name of the field containing revision
+ * @param string $select use empty string when updating all records
+ * @param array $params optional select parameters
  */
-function update_timezone_records($timezones) {
+function increment_revision_number($table, $field, $select, array $params = null) {
     global $DB;
 
-/// Clear out all the old stuff
-    $DB->delete_records('timezone');
-
-/// Insert all the new stuff
-    foreach ($timezones as $timezone) {
-        if (is_array($timezone)) {
-            $timezone = (object)$timezone;
-        }
-        $DB->insert_record('timezone', $timezone);
+    $now = time();
+    $sql = "UPDATE {{$table}}
+                   SET $field = (CASE
+                       WHEN $field IS NULL THEN $now
+                       WHEN $field < $now THEN $now
+                       WHEN $field > $now + 3600 THEN $now
+                       ELSE $field + 1 END)";
+    if ($select) {
+        $sql = $sql . " WHERE $select";
     }
+    $DB->execute($sql, $params);
 }
 
 
@@ -1248,6 +1171,10 @@ function get_course_mods($courseid) {
 /**
  * Given an id of a course module, finds the coursemodule description
  *
+ * Please note that this function performs 1-2 DB queries. When possible use cached
+ * course modinfo. For example get_fast_modinfo($courseorid)->get_cm($cmid)
+ * See also {@link cm_info::get_course_module_record()}
+ *
  * @global object
  * @param string $modulename name of module type, eg. resource, assignment,... (optional, slower and less safe if not specified)
  * @param int $cmid course module id (id in course_modules table)
@@ -1269,6 +1196,10 @@ function get_coursemodule_from_id($modulename, $cmid, $courseid=0, $sectionnum=f
                                                  JOIN {course_modules} cm ON cm.module = md.id
                                                 WHERE cm.id = :cmid", $params, $strictness)) {
             return false;
+        }
+    } else {
+        if (!core_component::is_valid_plugin_name('mod', $modulename)) {
+            throw new coding_exception('Invalid modulename parameter');
         }
     }
 
@@ -1302,6 +1233,10 @@ function get_coursemodule_from_id($modulename, $cmid, $courseid=0, $sectionnum=f
 /**
  * Given an instance number of a module, finds the coursemodule description
  *
+ * Please note that this function performs DB query. When possible use cached course
+ * modinfo. For example get_fast_modinfo($courseorid)->instances[$modulename][$instance]
+ * See also {@link cm_info::get_course_module_record()}
+ *
  * @global object
  * @param string $modulename name of module type, eg. resource, assignment,...
  * @param int $instance module instance number (id in resource, assignment etc. table)
@@ -1314,6 +1249,10 @@ function get_coursemodule_from_id($modulename, $cmid, $courseid=0, $sectionnum=f
  */
 function get_coursemodule_from_instance($modulename, $instance, $courseid=0, $sectionnum=false, $strictness=IGNORE_MISSING) {
     global $DB;
+
+    if (!core_component::is_valid_plugin_name('mod', $modulename)) {
+        throw new coding_exception('Invalid modulename parameter');
+    }
 
     $params = array('instance'=>$instance, 'modulename'=>$modulename);
 
@@ -1353,6 +1292,10 @@ function get_coursemodule_from_instance($modulename, $instance, $courseid=0, $se
 function get_coursemodules_in_course($modulename, $courseid, $extrafields='') {
     global $DB;
 
+    if (!core_component::is_valid_plugin_name('mod', $modulename)) {
+        throw new coding_exception('Invalid modulename parameter');
+    }
+
     if (!empty($extrafields)) {
         $extrafields = ", $extrafields";
     }
@@ -1377,7 +1320,7 @@ function get_coursemodules_in_course($modulename, $courseid, $extrafields='') {
  * in the course. Returns an empty array on any errors.
  *
  * The returned objects includle the columns cw.section, cm.visible,
- * cm.groupmode and cm.groupingid, cm.groupmembersonly, and are indexed by cm.id.
+ * cm.groupmode, and cm.groupingid, and are indexed by cm.id.
  *
  * @global object
  * @global object
@@ -1391,6 +1334,10 @@ function get_coursemodules_in_course($modulename, $courseid, $extrafields='') {
 function get_all_instances_in_courses($modulename, $courses, $userid=NULL, $includeinvisible=false) {
     global $CFG, $DB;
 
+    if (!core_component::is_valid_plugin_name('mod', $modulename)) {
+        throw new coding_exception('Invalid modulename parameter');
+    }
+
     $outputarray = array();
 
     if (empty($courses) || !is_array($courses) || count($courses) == 0) {
@@ -1401,7 +1348,7 @@ function get_all_instances_in_courses($modulename, $courses, $userid=NULL, $incl
     $params['modulename'] = $modulename;
 
     if (!$rawmods = $DB->get_records_sql("SELECT cm.id AS coursemodule, m.*, cw.section, cm.visible AS visible,
-                                                 cm.groupmode, cm.groupingid, cm.groupmembersonly
+                                                 cm.groupmode, cm.groupingid
                                             FROM {course_modules} cm, {course_sections} cw, {modules} md,
                                                  {".$modulename."} m
                                            WHERE cm.course $coursessql AND
@@ -1446,7 +1393,7 @@ function get_all_instances_in_courses($modulename, $courses, $userid=NULL, $incl
  * in the course. Returns an empty array on any errors.
  *
  * The returned objects includle the columns cw.section, cm.visible,
- * cm.groupmode and cm.groupingid, cm.groupmembersonly, and are indexed by cm.id.
+ * cm.groupmode, and cm.groupingid, and are indexed by cm.id.
  *
  * Simply calls {@link all_instances_in_courses()} with a single provided course
  *
@@ -1467,7 +1414,12 @@ function get_all_instances_in_course($modulename, $course, $userid=NULL, $includ
  *
  * Given a valid module object with info about the id and course,
  * and the module's type (eg "forum") returns whether the object
- * is visible or not, groupmembersonly visibility not tested
+ * is visible or not according to the 'eye' icon only.
+ *
+ * NOTE: This does NOT take into account visibility to a particular user.
+ * To get visibility access for a specific user, use get_fast_modinfo, get a
+ * cm_info object from this, and check the ->uservisible property; or use
+ * the \core_availability\info_module::is_user_visible() static function.
  *
  * @global object
 
@@ -1480,7 +1432,7 @@ function instance_is_visible($moduletype, $module) {
 
     if (!empty($module->id)) {
         $params = array('courseid'=>$module->course, 'moduletype'=>$moduletype, 'moduleid'=>$module->id);
-        if ($records = $DB->get_records_sql("SELECT cm.instance, cm.visible, cm.groupingid, cm.id, cm.groupmembersonly, cm.course
+        if ($records = $DB->get_records_sql("SELECT cm.instance, cm.visible, cm.groupingid, cm.id, cm.course
                                                FROM {course_modules} cm, {modules} m
                                               WHERE cm.course = :courseid AND
                                                     cm.module = m.id AND
@@ -1495,48 +1447,43 @@ function instance_is_visible($moduletype, $module) {
     return true;  // visible by default!
 }
 
-/**
- * Determine whether a course module is visible within a course,
- * this is different from instance_is_visible() - faster and visibility for user
- *
- * @global object
- * @global object
- * @uses DEBUG_DEVELOPER
- * @uses CONTEXT_MODULE
- * @uses CONDITION_MISSING_EXTRATABLE
- * @param object $cm object
- * @param int $userid empty means current user
- * @return bool Success
- */
-function coursemodule_visible_for_user($cm, $userid=0) {
-    global $USER,$CFG;
-
-    if (empty($cm->id)) {
-        debugging("Incorrect course module parameter!", DEBUG_DEVELOPER);
-        return false;
-    }
-    if (empty($userid)) {
-        $userid = $USER->id;
-    }
-    if (!$cm->visible and !has_capability('moodle/course:viewhiddenactivities', context_module::instance($cm->id), $userid)) {
-        return false;
-    }
-    if ($CFG->enableavailability) {
-        require_once($CFG->libdir.'/conditionlib.php');
-        $ci=new condition_info($cm,CONDITION_MISSING_EXTRATABLE);
-        if(!$ci->is_available($cm->availableinfo,false,$userid) and
-            !has_capability('moodle/course:viewhiddenactivities',
-                context_module::instance($cm->id), $userid)) {
-            return false;
-        }
-    }
-    return groups_course_module_visible($cm, $userid);
-}
-
-
-
 
 /// LOG FUNCTIONS /////////////////////////////////////////////////////
+
+/**
+ * Get instance of log manager.
+ *
+ * @param bool $forcereload
+ * @return \core\log\manager
+ */
+function get_log_manager($forcereload = false) {
+    /** @var \core\log\manager $singleton */
+    static $singleton = null;
+
+    if ($forcereload and isset($singleton)) {
+        $singleton->dispose();
+        $singleton = null;
+    }
+
+    if (isset($singleton)) {
+        return $singleton;
+    }
+
+    $classname = '\tool_log\log\manager';
+    if (defined('LOG_MANAGER_CLASS')) {
+        $classname = LOG_MANAGER_CLASS;
+    }
+
+    if (!class_exists($classname)) {
+        if (!empty($classname)) {
+            debugging("Cannot find log manager class '$classname'.", DEBUG_DEVELOPER);
+        }
+        $classname = '\core\log\dummy_manager';
+    }
+
+    $singleton = new $classname();
+    return $singleton;
+}
 
 /**
  * Add an entry to the config log table.
@@ -1559,116 +1506,28 @@ function add_to_config_log($name, $oldvalue, $value, $plugin) {
     global $USER, $DB;
 
     $log = new stdClass();
-    $log->userid       = during_initial_install() ? 0 :$USER->id; // 0 as user id during install
+    // Use 0 as user id during install.
+    $log->userid       = during_initial_install() ? 0 : $USER->id;
     $log->timemodified = time();
     $log->name         = $name;
     $log->oldvalue  = $oldvalue;
     $log->value     = $value;
     $log->plugin    = $plugin;
-    $DB->insert_record('config_log', $log);
-}
 
-/**
- * Add an entry to the log table.
- *
- * Add an entry to the log table.  These are "action" focussed rather
- * than web server hits, and provide a way to easily reconstruct what
- * any particular student has been doing.
- *
- * @package core
- * @category log
- * @global moodle_database $DB
- * @global stdClass $CFG
- * @global stdClass $USER
- * @uses SITEID
- * @uses DEBUG_DEVELOPER
- * @uses DEBUG_ALL
- * @param    int     $courseid  The course id
- * @param    string  $module  The module name  e.g. forum, journal, resource, course, user etc
- * @param    string  $action  'view', 'update', 'add' or 'delete', possibly followed by another word to clarify.
- * @param    string  $url     The file and parameters used to see the results of the action
- * @param    string  $info    Additional description information
- * @param    string  $cm      The course_module->id if there is one
- * @param    string  $user    If log regards $user other than $USER
- * @return void
- */
-function add_to_log($courseid, $module, $action, $url='', $info='', $cm=0, $user=0) {
-    // Note that this function intentionally does not follow the normal Moodle DB access idioms.
-    // This is for a good reason: it is the most frequently used DB update function,
-    // so it has been optimised for speed.
-    global $DB, $CFG, $USER;
+    $id = $DB->insert_record('config_log', $log);
 
-    if ($cm === '' || is_null($cm)) { // postgres won't translate empty string to its default
-        $cm = 0;
-    }
-
-    if ($user) {
-        $userid = $user;
-    } else {
-        if (session_is_loggedinas()) {  // Don't log
-            return;
-        }
-        $userid = empty($USER->id) ? '0' : $USER->id;
-    }
-
-    if (isset($CFG->logguests) and !$CFG->logguests) {
-        if (!$userid or isguestuser($userid)) {
-            return;
-        }
-    }
-
-    $REMOTE_ADDR = getremoteaddr();
-
-    $timenow = time();
-    $info = $info;
-    if (!empty($url)) { // could break doing html_entity_decode on an empty var.
-        $url = html_entity_decode($url, ENT_QUOTES, 'UTF-8');
-    } else {
-        $url = '';
-    }
-
-    // Restrict length of log lines to the space actually available in the
-    // database so that it doesn't cause a DB error. Log a warning so that
-    // developers can avoid doing things which are likely to cause this on a
-    // routine basis.
-    if(!empty($info) && textlib::strlen($info)>255) {
-        $info = textlib::substr($info,0,252).'...';
-        debugging('Warning: logged very long info',DEBUG_DEVELOPER);
-    }
-
-    // If the 100 field size is changed, also need to alter print_log in course/lib.php
-    if(!empty($url) && textlib::strlen($url)>100) {
-        $url = textlib::substr($url,0,97).'...';
-        debugging('Warning: logged very long URL',DEBUG_DEVELOPER);
-    }
-
-    if (defined('MDL_PERFDB')) { global $PERF ; $PERF->logwrites++;};
-
-    $log = array('time'=>$timenow, 'userid'=>$userid, 'course'=>$courseid, 'ip'=>$REMOTE_ADDR, 'module'=>$module,
-                 'cmid'=>$cm, 'action'=>$action, 'url'=>$url, 'info'=>$info);
-
-    try {
-        $DB->insert_record_raw('log', $log, false);
-    } catch (dml_exception $e) {
-        debugging('Error: Could not insert a new entry to the Moodle log. '. $e->error, DEBUG_ALL);
-
-        // MDL-11893, alert $CFG->supportemail if insert into log failed
-        if ($CFG->supportemail and empty($CFG->noemailever)) {
-            // email_to_user is not usable because email_to_user tries to write to the logs table,
-            // and this will get caught in an infinite loop, if disk is full
-            $site = get_site();
-            $subject = 'Insert into log failed at your moodle site '.$site->fullname;
-            $message = "Insert into log table failed at ". date('l dS \of F Y h:i:s A') .".\n It is possible that your disk is full.\n\n";
-            $message .= "The failed query parameters are:\n\n" . var_export($log, true);
-
-            $lasttime = get_config('admin', 'lastloginserterrormail');
-            if(empty($lasttime) || time() - $lasttime > 60*60*24) { // limit to 1 email per day
-                //using email directly rather than messaging as they may not be able to log in to access a message
-                mail($CFG->supportemail, $subject, $message);
-                set_config('lastloginserterrormail', time(), 'admin');
-            }
-        }
-    }
+    $event = core\event\config_log_created::create(array(
+            'objectid' => $id,
+            'userid' => $log->userid,
+            'context' => \context_system::instance(),
+            'other' => array(
+                'name' => $log->name,
+                'oldvalue' => $log->oldvalue,
+                'value' => $log->value,
+                'plugin' => $log->plugin
+            )
+        ));
+    $event->trigger();
 }
 
 /**
@@ -1687,7 +1546,7 @@ function add_to_log($courseid, $module, $action, $url='', $info='', $cm=0, $user
 function user_accesstime_log($courseid=0) {
     global $USER, $CFG, $DB;
 
-    if (!isloggedin() or session_is_loggedinas()) {
+    if (!isloggedin() or \core\session\manager::is_loggedinas()) {
         // no access tracking
         return;
     }
@@ -1734,7 +1593,19 @@ function user_accesstime_log($courseid=0) {
             $last->userid     = $USER->id;
             $last->courseid   = $courseid;
             $last->timeaccess = $timenow;
-            $DB->insert_record_raw('user_lastaccess', $last, false);
+            try {
+                $DB->insert_record_raw('user_lastaccess', $last, false);
+            } catch (dml_write_exception $e) {
+                // During a race condition we can fail to find the data, then it appears.
+                // If we still can't find it, rethrow the exception.
+                $lastaccess = $DB->get_field('user_lastaccess', 'timeaccess', array('userid' => $USER->id,
+                                                                                    'courseid' => $courseid));
+                if ($lastaccess === false) {
+                    throw $e;
+                }
+                // If we did find it, the race condition was true and another thread has inserted the time for us.
+                // We can just continue without having to do anything.
+            }
 
         } else if ($timenow - $lastaccess <  LASTACCESS_UPDATE_SECS) {
             // no need to update now, it was updated recently in concurrent login ;-)
@@ -1747,150 +1618,6 @@ function user_accesstime_log($courseid=0) {
         }
     }
 }
-
-/**
- * Select all log records based on SQL criteria
- *
- * @package core
- * @category log
- * @global moodle_database $DB
- * @param string $select SQL select criteria
- * @param array $params named sql type params
- * @param string $order SQL order by clause to sort the records returned
- * @param string $limitfrom return a subset of records, starting at this point (optional, required if $limitnum is set)
- * @param int $limitnum return a subset comprising this many records (optional, required if $limitfrom is set)
- * @param int $totalcount Passed in by reference.
- * @return array
- */
-function get_logs($select, array $params=null, $order='l.time DESC', $limitfrom='', $limitnum='', &$totalcount) {
-    global $DB;
-
-    if ($order) {
-        $order = "ORDER BY $order";
-    }
-
-    $selectsql = "";
-    $countsql  = "";
-
-    if ($select) {
-        $select = "WHERE $select";
-    }
-
-    $sql = "SELECT COUNT(*)
-              FROM {log} l
-           $select";
-
-    $totalcount = $DB->count_records_sql($sql, $params);
-
-    $sql = "SELECT l.*, u.firstname, u.lastname, u.picture
-              FROM {log} l
-              LEFT JOIN {user} u ON l.userid = u.id
-           $select
-            $order";
-
-    return $DB->get_records_sql($sql, $params, $limitfrom, $limitnum) ;
-}
-
-
-/**
- * Select all log records for a given course and user
- *
- * @package core
- * @category log
- * @global moodle_database $DB
- * @uses DAYSECS
- * @param int $userid The id of the user as found in the 'user' table.
- * @param int $courseid The id of the course as found in the 'course' table.
- * @param string $coursestart unix timestamp representing course start date and time.
- * @return array
- */
-function get_logs_usercourse($userid, $courseid, $coursestart) {
-    global $DB;
-
-    $params = array();
-
-    $courseselect = '';
-    if ($courseid) {
-        $courseselect = "AND course = :courseid";
-        $params['courseid'] = $courseid;
-    }
-    $params['userid'] = $userid;
-    $$coursestart = (int)$coursestart; // note: unfortunately pg complains if you use name parameter or column alias in GROUP BY
-
-    return $DB->get_records_sql("SELECT FLOOR((time - $coursestart)/". DAYSECS .") AS day, COUNT(*) AS num
-                                   FROM {log}
-                                  WHERE userid = :userid
-                                        AND time > $coursestart $courseselect
-                               GROUP BY FLOOR((time - $coursestart)/". DAYSECS .")", $params);
-}
-
-/**
- * Select all log records for a given course, user, and day
- *
- * @package core
- * @category log
- * @global moodle_database $DB
- * @uses HOURSECS
- * @param int $userid The id of the user as found in the 'user' table.
- * @param int $courseid The id of the course as found in the 'course' table.
- * @param string $daystart unix timestamp of the start of the day for which the logs needs to be retrived
- * @return array
- */
-function get_logs_userday($userid, $courseid, $daystart) {
-    global $DB;
-
-    $params = array('userid'=>$userid);
-
-    $courseselect = '';
-    if ($courseid) {
-        $courseselect = "AND course = :courseid";
-        $params['courseid'] = $courseid;
-    }
-    $daystart = (int)$daystart; // note: unfortunately pg complains if you use name parameter or column alias in GROUP BY
-
-    return $DB->get_records_sql("SELECT FLOOR((time - $daystart)/". HOURSECS .") AS hour, COUNT(*) AS num
-                                   FROM {log}
-                                  WHERE userid = :userid
-                                        AND time > $daystart $courseselect
-                               GROUP BY FLOOR((time - $daystart)/". HOURSECS .") ", $params);
-}
-
-/**
- * Returns an object with counts of failed login attempts
- *
- * Returns information about failed login attempts.  If the current user is
- * an admin, then two numbers are returned:  the number of attempts and the
- * number of accounts.  For non-admins, only the attempts on the given user
- * are shown.
- *
- * @global moodle_database $DB
- * @uses CONTEXT_SYSTEM
- * @param string $mode Either 'admin' or 'everybody'
- * @param string $username The username we are searching for
- * @param string $lastlogin The date from which we are searching
- * @return int
- */
-function count_login_failures($mode, $username, $lastlogin) {
-    global $DB;
-
-    $params = array('mode'=>$mode, 'username'=>$username, 'lastlogin'=>$lastlogin);
-    $select = "module='login' AND action='error' AND time > :lastlogin";
-
-    $count = new stdClass();
-
-    if (is_siteadmin()) {
-        if ($count->attempts = $DB->count_records_select('log', $select, $params)) {
-            $count->accounts = $DB->count_records_select('log', $select, $params, 'COUNT(DISTINCT info)');
-            return $count;
-        }
-    } else if ($mode == 'everybody') {
-        if ($count->attempts = $DB->count_records_select('log', "$select AND info = :username", $params)) {
-            return $count;
-        }
-    }
-    return NULL;
-}
-
 
 /// GENERAL HELPFUL THINGS  ///////////////////////////////////
 
@@ -1949,4 +1676,127 @@ function user_can_create_courses() {
     }
     $catsrs->close();
     return false;
+}
+
+/**
+ * This method can update the values in mulitple database rows for a colum with
+ * a unique index, without violating that constraint.
+ *
+ * Suppose we have a table with a unique index on (otherid, sortorder), and
+ * for a particular value of otherid, we want to change all the sort orders.
+ * You have to do this carefully or you will violate the unique index at some time.
+ * This method takes care of the details for you.
+ *
+ * Note that, it is the responsibility of the caller to make sure that the
+ * requested rename is legal. For example, if you ask for [1 => 2, 2 => 2]
+ * then you will get a unique key violation error from the database.
+ *
+ * @param string $table The database table to modify.
+ * @param string $field the field that contains the values we are going to change.
+ * @param array $newvalues oldvalue => newvalue how to change the values.
+ *      E.g. [1 => 4, 2 => 1, 3 => 3, 4 => 2].
+ * @param array $otherconditions array fieldname => requestedvalue extra WHERE clause
+ *      conditions to restrict which rows are affected. E.g. array('otherid' => 123).
+ * @param int $unusedvalue (defaults to -1) a value that is never used in $ordercol.
+ */
+function update_field_with_unique_index($table, $field, array $newvalues,
+        array $otherconditions, $unusedvalue = -1) {
+    global $DB;
+    $safechanges = decompose_update_into_safe_changes($newvalues, $unusedvalue);
+
+    $transaction = $DB->start_delegated_transaction();
+    foreach ($safechanges as $change) {
+        list($from, $to) = $change;
+        $otherconditions[$field] = $from;
+        $DB->set_field($table, $field, $to, $otherconditions);
+    }
+    $transaction->allow_commit();
+}
+
+/**
+ * Helper used by {@link update_field_with_unique_index()}. Given a desired
+ * set of changes, break them down into single udpates that can be done one at
+ * a time without breaking any unique index constraints.
+ *
+ * Suppose the input is array(1 => 2, 2 => 1) and -1. Then the output will be
+ * array (array(1, -1), array(2, 1), array(-1, 2)). This function solves this
+ * problem in the general case, not just for simple swaps. The unit tests give
+ * more examples.
+ *
+ * Note that, it is the responsibility of the caller to make sure that the
+ * requested rename is legal. For example, if you ask for something impossible
+ * like array(1 => 2, 2 => 2) then the results are undefined. (You will probably
+ * get a unique key violation error from the database later.)
+ *
+ * @param array $newvalues The desired re-ordering.
+ *      E.g. array(1 => 4, 2 => 1, 3 => 3, 4 => 2).
+ * @param int $unusedvalue A value that is not currently used.
+ * @return array A safe way to perform the re-order. An array of two-element
+ *      arrays array($from, $to).
+ *      E.g. array(array(1, -1), array(2, 1), array(4, 2), array(-1, 4)).
+ */
+function decompose_update_into_safe_changes(array $newvalues, $unusedvalue) {
+    $nontrivialmap = array();
+    foreach ($newvalues as $from => $to) {
+        if ($from == $unusedvalue || $to == $unusedvalue) {
+            throw new \coding_exception('Supposedly unused value ' . $unusedvalue . ' is actually used!');
+        }
+        if ($from != $to) {
+            $nontrivialmap[$from] = $to;
+        }
+    }
+
+    if (empty($nontrivialmap)) {
+        return array();
+    }
+
+    // First we deal with all renames that are not part of cycles.
+    // This bit is O(n^2) and it ought to be possible to do better,
+    // but it does not seem worth the effort.
+    $safechanges = array();
+    $nontrivialmapchanged = true;
+    while ($nontrivialmapchanged) {
+        $nontrivialmapchanged = false;
+
+        foreach ($nontrivialmap as $from => $to) {
+            if (array_key_exists($to, $nontrivialmap)) {
+                continue; // Cannot currenly do this rename.
+            }
+            // Is safe to do this rename now.
+            $safechanges[] = array($from, $to);
+            unset($nontrivialmap[$from]);
+            $nontrivialmapchanged = true;
+        }
+    }
+
+    // Are we done?
+    if (empty($nontrivialmap)) {
+        return $safechanges;
+    }
+
+    // Now what is left in $nontrivialmap must be a permutation,
+    // which must be a combination of disjoint cycles. We need to break them.
+    while (!empty($nontrivialmap)) {
+        // Extract the first cycle.
+        reset($nontrivialmap);
+        $current = $cyclestart = key($nontrivialmap);
+        $cycle = array();
+        do {
+            $cycle[] = $current;
+            $next = $nontrivialmap[$current];
+            unset($nontrivialmap[$current]);
+            $current = $next;
+        } while ($current != $cyclestart);
+
+        // Now convert it to a sequence of safe renames by using a temp.
+        $safechanges[] = array($cyclestart, $unusedvalue);
+        $cycle[0] = $unusedvalue;
+        $to = $cyclestart;
+        while ($from = array_pop($cycle)) {
+            $safechanges[] = array($from, $to);
+            $to = $from;
+        }
+    }
+
+    return $safechanges;
 }

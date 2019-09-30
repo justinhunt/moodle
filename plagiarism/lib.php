@@ -18,9 +18,8 @@
 /**
  * lib.php - Contains Plagiarism base class used by plugins.
  *
- * @since 2.0
- * @package    moodlecore
- * @subpackage plagiarism
+ * @since Moodle 2.0
+ * @package    core_plagiarism
  * @copyright  2010 Dan Marsden http://danmarsden.com
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
@@ -29,8 +28,16 @@ if (!defined('MOODLE_INTERNAL')) {
     die('Direct access to this script is forbidden.');    ///  It must be included from a Moodle page
 }
 
-//dummy class - all plugins should be based off this.
-class plagiarism_plugin {
+
+/**
+ * Plagiarism base class used by plugins.
+ *
+ * @since Moodle 2.0
+ * @package    core_plagiarism
+ * @copyright  2010 Dan Marsden http://danmarsden.com
+ * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
+ */
+abstract class plagiarism_plugin {
 
     /**
      * Return the list of form element names.
@@ -42,10 +49,9 @@ class plagiarism_plugin {
     }
 
     /**
-     * hook to allow plagiarism specific information to be displayed beside a submission 
+     * hook to allow plagiarism specific information to be displayed beside a submission
      * @param array  $linkarraycontains all relevant information for the plugin to generate a link
      * @return string
-     * 
      */
     public function get_links($linkarray) {
         return '';
@@ -90,11 +96,5 @@ class plagiarism_plugin {
      * @param object $cm - full cm object
      */
     public function update_status($course, $cm) {
-    }
-    /**
-     * hook for cron
-     *
-     */
-    public function plagiarism_cron() {
     }
 }

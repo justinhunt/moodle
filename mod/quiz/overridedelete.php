@@ -23,7 +23,7 @@
  */
 
 
-require_once(dirname(__FILE__) . '/../../config.php');
+require_once(__DIR__ . '/../../config.php');
 require_once($CFG->dirroot.'/mod/quiz/lib.php');
 require_once($CFG->dirroot.'/mod/quiz/locallib.php');
 require_once($CFG->dirroot.'/mod/quiz/override_form.php');
@@ -49,6 +49,16 @@ require_login($course, false, $cm);
 // Check the user has the required capabilities to modify an override.
 require_capability('mod/quiz:manageoverrides', $context);
 
+if ($override->groupid) {
+    if (!groups_group_visible($override->groupid, $course, $cm)) {
+        print_error('invalidoverrideid', 'quiz');
+    }
+} else {
+    if (!groups_user_groups_visible($course, $override->userid, $cm)) {
+        print_error('invalidoverrideid', 'quiz');
+    }
+}
+
 $url = new moodle_url('/mod/quiz/overridedelete.php', array('id'=>$override->id));
 $confirmurl = new moodle_url($url, array('id'=>$override->id, 'confirm'=>1));
 $cancelurl = new moodle_url('/mod/quiz/overrides.php', array('cmid'=>$cm->id));
@@ -61,10 +71,9 @@ if (!empty($override->userid)) {
 if ($confirm) {
     require_sesskey();
 
+    // Set the course module id before calling quiz_delete_override().
+    $quiz->cmid = $cm->id;
     quiz_delete_override($quiz, $override->id);
-
-    add_to_log($cm->course, 'quiz', 'delete override',
-        "overrides.php?cmid=$cm->id", $quiz->id, $cm->id);
 
     redirect($cancelurl);
 }
@@ -80,13 +89,15 @@ $PAGE->set_title($title);
 $PAGE->set_heading($course->fullname);
 
 echo $OUTPUT->header();
+echo $OUTPUT->heading(format_string($quiz->name, true, array('context' => $context)));
 
 if ($override->groupid) {
     $group = $DB->get_record('groups', array('id' => $override->groupid), 'id, name');
     $confirmstr = get_string("overridedeletegroupsure", "quiz", $group->name);
 } else {
+    $namefields = get_all_user_name_fields(true);
     $user = $DB->get_record('user', array('id' => $override->userid),
-            'id, firstname, lastname');
+            'id, ' . $namefields);
     $confirmstr = get_string("overridedeleteusersure", "quiz", fullname($user));
 }
 

@@ -16,7 +16,7 @@
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
 /**
- * @package mod-forum
+ * @package   mod_forum
  * @copyright Jamie Pratt <me@jamiep.org>
  * @license   http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
@@ -46,13 +46,23 @@ class mod_forum_mod_form extends moodleform_mod {
         $mform->addRule('name', null, 'required', null, 'client');
         $mform->addRule('name', get_string('maximumchars', '', 255), 'maxlength', 255, 'client');
 
-        $this->add_intro_editor(true, get_string('forumintro', 'forum'));
+        $this->standard_intro_elements(get_string('forumintro', 'forum'));
 
         $forumtypes = forum_get_forum_types();
-        collatorlib::asort($forumtypes, collatorlib::SORT_STRING);
+        core_collator::asort($forumtypes, core_collator::SORT_STRING);
         $mform->addElement('select', 'type', get_string('forumtype', 'forum'), $forumtypes);
         $mform->addHelpButton('type', 'forumtype', 'forum');
         $mform->setDefault('type', 'general');
+
+        $mform->addElement('header', 'availability', get_string('availability', 'forum'));
+
+        $name = get_string('duedate', 'forum');
+        $mform->addElement('date_time_selector', 'duedate', $name, array('optional' => true));
+        $mform->addHelpButton('duedate', 'duedate', 'forum');
+
+        $name = get_string('cutoffdate', 'forum');
+        $mform->addElement('date_time_selector', 'cutoffdate', $name, array('optional' => true));
+        $mform->addHelpButton('cutoffdate', 'cutoffdate', 'forum');
 
         // Attachments and word count.
         $mform->addElement('header', 'attachmentswordcounthdr', get_string('attachmentswordcount', 'forum'));
@@ -63,7 +73,22 @@ class mod_forum_mod_form extends moodleform_mod {
         $mform->addHelpButton('maxbytes', 'maxattachmentsize', 'forum');
         $mform->setDefault('maxbytes', $CFG->forum_maxbytes);
 
-        $choices = array(0,1,2,3,4,5,6,7,8,9,10,20,50,100);
+        $choices = array(
+            0 => 0,
+            1 => 1,
+            2 => 2,
+            3 => 3,
+            4 => 4,
+            5 => 5,
+            6 => 6,
+            7 => 7,
+            8 => 8,
+            9 => 9,
+            10 => 10,
+            20 => 20,
+            50 => 50,
+            100 => 100
+        );
         $mform->addElement('select', 'maxattachments', get_string('maxattachments', 'forum'), $choices);
         $mform->addHelpButton('maxattachments', 'maxattachments', 'forum');
         $mform->setDefault('maxattachments', $CFG->forum_maxattachments);
@@ -75,20 +100,29 @@ class mod_forum_mod_form extends moodleform_mod {
         // Subscription and tracking.
         $mform->addElement('header', 'subscriptionandtrackinghdr', get_string('subscriptionandtracking', 'forum'));
 
-        $options = array();
-        $options[FORUM_CHOOSESUBSCRIBE] = get_string('subscriptionoptional', 'forum');
-        $options[FORUM_FORCESUBSCRIBE] = get_string('subscriptionforced', 'forum');
-        $options[FORUM_INITIALSUBSCRIBE] = get_string('subscriptionauto', 'forum');
-        $options[FORUM_DISALLOWSUBSCRIBE] = get_string('subscriptiondisabled','forum');
+        $options = forum_get_subscriptionmode_options();
         $mform->addElement('select', 'forcesubscribe', get_string('subscriptionmode', 'forum'), $options);
         $mform->addHelpButton('forcesubscribe', 'subscriptionmode', 'forum');
+        if (isset($CFG->forum_subscription)) {
+            $defaultforumsubscription = $CFG->forum_subscription;
+        } else {
+            $defaultforumsubscription = FORUM_CHOOSESUBSCRIBE;
+        }
+        $mform->setDefault('forcesubscribe', $defaultforumsubscription);
 
         $options = array();
         $options[FORUM_TRACKING_OPTIONAL] = get_string('trackingoptional', 'forum');
         $options[FORUM_TRACKING_OFF] = get_string('trackingoff', 'forum');
-        $options[FORUM_TRACKING_ON] = get_string('trackingon', 'forum');
+        if ($CFG->forum_allowforcedreadtracking) {
+            $options[FORUM_TRACKING_FORCED] = get_string('trackingon', 'forum');
+        }
         $mform->addElement('select', 'trackingtype', get_string('trackingtype', 'forum'), $options);
         $mform->addHelpButton('trackingtype', 'trackingtype', 'forum');
+        $default = $CFG->forum_trackingtype;
+        if ((!$CFG->forum_allowforcedreadtracking) && ($default == FORUM_TRACKING_FORCED)) {
+            $default = FORUM_TRACKING_OPTIONAL;
+        }
+        $mform->setDefault('trackingtype', $default);
 
         if ($CFG->enablerssfeeds && isset($CFG->forum_enablerssfeeds) && $CFG->forum_enablerssfeeds) {
 //-------------------------------------------------------------------------------
@@ -99,6 +133,9 @@ class mod_forum_mod_form extends moodleform_mod {
             $choices[2] = get_string('posts', 'forum');
             $mform->addElement('select', 'rsstype', get_string('rsstype'), $choices);
             $mform->addHelpButton('rsstype', 'rsstype', 'forum');
+            if (isset($CFG->forum_rsstype)) {
+                $mform->setDefault('rsstype', $CFG->forum_rsstype);
+            }
 
             $choices = array();
             $choices[0] = '0';
@@ -116,8 +153,27 @@ class mod_forum_mod_form extends moodleform_mod {
             $choices[50] = '50';
             $mform->addElement('select', 'rssarticles', get_string('rssarticles'), $choices);
             $mform->addHelpButton('rssarticles', 'rssarticles', 'forum');
-            $mform->disabledIf('rssarticles', 'rsstype', 'eq', '0');
+            $mform->hideIf('rssarticles', 'rsstype', 'eq', '0');
+            if (isset($CFG->forum_rssarticles)) {
+                $mform->setDefault('rssarticles', $CFG->forum_rssarticles);
+            }
         }
+
+        $mform->addElement('header', 'discussionlocking', get_string('discussionlockingheader', 'forum'));
+        $options = [
+            0               => get_string('discussionlockingdisabled', 'forum'),
+            1   * DAYSECS   => get_string('numday', 'core', 1),
+            1   * WEEKSECS  => get_string('numweek', 'core', 1),
+            2   * WEEKSECS  => get_string('numweeks', 'core', 2),
+            30  * DAYSECS   => get_string('nummonth', 'core', 1),
+            60  * DAYSECS   => get_string('nummonths', 'core', 2),
+            90  * DAYSECS   => get_string('nummonths', 'core', 3),
+            180 * DAYSECS   => get_string('nummonths', 'core', 6),
+            1   * YEARSECS  => get_string('numyear', 'core', 1),
+        ];
+        $mform->addElement('select', 'lockdiscussionafter', get_string('lockdiscussionafter', 'forum'), $options);
+        $mform->addHelpButton('lockdiscussionafter', 'lockdiscussionafter', 'forum');
+        $mform->disabledIf('lockdiscussionafter', 'type', 'eq', 'single');
 
 //-------------------------------------------------------------------------------
         $mform->addElement('header', 'blockafterheader', get_string('blockafter', 'forum'));
@@ -138,14 +194,14 @@ class mod_forum_mod_form extends moodleform_mod {
         $mform->setDefault('blockafter', '0');
         $mform->addRule('blockafter', null, 'numeric', null, 'client');
         $mform->addHelpButton('blockafter', 'blockafter', 'forum');
-        $mform->disabledIf('blockafter', 'blockperiod', 'eq', 0);
+        $mform->hideIf('blockafter', 'blockperiod', 'eq', 0);
 
         $mform->addElement('text', 'warnafter', get_string('warnafter', 'forum'));
         $mform->setType('warnafter', PARAM_INT);
         $mform->setDefault('warnafter', '0');
         $mform->addRule('warnafter', null, 'numeric', null, 'client');
         $mform->addHelpButton('warnafter', 'warnafter', 'forum');
-        $mform->disabledIf('warnafter', 'blockperiod', 'eq', 0);
+        $mform->hideIf('warnafter', 'blockperiod', 'eq', 0);
 
         $coursecontext = context_course::instance($COURSE->id);
         plagiarism_get_form_elements_module($mform, $coursecontext, 'mod_forum');
@@ -183,6 +239,18 @@ class mod_forum_mod_form extends moodleform_mod {
 
     }
 
+    public function validation($data, $files) {
+        $errors = parent::validation($data, $files);
+
+        if ($data['duedate'] && $data['cutoffdate']) {
+            if ($data['duedate'] > $data['cutoffdate']) {
+                $errors['cutoffdate'] = get_string('cutoffdatevalidation', 'forum');
+            }
+        }
+
+        return $errors;
+    }
+
     function data_preprocessing(&$default_values) {
         parent::data_preprocessing($default_values);
 
@@ -199,14 +267,23 @@ class mod_forum_mod_form extends moodleform_mod {
         if (empty($default_values['completionreplies'])) {
             $default_values['completionreplies']=1;
         }
-        $default_values['completionpostsenabled']=
-            !empty($default_values['completionposts']) ? 1 : 0;
+        // Tick by default if Add mode or if completion posts settings is set to 1 or more.
+        if (empty($this->_instance) || !empty($default_values['completionposts'])) {
+            $default_values['completionpostsenabled'] = 1;
+        } else {
+            $default_values['completionpostsenabled'] = 0;
+        }
         if (empty($default_values['completionposts'])) {
             $default_values['completionposts']=1;
         }
     }
 
-      function add_completion_rules() {
+    /**
+     * Add custom completion rules.
+     *
+     * @return array Array of string IDs of added items, empty array if none
+     */
+    public function add_completion_rules() {
         $mform =& $this->_form;
 
         $group=array();
@@ -239,11 +316,16 @@ class mod_forum_mod_form extends moodleform_mod {
             (!empty($data['completionpostsenabled']) && $data['completionposts']!=0);
     }
 
-    function get_data() {
-        $data = parent::get_data();
-        if (!$data) {
-            return false;
-        }
+    /**
+     * Allows module to modify the data returned by form get_data().
+     * This method is also called in the bulk activity completion form.
+     *
+     * Only available on moodleform_mod.
+     *
+     * @param stdClass $data the form data to be modified.
+     */
+    public function data_postprocessing($data) {
+        parent::data_postprocessing($data);
         // Turn off completion settings if the checkboxes aren't ticked
         if (!empty($data->completionunlocked)) {
             $autocompletion = !empty($data->completion) && $data->completion==COMPLETION_TRACKING_AUTOMATIC;
@@ -257,7 +339,6 @@ class mod_forum_mod_form extends moodleform_mod {
                 $data->completionposts = 0;
             }
         }
-        return $data;
     }
 }
 

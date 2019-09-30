@@ -39,14 +39,15 @@ function report_security_hide_timearning() {
 
 function report_security_get_issue_list() {
     return array(
-        'report_security_check_globals',
         'report_security_check_unsecuredataroot',
         'report_security_check_displayerrors',
+        'report_security_check_vendordir',
+        'report_security_check_nodemodules',
         'report_security_check_noauth',
         'report_security_check_embed',
         'report_security_check_mediafilterswf',
         'report_security_check_openprofiles',
-        'report_security_check_google',
+        'report_security_check_crawlers',
         'report_security_check_passwordpolicy',
         'report_security_check_emailchangeconfirmation',
         'report_security_check_cookiesecure',
@@ -57,6 +58,8 @@ function report_security_get_issue_list() {
         'report_security_check_defaultuserrole',
         'report_security_check_guestrole',
         'report_security_check_frontpagerole',
+        'report_security_check_webcron',
+        'report_security_check_preventexecpath',
 
     );
 }
@@ -75,35 +78,6 @@ function report_security_doc_link($issue, $name) {
 ///               Issue checks
 ///=============================================
 
-
-/**
- * Verifies register globals PHP setting.
- * @param bool $detailed
- * @return object result
- */
-function report_security_check_globals($detailed=false) {
-    $result = new stdClass();
-    $result->issue   = 'report_security_check_globals';
-    $result->name    = get_string('check_globals_name', 'report_security');
-    $result->info    = null;
-    $result->details = null;
-    $result->status  = null;
-    $result->link    = null;
-
-    if (ini_get_bool('register_globals')) {
-        $result->status = REPORT_SECURITY_CRITICAL;
-        $result->info   = get_string('check_globals_error', 'report_security');
-    } else {
-        $result->status = REPORT_SECURITY_OK;
-        $result->info   = get_string('check_globals_ok', 'report_security');
-    }
-
-    if ($detailed) {
-        $result->details = get_string('check_globals_details', 'report_security');
-    }
-
-    return $result;
-}
 
 /**
  * Verifies unsupported noauth setting
@@ -213,11 +187,13 @@ function report_security_check_mediafilterswf($detailed=false) {
     $result->info    = null;
     $result->details = null;
     $result->status  = null;
-    $result->link    = "<a href=\"$CFG->wwwroot/$CFG->admin/settings.php?section=filtersettingfiltermediaplugin\">".get_string('filtersettings', 'admin').'</a>';
+    $result->link    = "<a href=\"$CFG->wwwroot/$CFG->admin/settings.php?section=managemediaplayers\">" .
+        get_string('managemediaplayers', 'media') . '</a>';
 
     $activefilters = filter_get_globally_enabled();
 
-    if (array_search('mediaplugin', $activefilters) !== false and !empty($CFG->filter_mediaplugin_enable_swf)) {
+    $enabledmediaplayers = \core\plugininfo\media::get_enabled_plugins();
+    if (array_search('mediaplugin', $activefilters) !== false and array_key_exists('swf', $enabledmediaplayers)) {
         $result->status = REPORT_SECURITY_CRITICAL;
         $result->info   = get_string('check_mediafilterswf_error', 'report_security');
     } else {
@@ -332,35 +308,35 @@ function report_security_check_openprofiles($detailed=false) {
 }
 
 /**
- * Verifies google access not combined with disabled guest access
+ * Verifies web crawler (search engine) access not combined with disabled guest access
  * because attackers might gain guest access by modifying browser signature.
  * @param bool $detailed
  * @return object result
  */
-function report_security_check_google($detailed=false) {
+function report_security_check_crawlers($detailed=false) {
     global $CFG;
 
     $result = new stdClass();
-    $result->issue   = 'report_security_check_google';
-    $result->name    = get_string('check_google_name', 'report_security');
+    $result->issue   = 'report_security_check_crawlers';
+    $result->name    = get_string('check_crawlers_name', 'report_security');
     $result->info    = null;
     $result->details = null;
     $result->status  = null;
     $result->link    = "<a href=\"$CFG->wwwroot/$CFG->admin/settings.php?section=sitepolicies\">".get_string('sitepolicies', 'admin').'</a>';
 
-    if (empty($CFG->opentogoogle)) {
+    if (empty($CFG->opentowebcrawlers)) {
         $result->status = REPORT_SECURITY_OK;
-        $result->info   = get_string('check_google_ok', 'report_security');
+        $result->info   = get_string('check_crawlers_ok', 'report_security');
     } else if (!empty($CFG->guestloginbutton)) {
         $result->status = REPORT_SECURITY_INFO;
-        $result->info   = get_string('check_google_info', 'report_security');
+        $result->info   = get_string('check_crawlers_info', 'report_security');
     } else {
         $result->status = REPORT_SECURITY_SERIOUS;
-        $result->info   = get_string('check_google_error', 'report_security');
+        $result->info   = get_string('check_crawlers_error', 'report_security');
     }
 
     if ($detailed) {
-        $result->details = get_string('check_google_details', 'report_security');
+        $result->details = get_string('check_crawlers_details', 'report_security');
     }
 
     return $result;
@@ -411,7 +387,7 @@ function report_security_check_emailchangeconfirmation($detailed=false) {
 function report_security_check_cookiesecure($detailed=false) {
     global $CFG;
 
-    if (strpos($CFG->wwwroot, 'https://') !== 0) {
+    if (!is_https()) {
         return null;
     }
 
@@ -423,7 +399,7 @@ function report_security_check_cookiesecure($detailed=false) {
     $result->status  = null;
     $result->link    = "<a href=\"$CFG->wwwroot/$CFG->admin/settings.php?section=httpsecurity\">".get_string('httpsecurity', 'admin').'</a>';
 
-    if (empty($CFG->cookiesecure)) {
+    if (!is_moodle_cookie_secure()) {
         $result->status = REPORT_SECURITY_SERIOUS;
         $result->info   = get_string('check_cookiesecure_error', 'report_security');
     } else {
@@ -490,7 +466,7 @@ function report_security_check_riskxss($detailed=false) {
 
     $params = array('capallow'=>CAP_ALLOW);
 
-    $sqlfrom = "FROM (SELECT rcx.*
+    $sqlfrom = "FROM (SELECT DISTINCT rcx.contextid, rcx.roleid
                        FROM {role_capabilities} rcx
                        JOIN {capabilities} cap ON (cap.name = rcx.capability AND ".$DB->sql_bitand('cap.riskbitmask', RISK_XSS)." <> 0)
                        WHERE rcx.permission = :capallow) rc,
@@ -508,7 +484,8 @@ function report_security_check_riskxss($detailed=false) {
     $result->info = get_string('check_riskxss_warning', 'report_security', $count);
 
     if ($detailed) {
-        $users = $DB->get_records_sql("SELECT DISTINCT u.id, u.firstname, u.lastname, u.picture, u.imagealt $sqlfrom", $params);
+        $userfields = user_picture::fields('u');
+        $users = $DB->get_records_sql("SELECT DISTINCT $userfields $sqlfrom", $params);
         foreach ($users as $uid=>$user) {
             $users[$uid] = fullname($user);
         }
@@ -563,7 +540,7 @@ function report_security_check_defaultuserrole($detailed=false) {
 
     if ($riskycount or !$legacyok) {
         $result->status  = REPORT_SECURITY_CRITICAL;
-        $result->info    = get_string('check_defaultuserrole_error', 'report_security', format_string($default_role->name));
+        $result->info    = get_string('check_defaultuserrole_error', 'report_security', role_get_name($default_role));
 
     } else {
         $result->status  = REPORT_SECURITY_OK;
@@ -680,7 +657,7 @@ function report_security_check_frontpagerole($detailed=false) {
 
     if ($riskycount or !$legacyok) {
         $result->status  = REPORT_SECURITY_CRITICAL;
-        $result->info    = get_string('check_frontpagerole_error', 'report_security', format_string($frontpage_role->name));
+        $result->info    = get_string('check_frontpagerole_error', 'report_security', role_get_name($frontpage_role));
 
     } else {
         $result->status  = REPORT_SECURITY_OK;
@@ -710,7 +687,8 @@ function report_security_check_riskadmin($detailed=false) {
     $result->status  = null;
     $result->link    = null;
 
-    $sql = "SELECT u.id, u.firstname, u.lastname, u.picture, u.imagealt, u.email
+    $userfields = user_picture::fields('u');
+    $sql = "SELECT $userfields
               FROM {user} u
              WHERE u.id IN ($CFG->siteadmins)";
 
@@ -777,7 +755,7 @@ function report_security_check_riskbackup($detailed=false) {
     $params = array('capability'=>'moodle/backup:userinfo', 'permission'=>CAP_ALLOW, 'context1'=>CONTEXT_COURSE, 'context2'=>CONTEXT_COURSE);
 
     $sqluserinfo = "
-        FROM (SELECT rcx.*
+        FROM (SELECT DISTINCT rcx.contextid, rcx.roleid
                 FROM {role_capabilities} rcx
                WHERE rcx.permission = :permission AND rcx.capability = :capability) rc,
              {context} c,
@@ -794,7 +772,12 @@ function report_security_check_riskbackup($detailed=false) {
     $systemrolecount = empty($systemroles) ? 0 : count($systemroles);
     $overriddenrolecount = empty($overriddenroles) ? 0 : count($overriddenroles);
 
-    $result->status  = REPORT_SECURITY_WARNING; // there is always at least one admin
+    if (max($usercount, $systemrolecount, $overriddenrolecount) > 0) {
+        $result->status = REPORT_SECURITY_WARNING;
+    } else {
+        $result->status = REPORT_SECURITY_OK;
+    }
+
     $a = (object)array('rolecount'=>$systemrolecount,'overridecount'=>$overriddenrolecount,'usercount'=>$usercount);
     $result->info = get_string('check_riskbackup_warning', 'report_security', $a);
 
@@ -822,7 +805,7 @@ function report_security_check_riskbackup($detailed=false) {
                 $role->name = $role->localname;
                 $context = context::instance_by_id($role->contextid);
                 $role->name = role_get_name($role, $context, ROLENAME_BOTH);
-                $role->contextname = print_context_name($context);
+                $role->contextname = $context->get_context_name();
                 $role->url = "$CFG->wwwroot/$CFG->admin/roles/override.php?contextid=$role->contextid&amp;roleid=$role->id";
                 $links[] = '<li>'.get_string('check_riskbackup_editoverride', 'report_security', $role).'</li>';
             }
@@ -834,20 +817,147 @@ function report_security_check_riskbackup($detailed=false) {
         $users = array();
 
         list($sort, $sortparams) = users_order_by_sql('u');
-        $rs = $DB->get_recordset_sql("SELECT DISTINCT u.id, u.firstname, u.lastname, u.picture, u.imagealt, u.email, ra.contextid, ra.roleid
+        $userfields = user_picture::fields('u');
+        $rs = $DB->get_recordset_sql("SELECT DISTINCT $userfields, ra.contextid, ra.roleid
             $sqluserinfo ORDER BY $sort", array_merge($params, $sortparams));
 
         foreach ($rs as $user) {
             $context = context::instance_by_id($user->contextid);
             $url = "$CFG->wwwroot/$CFG->admin/roles/assign.php?contextid=$user->contextid&amp;roleid=$user->roleid";
             $a = (object)array('fullname'=>fullname($user), 'url'=>$url, 'email'=>$user->email,
-                               'contextname'=>print_context_name($context));
+                               'contextname'=>$context->get_context_name());
             $users[] = '<li>'.get_string('check_riskbackup_unassign', 'report_security', $a).'</li>';
         }
+        $rs->close();
         if (!empty($users)) {
             $users = '<ul>'.implode('', $users).'</ul>';
             $result->details .= get_string('check_riskbackup_details_users', 'report_security', $users);
         }
+    }
+
+    return $result;
+}
+
+/**
+ * Verifies the status of web cron
+ *
+ * @param bool $detailed
+ * @return object result
+ */
+function report_security_check_webcron($detailed = false) {
+    global $CFG;
+
+    $croncli = $CFG->cronclionly;
+    $cronremotepassword = $CFG->cronremotepassword;
+
+    $result = new stdClass();
+    $result->issue   = 'report_security_check_webcron';
+    $result->name    = get_string('check_webcron_name', 'report_security');
+    $result->details = null;
+    $result->link    = "<a href=\"$CFG->wwwroot/$CFG->admin/settings.php?section=sitepolicies\">"
+            .get_string('sitepolicies', 'admin').'</a>';
+
+    if (empty($croncli) && empty($cronremotepassword)) {
+        $result->status = REPORT_SECURITY_WARNING;
+        $result->info   = get_string('check_webcron_warning', 'report_security');
+    } else {
+        $result->status = REPORT_SECURITY_OK;
+        $result->info   = get_string('check_webcron_ok', 'report_security');
+    }
+
+    if ($detailed) {
+        $result->details = get_string('check_webcron_details', 'report_security');
+    }
+
+    return $result;
+}
+
+/**
+ * Verifies the status of preventexecpath
+ *
+ * @param bool $detailed
+ * @return object result
+ */
+function report_security_check_preventexecpath($detailed = false) {
+    global $CFG;
+
+    $result = new stdClass();
+    $result->issue   = 'report_security_check_preventexecpath';
+    $result->name    = get_string('check_preventexecpath_name', 'report_security');
+    $result->details = null;
+    $result->link    = null;
+
+    if (empty($CFG->preventexecpath)) {
+        $result->status = REPORT_SECURITY_WARNING;
+        $result->info   = get_string('check_preventexecpath_warning', 'report_security');
+        if ($detailed) {
+            $result->details = get_string('check_preventexecpath_details', 'report_security');
+        }
+    } else {
+        $result->status = REPORT_SECURITY_OK;
+        $result->info   = get_string('check_preventexecpath_ok', 'report_security');
+    }
+
+    return $result;
+}
+
+/**
+ * Check the presence of the vendor directory.
+ *
+ * @param bool $detailed Return detailed info.
+ * @return object Result data.
+ */
+function report_security_check_vendordir($detailed = false) {
+    global $CFG;
+
+    $result = (object)[
+        'issue' => 'report_security_check_vendordir',
+        'name' => get_string('check_vendordir_name', 'report_security'),
+        'info' => get_string('check_vendordir_info', 'report_security'),
+        'details' => null,
+        'status' => null,
+        'link' => null,
+    ];
+
+    if (is_dir($CFG->dirroot.'/vendor')) {
+        $result->status = REPORT_SECURITY_WARNING;
+    } else {
+        $result->status = REPORT_SECURITY_OK;
+    }
+
+    if ($detailed) {
+        $result->details = get_string('check_vendordir_details', 'report_security', ['path' => $CFG->dirroot.'/vendor']);
+    }
+
+    return $result;
+}
+
+/**
+ * Check the presence of the node_modules directory.
+ *
+ * @param bool $detailed Return detailed info.
+ * @return object Result data.
+ */
+function report_security_check_nodemodules($detailed = false) {
+    global $CFG;
+
+    $result = (object)[
+        'issue' => 'report_security_check_nodemodules',
+        'name' => get_string('check_nodemodules_name', 'report_security'),
+        'info' => get_string('check_nodemodules_info', 'report_security'),
+        'details' => null,
+        'status' => null,
+        'link' => null,
+    ];
+
+    if (is_dir($CFG->dirroot.'/node_modules')) {
+        $result->status = REPORT_SECURITY_WARNING;
+    } else {
+        $result->status = REPORT_SECURITY_OK;
+    }
+
+    if ($detailed) {
+        $result->details = get_string('check_nodemodules_details', 'report_security', ['path' => $CFG->dirroot.'/node_modules']);
     }
 
     return $result;

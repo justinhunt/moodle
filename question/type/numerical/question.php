@@ -26,6 +26,8 @@
 
 defined('MOODLE_INTERNAL') || die();
 
+require_once($CFG->dirroot . '/question/type/questionbase.php');
+
 /**
  * Represents a numerical question.
  *
@@ -81,6 +83,20 @@ class qtype_numerical_question extends question_graded_automatically {
         }
 
         return $resp;
+    }
+
+    public function un_summarise_response(string $summary) {
+        if ($this->has_separate_unit_field()) {
+            throw new coding_exception('Sorry, but at the moment un_summarise_response cannot handle the
+                has_separate_unit_field case for numerical questions.
+                    If you need this, you will have to implement it yourself.');
+        }
+
+        if (!empty($summary)) {
+            return ['answer' => $summary];
+        } else {
+            return [];
+        }
     }
 
     public function is_gradable_response(array $response) {
@@ -172,7 +188,7 @@ class qtype_numerical_question extends question_graded_automatically {
 
     /**
      * Get an answer that contains the feedback and fraction that should be
-     * awarded for this resonse.
+     * awarded for this response.
      * @param number $value the numerical value of a response.
      * @param number $multiplier for the unit the student gave, if any. When no
      *      unit was given, or an unrecognised unit was given, $multiplier will be null.
@@ -188,7 +204,7 @@ class qtype_numerical_question extends question_graded_automatically {
         } else {
             $scaledvalue = $value;
         }
-        foreach ($this->answers as $aid => $answer) {
+        foreach ($this->answers as $answer) {
             if ($answer->within_tolerance($scaledvalue)) {
                 $answer->unitisright = !is_null($multiplier);
                 return $answer;
@@ -249,7 +265,7 @@ class qtype_numerical_question extends question_graded_automatically {
     }
 
     public function classify_response(array $response) {
-        if (empty($response['answer'])) {
+        if (!$this->is_gradable_response($response)) {
             return array($this->id => question_classified_response::no_response());
         }
 
@@ -266,7 +282,11 @@ class qtype_numerical_question extends question_graded_automatically {
             $resp = $this->ap->add_unit($resp, $unit);
         }
 
-        if (!$ans) {
+        if ($value === null) {
+            // Invalid response shown as no response (but show actual response).
+            return array($this->id => new question_classified_response(null, $resp, 0));
+        } else if (!$ans) {
+            // Does not match any answer.
             return array($this->id => new question_classified_response(0, $resp, 0));
         }
 

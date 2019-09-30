@@ -1,5 +1,4 @@
 <?php
-
 // This file is part of Moodle - http://moodle.org/
 //
 // Moodle is free software: you can redistribute it and/or modify
@@ -18,7 +17,7 @@
 /**
  * Strings for component 'countries', language 'en', branch 'MOODLE_20_STABLE'
  *
- * @package   countries
+ * @package   core
  * @copyright 1999 onwards Martin Dougiamas  {@link http://moodle.com}
  * @license   http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
@@ -66,7 +65,7 @@ $string['CD'] = 'Congo, The Democratic Republic Of The';
 $string['CF'] = 'Central African Republic';
 $string['CG'] = 'Congo';
 $string['CH'] = 'Switzerland';
-$string['CI'] = 'Côte D\'Ivoire';
+$string['CI'] = 'Côte d\'Ivoire';
 $string['CK'] = 'Cook Islands';
 $string['CL'] = 'Chile';
 $string['CM'] = 'Cameroon';
@@ -74,11 +73,11 @@ $string['CN'] = 'China';
 $string['CO'] = 'Colombia';
 $string['CR'] = 'Costa Rica';
 $string['CU'] = 'Cuba';
-$string['CV'] = 'Cape Verde';
+$string['CV'] = 'Cabo Verde';
 $string['CW'] = 'Curaçao';
 $string['CX'] = 'Christmas Island';
 $string['CY'] = 'Cyprus';
-$string['CZ'] = 'Czech Republic';
+$string['CZ'] = 'Czechia';
 $string['DE'] = 'Germany';
 $string['DJ'] = 'Djibouti';
 $string['DK'] = 'Denmark';

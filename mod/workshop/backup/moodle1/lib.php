@@ -18,10 +18,9 @@
 /**
  * Provides support for the conversion of moodle1 backup to the moodle2 format
  *
- * @package    mod
- * @subpackage workshop
- * @copyright  2011 David Mudrak <david@moodle.com>
- * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
+ * @package   mod_workshop
+ * @copyright 2011 David Mudrak <david@moodle.com>
+ * @license   http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
 defined('MOODLE_INTERNAL') || die();
@@ -268,7 +267,7 @@ class moodle1_mod_workshop_handler extends moodle1_mod_handler {
 
         if (is_null($this->strategyhandlers)) {
             $this->strategyhandlers = array();
-            $subplugins = get_plugin_list('workshopform');
+            $subplugins = core_component::get_plugin_list('workshopform');
             foreach ($subplugins as $name => $dir) {
                 $handlerfile  = $dir.'/backup/moodle1/lib.php';
                 $handlerclass = "moodle1_workshopform_{$name}_handler";
@@ -363,14 +362,21 @@ abstract class moodle1_workshopform_handler extends moodle1_submod_handler {
  */
 function workshop_upgrade_transform_instance(stdClass $old) {
     global $CFG;
-    require_once(dirname(dirname(dirname(__FILE__))) . '/locallib.php');
+    require_once(__DIR__ . '/../../locallib.php');
 
     $new                = new stdClass();
     $new->course        = $old->course;
     $new->name          = $old->name;
     $new->intro         = $old->description;
     $new->introformat   = $old->format;
-    $new->nattachments  = $old->nattachments;
+    if ($old->nattachments == 0) {
+        // Convert to the new method for disabling file submissions.
+        $new->submissiontypefile = WORKSHOP_SUBMISSION_TYPE_DISABLED;
+        $new->submissiontypetext = WORKSHOP_SUBMISSION_TYPE_REQUIRED;
+        $new->nattachments = 1;
+    } else {
+        $new->nattachments  = $old->nattachments;
+    }
     $new->maxbytes      = $old->maxbytes;
     $new->grade         = $old->grade;
     $new->gradinggrade  = $old->gradinggrade;

@@ -17,7 +17,7 @@
 /**
  * Commenting system steps definitions.
  *
- * @package    core_comment
+ * @package    block_comments
  * @category   test
  * @copyright  2013 David Monllaó
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
@@ -33,7 +33,7 @@ use Behat\Mink\Exception\ElementNotFoundException as ElementNotFoundException,
 /**
  * Steps definitions to deal with the commenting system
  *
- * @package    core_comment
+ * @package    block_comments
  * @category   test
  * @copyright  2013 David Monllaó
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
@@ -63,10 +63,10 @@ class behat_block_comments extends behat_base {
             $commentstextarea = $this->find('css', '.comment-area textarea', $exception);
             $commentstextarea->setValue($comment);
 
-            $this->find_link('Save comment')->click();
-
-            // Wait for the AJAX request.
-            $this->getSession()->wait(4 * 1000, false);
+            $this->find_link(get_string('savecomment'))->click();
+            // Delay after clicking so that additional comments will have unique time stamps.
+            // We delay 1 second which is all we need.
+            $this->getSession()->wait(1000);
 
         } else {
 
@@ -91,21 +91,20 @@ class behat_block_comments extends behat_base {
 
         $exception = new ElementNotFoundException($this->getSession(), '"' . $comment . '" comment ');
 
-        $commentxpath = "//div[contains(concat(' ', @class, ' '), ' block_comments ')]" .
-            "/descendant::div[@class='comment-message'][contains(., '" . $comment . "')]";
+        // Using xpath liternal to avoid possible problems with comments containing quotes.
+        $commentliteral = behat_context_helper::escape($comment);
+
+        $commentxpath = "//*[contains(concat(' ', normalize-space(@class), ' '), ' block_comments ')]" .
+            "/descendant::div[@class='comment-message'][contains(., $commentliteral)]";
         $commentnode = $this->find('xpath', $commentxpath, $exception);
 
         // Click on delete icon.
-        $deleteexception = new ExpectationException('"' . $comment . '" comment can not be deleted', $this->getSession());
-        $deleteicon = $this->find('css', '.comment-delete a img', $deleteexception, $commentnode);
-        $deleteicon->click();
+        $this->execute('behat_general::i_click_on_in_the',
+            array("Delete comment posted by", "icon", $this->escape($commentxpath), "xpath_element")
+        );
 
-        // Yes confirm.
-        $confirmnode = $this->find('xpath', "//div[@class='comment-delete-confirm']/descendant::a[contains(., 'Yes')]");
-        $confirmnode->click();
-
-        // Wait for the AJAX request.
-        $this->getSession()->wait(4 * 1000, false);
+        // Wait for the animation to finish, in theory is just 1 sec, adding 4 just in case.
+        $this->getSession()->wait(4 * 1000);
     }
 
 }

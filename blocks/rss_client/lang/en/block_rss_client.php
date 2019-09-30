@@ -1,5 +1,4 @@
 <?php
-
 // This file is part of Moodle - http://moodle.org/
 //
 // Moodle is free software: you can redistribute it and/or modify
@@ -34,6 +33,7 @@ $string['clientshowchannellinklabel'] = 'Should a link to the original site (cha
 $string['clientshowimagelabel'] = 'Show channel image if available :';
 $string['configblock'] = 'Configure this block';
 $string['couldnotfindfeed'] = 'Could not find feed with id';
+$string['couldnotfindloadrssfeed'] = 'Could not find or load the RSS feed.';
 $string['customtitlelabel'] = 'Custom title (leave blank to use title supplied by feed):';
 $string['deletefeedconfirm'] = 'Are you sure you want to delete this feed?';
 $string['disabledrssfeeds'] = 'RSS feeds are disabled';
@@ -43,8 +43,9 @@ $string['editfeeds'] = 'Edit, subscribe or unsubscribe from RSS/Atom news feeds'
 $string['editnewsfeeds'] = 'Edit news feeds';
 $string['editrssblock'] = 'Edit RSS headline block';
 $string['enableautodiscovery'] = 'Enable auto-discovery of feeds?';
-$string['enableautodiscovery_help'] = 'If enabled, feeds on web pages are found automatically. For example, if http://docs.moodle.org is entered, then http://docs.moodle.org/en/index.php?title=Special:RecentChanges&feed=rss would be found.';
-$string['errorloadingfeed'] = 'Error loading this RSS feed ({$a})';
+$string['enableautodiscovery_help'] = 'If enabled, feeds on web pages are found automatically. For example, if https://docs.moodle.org is entered, then https://docs.moodle.org/en/index.php?title=Special:RecentChanges&feed=rss would be found.';
+$string['failedfeed'] = 'Feed failed to download - will retry after {$a}';
+$string['failedfeeds'] = 'One or more RSS feeds have failed';
 $string['feed'] = 'Feed';
 $string['feedadded'] = 'News feed added';
 $string['feeddeleted'] = 'News feed deleted';
@@ -61,13 +62,23 @@ $string['nofeeds'] = 'There are no RSS feeds defined for this site.';
 $string['numentries'] = 'Entries per feed';
 $string['pickfeed'] = 'Pick a news feed';
 $string['pluginname'] = 'Remote RSS feeds';
+$string['privacy:metadata:block_rss_client:description'] = 'The description of the RSS feed.';
+$string['privacy:metadata:block_rss_client:preferredtitle'] = 'The preferred (custom) title of the RSS feed.';
+$string['privacy:metadata:block_rss_client:shared'] = 'If the RSS feed is available to all courses.';
+$string['privacy:metadata:block_rss_client:skiptime'] = 'The defined time in seconds that the cron will wait between attempts to retry failing RSS feeds.';
+$string['privacy:metadata:block_rss_client:skipuntil'] = 'The maximum defined time that the cron will attempt to open failing RSS feeds.';
+$string['privacy:metadata:block_rss_client:tableexplanation'] = 'RSS block information is stored here.';
+$string['privacy:metadata:block_rss_client:title'] = 'The title of the RSS feed.';
+$string['privacy:metadata:block_rss_client:url'] = 'The URL of the RSS feed.';
+$string['privacy:metadata:block_rss_client:userid'] = 'The ID of the user that added the RSS feed.';
 $string['remotenewsfeed'] = 'Remote news feed';
+$string['refreshfeedstask'] = 'Refresh RSS feeds task';
 $string['rss_client:addinstance'] = 'Add a new remote RSS feeds block';
 $string['rss_client:createprivatefeeds'] = 'Create private RSS feeds';
 $string['rss_client:createsharedfeeds'] = 'Create shared RSS feeds';
 $string['rss_client:manageanyfeeds'] = 'Manage any RSS feeds';
 $string['rss_client:manageownfeeds'] = 'Manage own RSS feeds';
-$string['rss_client:myaddinstance'] = 'Add a new RSS feeds block to My home';
+$string['rss_client:myaddinstance'] = 'Add a new Remote RSS feeds block to Dashboard';
 $string['seeallfeeds'] = 'See all feeds';
 $string['sharedfeed'] = 'Shared feed';
 $string['shownumentrieslabel'] = 'Max number entries to show per block.';

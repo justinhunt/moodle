@@ -48,7 +48,12 @@ class cachestore_mongodb_addinstance_form extends cachestore_addinstance_form {
      * The forms custom definitions.
      */
     protected function configuration_definition() {
+        global $OUTPUT;
         $form = $this->_form;
+
+        if (!version_compare(phpversion('mongodb'), '1.5', 'ge')) {
+            $form->addElement('html', $OUTPUT->notification(get_string('pleaseupgrademongo', 'cachestore_mongodb')));
+        }
 
         $form->addElement('text', 'server', get_string('server', 'cachestore_mongodb'), array('size' => 72));
         $form->addHelpButton('server', 'server', 'cachestore_mongodb');
@@ -66,7 +71,7 @@ class cachestore_mongodb_addinstance_form extends cachestore_addinstance_form {
         $form->addHelpButton('username', 'username', 'cachestore_mongodb');
         $form->setType('username', PARAM_ALPHANUMEXT);
 
-        $form->addElement('text', 'password', get_string('password', 'cachestore_mongodb'));
+        $form->addElement('passwordunmask', 'password', get_string('password', 'cachestore_mongodb'));
         $form->addHelpButton('password', 'password', 'cachestore_mongodb');
         $form->setType('password', PARAM_TEXT);
 

@@ -1,5 +1,4 @@
 <?php
-
 // This file is part of Moodle - http://moodle.org/
 //
 // Moodle is free software: you can redistribute it and/or modify
@@ -18,8 +17,7 @@
 /**
  * This file defines a base class for all assessment forms
  *
- * @package    mod
- * @subpackage workshop
+ * @package    mod_workshop
  * @copyright  2009 David Mudrak <david.mudrak@gmail.com>
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
@@ -121,5 +119,15 @@ class workshop_assessment_form extends moodleform {
      */
     public function is_editable() {
         return !$this->_form->isFrozen();
+    }
+
+    /**
+     * Return the form custom data.
+     *
+     * @return array an array containing the custom data
+     * @since  Moodle 3.4
+     */
+    public function get_customdata() {
+        return $this->_customdata;
     }
 }

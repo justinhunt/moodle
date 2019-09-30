@@ -1,5 +1,4 @@
 <?php
-
 // This file is part of Moodle - http://moodle.org/
 //
 // Moodle is free software: you can redistribute it and/or modify
@@ -18,8 +17,8 @@
 /**
  * Unit tests for /lib/filestorage/file_storage.php
  *
- * @package   core
- * @category  test
+ * @package   core_files
+ * @category  phpunit
  * @copyright 2012 David Mudrak <david@moodle.com>
  * @license   http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
@@ -31,17 +30,28 @@ require_once($CFG->libdir . '/filelib.php');
 require_once($CFG->dirroot . '/repository/lib.php');
 require_once($CFG->libdir . '/filestorage/stored_file.php');
 
-class filestoragelib_testcase extends advanced_testcase {
+/**
+ * Unit tests for /lib/filestorage/file_storage.php
+ *
+ * @copyright 2012 David Mudrak <david@moodle.com>
+ * @license   http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
+ * @coversDefaultClass file_storage
+ */
+class core_files_file_storage_testcase extends advanced_testcase {
 
     /**
      * Files can be created from strings.
+     *
+     * @covers ::create_file_from_string
+     * @covers ::<!public>
      */
     public function test_create_file_from_string() {
         global $DB;
 
         $this->resetAfterTest(true);
 
-        $this->assertEquals(0, $DB->count_records('files', array()));
+        // Number of files installed in the database on a fresh Moodle site.
+        $installedfiles = $DB->count_records('files', array());
 
         $content = 'abcd';
         $syscontext = context_system::instance();
@@ -59,21 +69,20 @@ class filestoragelib_testcase extends advanced_testcase {
         $file = $fs->create_file_from_string($filerecord, $content);
 
         $this->assertInstanceOf('stored_file', $file);
-        $this->assertSame(sha1($content), $file->get_contenthash());
+        $this->assertTrue($file->compare_to_string($content));
         $this->assertSame($pathhash, $file->get_pathnamehash());
 
         $this->assertTrue($DB->record_exists('files', array('pathnamehash'=>$pathhash)));
 
-        $location = test_stored_file_inspection::get_pretected_pathname($file);
+        $filesystem = $fs->get_file_system();
+        $location = $filesystem->get_local_path_from_storedfile($file, true);
 
         $this->assertFileExists($location);
 
-
         // Verify the dir placeholder files are created.
-        $this->assertEquals(3, $DB->count_records('files', array()));
+        $this->assertEquals($installedfiles + 3, $DB->count_records('files', array()));
         $this->assertTrue($DB->record_exists('files', array('pathnamehash'=>sha1('/'.$filerecord['contextid'].'/'.$filerecord['component'].'/'.$filerecord['filearea'].'/'.$filerecord['itemid'].'/.'))));
         $this->assertTrue($DB->record_exists('files', array('pathnamehash'=>sha1('/'.$filerecord['contextid'].'/'.$filerecord['component'].'/'.$filerecord['filearea'].'/'.$filerecord['itemid'].$filerecord['filepath'].'.'))));
-
 
         // Tests that missing content file is recreated.
 
@@ -86,8 +95,7 @@ class filestoragelib_testcase extends advanced_testcase {
         $this->assertSame($file->get_contenthash(), $file2->get_contenthash());
         $this->assertFileExists($location);
 
-        $this->assertEquals(4, $DB->count_records('files', array()));
-
+        $this->assertEquals($installedfiles + 4, $DB->count_records('files', array()));
 
         // Test that borked content file is recreated.
 
@@ -102,19 +110,22 @@ class filestoragelib_testcase extends advanced_testcase {
         $this->assertSame($content, file_get_contents($location));
         $this->assertDebuggingCalled();
 
-        $this->assertEquals(5, $DB->count_records('files', array()));
+        $this->assertEquals($installedfiles + 5, $DB->count_records('files', array()));
     }
 
     /**
      * Local files can be added to the filepool
+     *
+     * @covers ::create_file_from_pathname
+     * @covers ::<!public>
      */
     public function test_create_file_from_pathname() {
         global $CFG, $DB;
 
         $this->resetAfterTest(true);
 
-        $filecount = $DB->count_records('files', array());
-        $this->assertEquals(0, $filecount);
+        // Number of files installed in the database on a fresh Moodle site.
+        $installedfiles = $DB->count_records('files', array());
 
         $filepath = $CFG->dirroot.'/lib/filestorage/tests/fixtures/testimage.jpg';
         $syscontext = context_system::instance();
@@ -132,20 +143,19 @@ class filestoragelib_testcase extends advanced_testcase {
         $file = $fs->create_file_from_pathname($filerecord, $filepath);
 
         $this->assertInstanceOf('stored_file', $file);
-        $this->assertSame(sha1_file($filepath), $file->get_contenthash());
+        $this->assertTrue($file->compare_to_path($filepath));
 
         $this->assertTrue($DB->record_exists('files', array('pathnamehash'=>$pathhash)));
 
-        $location = test_stored_file_inspection::get_pretected_pathname($file);
+        $filesystem = $fs->get_file_system();
+        $location = $filesystem->get_local_path_from_storedfile($file, true);
 
         $this->assertFileExists($location);
 
-
         // Verify the dir placeholder files are created.
-        $this->assertEquals(3, $DB->count_records('files', array()));
+        $this->assertEquals($installedfiles + 3, $DB->count_records('files', array()));
         $this->assertTrue($DB->record_exists('files', array('pathnamehash'=>sha1('/'.$filerecord['contextid'].'/'.$filerecord['component'].'/'.$filerecord['filearea'].'/'.$filerecord['itemid'].'/.'))));
         $this->assertTrue($DB->record_exists('files', array('pathnamehash'=>sha1('/'.$filerecord['contextid'].'/'.$filerecord['component'].'/'.$filerecord['filearea'].'/'.$filerecord['itemid'].$filerecord['filepath'].'.'))));
-
 
         // Tests that missing content file is recreated.
 
@@ -158,8 +168,7 @@ class filestoragelib_testcase extends advanced_testcase {
         $this->assertSame($file->get_contenthash(), $file2->get_contenthash());
         $this->assertFileExists($location);
 
-        $this->assertEquals(4, $DB->count_records('files', array()));
-
+        $this->assertEquals($installedfiles + 4, $DB->count_records('files', array()));
 
         // Test that borked content file is recreated.
 
@@ -174,7 +183,7 @@ class filestoragelib_testcase extends advanced_testcase {
         $this->assertSame(file_get_contents($filepath), file_get_contents($location));
         $this->assertDebuggingCalled();
 
-        $this->assertEquals(5, $DB->count_records('files', array()));
+        $this->assertEquals($installedfiles + 5, $DB->count_records('files', array()));
 
         // Test invalid file creation.
 
@@ -189,6 +198,9 @@ class filestoragelib_testcase extends advanced_testcase {
 
     /**
      * Tests get get file.
+     *
+     * @covers ::get_file
+     * @covers ::<!public>
      */
     public function test_get_file() {
         global $CFG;
@@ -226,12 +238,15 @@ class filestoragelib_testcase extends advanced_testcase {
     /**
      * Local images can be added to the filepool and their preview can be obtained
      *
+     * @param stored_file $file
      * @depends test_get_file
+     * @covers ::get_file_preview
+     * @covers ::<!public>
      */
     public function test_get_file_preview(stored_file $file) {
         global $CFG;
 
-        $this->resetAfterTest(true);
+        $this->resetAfterTest();
         $fs = get_file_storage();
 
         $previewtinyicon = $fs->get_file_preview($file, 'tinyicon');
@@ -242,10 +257,16 @@ class filestoragelib_testcase extends advanced_testcase {
         $this->assertInstanceOf('stored_file', $previewtinyicon);
         $this->assertEquals('6b9864ae1536a8eeef54e097319175a8be12f07c', $previewtinyicon->get_filename());
 
-        $this->setExpectedException('file_exception');
+        $this->expectException('file_exception');
         $fs->get_file_preview($file, 'amodewhichdoesntexist');
     }
 
+    /**
+     * Tests for get_file_preview without an image.
+     *
+     * @covers ::get_file_preview
+     * @covers ::<!public>
+     */
     public function test_get_file_preview_nonimage() {
         $this->resetAfterTest(true);
         $syscontext = context_system::instance();
@@ -271,11 +292,13 @@ class filestoragelib_testcase extends advanced_testcase {
      * Make sure renaming is working
      *
      * @copyright 2012 Dongsheng Cai {@link http://dongsheng.org}
+     * @covers stored_file::rename
+     * @covers ::<!public>
      */
     public function test_file_renaming() {
         global $CFG;
 
-        $this->resetAfterTest(true);
+        $this->resetAfterTest();
         $fs = get_file_storage();
         $syscontext = context_system::instance();
         $component = 'core';
@@ -299,15 +322,16 @@ class filestoragelib_testcase extends advanced_testcase {
         $newpath = '/test/';
         $newname = 'newtest.txt';
 
-        // this should work
+        // This should work.
         $originalfile->rename($newpath, $newname);
         $file = $fs->get_file($syscontext->id, $component, $filearea, $itemid, $newpath, $newname);
         $this->assertInstanceOf('stored_file', $file);
         $this->assertEquals($contenthash, $file->get_contenthash());
 
-        // try break it
-        $this->setExpectedException('file_exception');
-        // this shall throw exception
+        // Try break it.
+        $this->expectException('file_exception');
+        $this->expectExceptionMessage('Can not create file "1/core/unittest/0/test/newtest.txt" (file exists, cannot rename)');
+        // This shall throw exception.
         $originalfile->rename($newpath, $newname);
     }
 
@@ -315,12 +339,14 @@ class filestoragelib_testcase extends advanced_testcase {
      * Create file from reference tests
      *
      * @copyright 2012 Dongsheng Cai {@link http://dongsheng.org}
+     * @covers ::create_file_from_reference
+     * @covers ::<!public>
      */
     public function test_create_file_from_reference() {
         global $CFG, $DB;
 
-        $this->resetAfterTest(true);
-        // create user
+        $this->resetAfterTest();
+        // Create user.
         $generator = $this->getDataGenerator();
         $user = $generator->create_user();
         $this->setUser($user);
@@ -330,11 +356,10 @@ class filestoragelib_testcase extends advanced_testcase {
         $fs = get_file_storage();
 
         $repositorypluginname = 'user';
-        // override repository permission
+        // Override repository permission.
         $capability = 'repository/' . $repositorypluginname . ':view';
-        $allroles = $DB->get_records_menu('role', array(), 'id', 'archetype, id');
-        assign_capability($capability, CAP_ALLOW, $allroles['guest'], $syscontext->id, true);
-
+        $guestroleid = $DB->get_field('role', 'id', array('shortname' => 'guest'));
+        assign_capability($capability, CAP_ALLOW, $guestroleid, $syscontext->id, true);
 
         $args = array();
         $args['type'] = $repositorypluginname;
@@ -377,35 +402,109 @@ class filestoragelib_testcase extends advanced_testcase {
         $this->assertEquals($originalfile->get_filesize(), $newstoredfile->get_filesize());
         $this->assertRegExp('#' . $filename. '$#', $newstoredfile->get_reference_details());
 
-        // Test looking for references
+        // Test looking for references.
         $count = $fs->get_references_count_by_storedfile($originalfile);
         $this->assertEquals(1, $count);
         $files = $fs->get_references_by_storedfile($originalfile);
         $file = reset($files);
         $this->assertEquals($file, $newstoredfile);
 
-        // Look for references by repository ID
+        // Look for references by repository ID.
         $files = $fs->get_external_files($userrepository->id);
         $file = reset($files);
         $this->assertEquals($file, $newstoredfile);
 
-        // Try convert reference to local file
+        // Try convert reference to local file.
         $importedfile = $fs->import_external_file($newstoredfile);
         $this->assertFalse($importedfile->is_external_file());
         $this->assertInstanceOf('stored_file', $importedfile);
-        // still readable?
+        // Still readable?
         $this->assertEquals($content, $importedfile->get_content());
+    }
+
+    /**
+     * Create file from reference tests
+     *
+     * @copyright 2012 Dongsheng Cai {@link http://dongsheng.org}
+     * @covers ::create_file_from_reference
+     * @covers ::<!public>
+     */
+    public function test_create_file_from_reference_with_content_hash() {
+        global $CFG, $DB;
+
+        $this->resetAfterTest();
+        // Create user.
+        $generator = $this->getDataGenerator();
+        $user = $generator->create_user();
+        $this->setUser($user);
+        $usercontext = context_user::instance($user->id);
+        $syscontext = context_system::instance();
+
+        $fs = get_file_storage();
+
+        $repositorypluginname = 'user';
+        // Override repository permission.
+        $capability = 'repository/' . $repositorypluginname . ':view';
+        $guestroleid = $DB->get_field('role', 'id', array('shortname' => 'guest'));
+        assign_capability($capability, CAP_ALLOW, $guestroleid, $syscontext->id, true);
+
+        $args = array();
+        $args['type'] = $repositorypluginname;
+        $repos = repository::get_instances($args);
+        $userrepository = reset($repos);
+        $this->assertInstanceOf('repository', $userrepository);
+
+        $component = 'user';
+        $filearea = 'private';
+        $itemid = 0;
+        $filepath = '/';
+        $filename = 'userfile.txt';
+
+        $filerecord = array(
+                'contextid' => $usercontext->id,
+                'component' => $component,
+                'filearea' => $filearea,
+                'itemid' => $itemid,
+                'filepath' => $filepath,
+                'filename' => $filename,
+        );
+
+        $content = 'Test content';
+        $originalfile = $fs->create_file_from_string($filerecord, $content);
+        $this->assertInstanceOf('stored_file', $originalfile);
+
+        $otherfilerecord = $filerecord;
+        $otherfilerecord['filename'] = 'other-filename.txt';
+        $otherfilewithsamecontents = $fs->create_file_from_string($otherfilerecord, $content);
+        $this->assertInstanceOf('stored_file', $otherfilewithsamecontents);
+
+        $newfilerecord = array(
+                'contextid' => $syscontext->id,
+                'component' => 'core',
+                'filearea' => 'phpunit',
+                'itemid' => 0,
+                'filepath' => $filepath,
+                'filename' => $filename,
+                'contenthash' => $originalfile->get_contenthash(),
+        );
+        $ref = $fs->pack_reference($filerecord);
+        $newstoredfile = $fs->create_file_from_reference($newfilerecord, $userrepository->id, $ref);
+        $this->assertInstanceOf('stored_file', $newstoredfile);
+        $this->assertEquals($userrepository->id, $newstoredfile->get_repository_id());
+        $this->assertEquals($originalfile->get_contenthash(), $newstoredfile->get_contenthash());
+        $this->assertEquals($originalfile->get_filesize(), $newstoredfile->get_filesize());
+        $this->assertRegExp('#' . $filename . '$#', $newstoredfile->get_reference_details());
     }
 
     private function setup_three_private_files() {
 
-        $this->resetAfterTest(true);
+        $this->resetAfterTest();
 
         $generator = $this->getDataGenerator();
         $user = $generator->create_user();
         $this->setUser($user->id);
         $usercontext = context_user::instance($user->id);
-        // create a user private file
+        // Create a user private file.
         $file1 = new stdClass;
         $file1->contextid = $usercontext->id;
         $file1->component = 'user';
@@ -421,7 +520,7 @@ class filestoragelib_testcase extends advanced_testcase {
 
         $file2 = clone($file1);
         $file2->filename = '2.txt';
-        $userfile2 = $fs->create_file_from_string($file2, 'file2 content');
+        $userfile2 = $fs->create_file_from_string($file2, 'file2 content longer');
         $this->assertInstanceOf('stored_file', $userfile2);
 
         $file3 = clone($file1);
@@ -434,6 +533,12 @@ class filestoragelib_testcase extends advanced_testcase {
         return $user;
     }
 
+    /**
+     * Tests for get_area_files
+     *
+     * @covers ::get_area_files
+     * @covers ::<!public>
+     */
     public function test_get_area_files() {
         $user = $this->setup_three_private_files();
         $fs = get_file_storage();
@@ -472,16 +577,32 @@ class filestoragelib_testcase extends advanced_testcase {
             $this->assertEquals($key, $file->get_pathnamehash());
         }
 
-        // Test with an itemid with no files
+        // Test the limit feature to retrieve each individual file.
+        $limited = $fs->get_area_files($user->ctxid, 'user', 'private', false, 'filename', false,
+                0, 0, 1);
+        $mapfunc = function($f) {
+            return $f->get_filename();
+        };
+        $this->assertEquals(array('1.txt'), array_values(array_map($mapfunc, $limited)));
+        $limited = $fs->get_area_files($user->ctxid, 'user', 'private', false, 'filename', false,
+                0, 1, 50);
+        $this->assertEquals(array('2.txt', '3.txt'), array_values(array_map($mapfunc, $limited)));
+
+        // Test with an itemid with no files.
         $areafiles = $fs->get_area_files($user->ctxid, 'user', 'private', 666, 'sortorder', false);
         // Should be none.
         $this->assertEmpty($areafiles);
     }
 
+    /**
+     * Tests for get_area_tree
+     *
+     * @covers ::get_area_tree
+     * @covers ::<!public>
+     */
     public function test_get_area_tree() {
         $user = $this->setup_three_private_files();
         $fs = get_file_storage();
-
 
         // Get area files with default options.
         $areatree = $fs->get_area_tree($user->ctxid, 'user', 'private', 0);
@@ -533,6 +654,12 @@ class filestoragelib_testcase extends advanced_testcase {
         $this->assertEquals($filerecord['filename'], $subdirfile->get_filename());
     }
 
+    /**
+     * Tests for get_file_by_id
+     *
+     * @covers ::get_file_by_id
+     * @covers ::<!public>
+     */
     public function test_get_file_by_id() {
         $user = $this->setup_three_private_files();
         $fs = get_file_storage();
@@ -549,12 +676,18 @@ class filestoragelib_testcase extends advanced_testcase {
         $this->assertFalse($doesntexist);
     }
 
+    /**
+     * Tests for get_file_by_hash
+     *
+     * @covers ::get_file_by_hash
+     * @covers ::<!public>
+     */
     public function test_get_file_by_hash() {
         $user = $this->setup_three_private_files();
         $fs = get_file_storage();
 
         $areafiles = $fs->get_area_files($user->ctxid, 'user', 'private');
-        // Test get_file_by_hash
+        // Test get_file_by_hash.
         $filebyhash = reset($areafiles);
         $shouldbesame = $fs->get_file_by_hash($filebyhash->get_pathnamehash());
         $this->assertEquals($filebyhash->get_id(), $shouldbesame->get_id());
@@ -564,6 +697,12 @@ class filestoragelib_testcase extends advanced_testcase {
         $this->assertFalse($doesntexist);
     }
 
+    /**
+     * Tests for get_external_files
+     *
+     * @covers ::get_external_files
+     * @covers ::<!public>
+     */
     public function test_get_external_files() {
         $user = $this->setup_three_private_files();
         $fs = get_file_storage();
@@ -572,12 +711,12 @@ class filestoragelib_testcase extends advanced_testcase {
         $userrepository = reset($repos);
         $this->assertInstanceOf('repository', $userrepository);
 
-        // no aliases yet
+        // No aliases yet.
         $exfiles = $fs->get_external_files($userrepository->id, 'id');
         $this->assertEquals(array(), $exfiles);
 
-        // create three aliases linking the same original: $aliasfile1 and $aliasfile2 are
-        // created via create_file_from_reference(), $aliasfile3 created from $aliasfile2
+        // Create three aliases linking the same original: $aliasfile1 and $aliasfile2 are
+        // created via create_file_from_reference(), $aliasfile3 created from $aliasfile2.
         $originalfile = null;
         foreach ($fs->get_area_files($user->ctxid, 'user', 'private') as $areafile) {
             if (!$areafile->is_directory()) {
@@ -604,7 +743,7 @@ class filestoragelib_testcase extends advanced_testcase {
 
         $aliasrecord->filepath = '/bar/';
         $aliasrecord->filename = 'uno.txt';
-        // change the order of the items in the array to make sure that it does not matter
+        // Change the order of the items in the array to make sure that it does not matter.
         ksort($originalrecord);
         $ref = $fs->pack_reference($originalrecord);
         $aliasfile2 = $fs->create_file_from_reference($aliasrecord, $userrepository->id, $ref);
@@ -613,72 +752,120 @@ class filestoragelib_testcase extends advanced_testcase {
         $aliasrecord->filename = 'jedna.txt';
         $aliasfile3 = $fs->create_file_from_storedfile($aliasrecord, $aliasfile2);
 
-        // make sure we get three aliases now
+        // Make sure we get three aliases now.
         $exfiles = $fs->get_external_files($userrepository->id, 'id');
         $this->assertEquals(3, count($exfiles));
         foreach ($exfiles as $exfile) {
             $this->assertTrue($exfile->is_external_file());
         }
-        // make sure they all link the same original (thence that all are linked with the same
-        // record in {files_reference})
+        // Make sure they all link the same original (thence that all are linked with the same
+        // record in {files_reference}).
         $this->assertEquals($aliasfile1->get_referencefileid(), $aliasfile2->get_referencefileid());
         $this->assertEquals($aliasfile3->get_referencefileid(), $aliasfile2->get_referencefileid());
     }
 
+    /**
+     * Tests for create_directory with a negative contextid.
+     *
+     * @covers ::create_directory
+     * @covers ::<!public>
+     */
     public function test_create_directory_contextid_negative() {
         $fs = get_file_storage();
 
-        $this->setExpectedException('file_exception');
+        $this->expectException('file_exception');
         $fs->create_directory(-1, 'core', 'unittest', 0, '/');
     }
 
+    /**
+     * Tests for create_directory with an invalid contextid.
+     *
+     * @covers ::create_directory
+     * @covers ::<!public>
+     */
     public function test_create_directory_contextid_invalid() {
         $fs = get_file_storage();
 
-        $this->setExpectedException('file_exception');
+        $this->expectException('file_exception');
         $fs->create_directory('not an int', 'core', 'unittest', 0, '/');
     }
 
+    /**
+     * Tests for create_directory with an invalid component.
+     *
+     * @covers ::create_directory
+     * @covers ::<!public>
+     */
     public function test_create_directory_component_invalid() {
         $fs = get_file_storage();
         $syscontext = context_system::instance();
 
-        $this->setExpectedException('file_exception');
+        $this->expectException('file_exception');
         $fs->create_directory($syscontext->id, 'bad/component', 'unittest', 0, '/');
     }
 
+    /**
+     * Tests for create_directory with an invalid filearea.
+     *
+     * @covers ::create_directory
+     * @covers ::<!public>
+     */
     public function test_create_directory_filearea_invalid() {
         $fs = get_file_storage();
         $syscontext = context_system::instance();
 
-        $this->setExpectedException('file_exception');
+        $this->expectException('file_exception');
         $fs->create_directory($syscontext->id, 'core', 'bad-filearea', 0, '/');
     }
 
+    /**
+     * Tests for create_directory with a negative itemid
+     *
+     * @covers ::create_directory
+     * @covers ::<!public>
+     */
     public function test_create_directory_itemid_negative() {
         $fs = get_file_storage();
         $syscontext = context_system::instance();
 
-        $this->setExpectedException('file_exception');
+        $this->expectException('file_exception');
         $fs->create_directory($syscontext->id, 'core', 'unittest', -1, '/');
     }
 
+    /**
+     * Tests for create_directory with an invalid itemid
+     *
+     * @covers ::create_directory
+     * @covers ::<!public>
+     */
     public function test_create_directory_itemid_invalid() {
         $fs = get_file_storage();
         $syscontext = context_system::instance();
 
-        $this->setExpectedException('file_exception');
+        $this->expectException('file_exception');
         $fs->create_directory($syscontext->id, 'core', 'unittest', 'notanint', '/');
     }
 
+    /**
+     * Tests for create_directory with an invalid filepath
+     *
+     * @covers ::create_directory
+     * @covers ::<!public>
+     */
     public function test_create_directory_filepath_invalid() {
         $fs = get_file_storage();
         $syscontext = context_system::instance();
 
-        $this->setExpectedException('file_exception');
+        $this->expectException('file_exception');
         $fs->create_directory($syscontext->id, 'core', 'unittest', 0, '/not-with-trailing/or-leading-slash');
     }
 
+    /**
+     * Tests for get_directory_files.
+     *
+     * @covers ::get_directory_files
+     * @covers ::<!public>
+     */
     public function test_get_directory_files() {
         $user = $this->setup_three_private_files();
         $fs = get_file_storage();
@@ -699,7 +886,7 @@ class filestoragelib_testcase extends advanced_testcase {
         $directoryfile = $fs->create_file_from_string($filerecord, 'Test content');
         $this->assertInstanceOf('stored_file', $directoryfile);
 
-        // Don't recurse without dirs
+        // Don't recurse without dirs.
         $files = $fs->get_directory_files($user->ctxid, 'user', 'private', 0, '/', false, false, 'id');
         // 3 files only.
         $this->assertCount(3, $files);
@@ -736,6 +923,12 @@ class filestoragelib_testcase extends advanced_testcase {
         }
     }
 
+    /**
+     * Tests for search_references.
+     *
+     * @covers ::search_references
+     * @covers ::<!public>
+     */
     public function test_search_references() {
         $user = $this->setup_three_private_files();
         $fs = get_file_storage();
@@ -790,7 +983,7 @@ class filestoragelib_testcase extends advanced_testcase {
         $result = $fs->search_references_count($reference);
         $this->assertSame($result, 2);
 
-        // The method can't be used for references to files outside the filepool
+        // The method can't be used for references to files outside the filepool.
         $exceptionthrown = false;
         try {
             $fs->search_references('http://dl.dropbox.com/download/1234567/naked-dougiamas.jpg');
@@ -808,6 +1001,12 @@ class filestoragelib_testcase extends advanced_testcase {
         $this->assertTrue($exceptionthrown);
     }
 
+    /**
+     * Tests for delete_area_files.
+     *
+     * @covers ::delete_area_files
+     * @covers ::<!public>
+     */
     public function test_delete_area_files() {
         $user = $this->setup_three_private_files();
         $fs = get_file_storage();
@@ -823,6 +1022,12 @@ class filestoragelib_testcase extends advanced_testcase {
         $this->assertEquals(0, count($areafiles));
     }
 
+    /**
+     * Tests for delete_area_files using an itemid.
+     *
+     * @covers ::delete_area_files
+     * @covers ::<!public>
+     */
     public function test_delete_area_files_itemid() {
         $user = $this->setup_three_private_files();
         $fs = get_file_storage();
@@ -837,6 +1042,12 @@ class filestoragelib_testcase extends advanced_testcase {
         $this->assertEquals(4, count($areafiles));
     }
 
+    /**
+     * Tests for delete_area_files_select.
+     *
+     * @covers ::delete_area_files_select
+     * @covers ::<!public>
+     */
     public function test_delete_area_files_select() {
         $user = $this->setup_three_private_files();
         $fs = get_file_storage();
@@ -852,6 +1063,12 @@ class filestoragelib_testcase extends advanced_testcase {
         $this->assertEquals(0, count($areafiles));
     }
 
+    /**
+     * Tests for delete_component_files.
+     *
+     * @covers ::delete_component_files
+     * @covers ::<!public>
+     */
     public function test_delete_component_files() {
         $user = $this->setup_three_private_files();
         $fs = get_file_storage();
@@ -863,6 +1080,12 @@ class filestoragelib_testcase extends advanced_testcase {
         $this->assertEquals(0, count($areafiles));
     }
 
+    /**
+     * Tests for create_file_from_url.
+     *
+     * @covers ::create_file_from_url
+     * @covers ::<!public>
+     */
     public function test_create_file_from_url() {
         $this->resetAfterTest(true);
 
@@ -874,7 +1097,7 @@ class filestoragelib_testcase extends advanced_testcase {
             'itemid'    => 0,
             'filepath'  => '/downloadtest/',
         );
-        $url = 'http://download.moodle.org/unittest/test.html';
+        $url = $this->getExternalTestFileUrl('/test.html');
 
         $fs = get_file_storage();
 
@@ -893,6 +1116,12 @@ class filestoragelib_testcase extends advanced_testcase {
         $file3 = $this->assertInstanceOf('stored_file', $file3);
     }
 
+    /**
+     * Tests for cron.
+     *
+     * @covers ::cron
+     * @covers ::<!public>
+     */
     public function test_cron() {
         $this->resetAfterTest(true);
 
@@ -904,6 +1133,12 @@ class filestoragelib_testcase extends advanced_testcase {
         $fs->cron();
     }
 
+    /**
+     * Tests for is_area_empty.
+     *
+     * @covers ::is_area_empty
+     * @covers ::<!public>
+     */
     public function test_is_area_empty() {
         $user = $this->setup_three_private_files();
         $fs = get_file_storage();
@@ -916,6 +1151,12 @@ class filestoragelib_testcase extends advanced_testcase {
         $this->assertTrue($fs->is_area_empty($user->ctxid, 'user', 'private', 9999, false));
     }
 
+    /**
+     * Tests for move_area_files_to_new_context.
+     *
+     * @covers ::move_area_files_to_new_context
+     * @covers ::<!public>
+     */
     public function test_move_area_files_to_new_context() {
         $this->resetAfterTest(true);
 
@@ -965,6 +1206,12 @@ class filestoragelib_testcase extends advanced_testcase {
         $this->assertEquals($movedfile->get_contenthash(), $originalfile->get_contenthash());
     }
 
+    /**
+     * Tests for convert_image.
+     *
+     * @covers ::convert_image
+     * @covers ::<!public>
+     */
     public function test_convert_image() {
         global $CFG;
 
@@ -993,6 +1240,75 @@ class filestoragelib_testcase extends advanced_testcase {
         $this->assertInstanceOf('stored_file', $converted);
     }
 
+    /**
+     * Tests for convert_image with a PNG.
+     *
+     * @covers ::convert_image
+     * @covers ::<!public>
+     */
+    public function test_convert_image_png() {
+        global $CFG;
+
+        $this->resetAfterTest(false);
+
+        $filepath = $CFG->dirroot.'/lib/filestorage/tests/fixtures/testimage.png';
+        $syscontext = context_system::instance();
+        $filerecord = array(
+            'contextid' => $syscontext->id,
+            'component' => 'core',
+            'filearea'  => 'unittest',
+            'itemid'    => 0,
+            'filepath'  => '/images/',
+            'filename'  => 'testimage.png',
+        );
+
+        $fs = get_file_storage();
+        $original = $fs->create_file_from_pathname($filerecord, $filepath);
+
+        // Vanilla test.
+        $filerecord['filename'] = 'testimage-converted-nosize.png';
+        $vanilla = $fs->convert_image($filerecord, $original);
+        $this->assertInstanceOf('stored_file', $vanilla);
+        // Assert that byte 25 has the ascii value 6 for PNG-24.
+        $this->assertTrue(ord(substr($vanilla->get_content(), 25, 1)) == 6);
+
+        // 10x10 resize test; also testing for a ridiculous quality setting, which
+        // we should if necessary scale to the 0 - 9 range.
+        $filerecord['filename'] = 'testimage-converted-10x10.png';
+        $converted = $fs->convert_image($filerecord, $original, 10, 10, true, 100);
+        $this->assertInstanceOf('stored_file', $converted);
+        // Assert that byte 25 has the ascii value 6 for PNG-24.
+        $this->assertTrue(ord(substr($converted->get_content(), 25, 1)) == 6);
+
+        // Transparency test.
+        $filerecord['filename'] = 'testimage-converted-102x31.png';
+        $converted = $fs->convert_image($filerecord, $original, 102, 31, true, 9);
+        $this->assertInstanceOf('stored_file', $converted);
+        // Assert that byte 25 has the ascii value 6 for PNG-24.
+        $this->assertTrue(ord(substr($converted->get_content(), 25, 1)) == 6);
+
+        $originalfile = imagecreatefromstring($original->get_content());
+        $convertedfile = imagecreatefromstring($converted->get_content());
+        $vanillafile = imagecreatefromstring($vanilla->get_content());
+
+        $originalcolors = imagecolorsforindex($originalfile, imagecolorat($originalfile, 0, 0));
+        $convertedcolors = imagecolorsforindex($convertedfile, imagecolorat($convertedfile, 0, 0));
+        $vanillacolors = imagecolorsforindex($vanillafile, imagecolorat($vanillafile, 0, 0));
+        $this->assertEquals(count($originalcolors), 4);
+        $this->assertEquals(count($convertedcolors), 4);
+        $this->assertEquals(count($vanillacolors), 4);
+        $this->assertEquals($originalcolors['red'], $convertedcolors['red']);
+        $this->assertEquals($originalcolors['green'], $convertedcolors['green']);
+        $this->assertEquals($originalcolors['blue'], $convertedcolors['blue']);
+        $this->assertEquals($originalcolors['alpha'], $convertedcolors['alpha']);
+        $this->assertEquals($originalcolors['red'], $vanillacolors['red']);
+        $this->assertEquals($originalcolors['green'], $vanillacolors['green']);
+        $this->assertEquals($originalcolors['blue'], $vanillacolors['blue']);
+        $this->assertEquals($originalcolors['alpha'], $vanillacolors['alpha']);
+        $this->assertEquals($originalcolors['alpha'], 127);
+
+    }
+
     private function generate_file_record() {
         $syscontext = context_system::instance();
         $filerecord = new stdClass();
@@ -1006,17 +1322,28 @@ class filestoragelib_testcase extends advanced_testcase {
         return $filerecord;
     }
 
+    /**
+     * @expectedException        file_exception
+     * @covers ::create_file_from_storedfile
+     * @covers ::<!public>
+     */
     public function test_create_file_from_storedfile_file_invalid() {
         $this->resetAfterTest(true);
 
         $filerecord = $this->generate_file_record();
 
         $fs = get_file_storage();
-        $this->setExpectedException('file_exception');
+
         // Create a file from a file id which doesn't exist.
         $fs->create_file_from_storedfile($filerecord,  9999);
     }
 
+    /**
+     * @expectedException        file_exception
+     * @expectedExceptionMessage Invalid contextid
+     * @covers ::create_file_from_storedfile
+     * @covers ::<!public>
+     */
     public function test_create_file_from_storedfile_contextid_invalid() {
         $this->resetAfterTest(true);
 
@@ -1029,10 +1356,15 @@ class filestoragelib_testcase extends advanced_testcase {
         $filerecord->filename = 'invalid.txt';
         $filerecord->contextid = 'invalid';
 
-        $this->setExpectedException('file_exception', 'Invalid contextid');
         $fs->create_file_from_storedfile($filerecord, $file1->get_id());
     }
 
+    /**
+     * @expectedException        file_exception
+     * @expectedExceptionMessage Invalid component
+     * @covers ::create_file_from_storedfile
+     * @covers ::<!public>
+     */
     public function test_create_file_from_storedfile_component_invalid() {
         $this->resetAfterTest(true);
 
@@ -1045,10 +1377,15 @@ class filestoragelib_testcase extends advanced_testcase {
         $filerecord->filename = 'invalid.txt';
         $filerecord->component = 'bad/component';
 
-        $this->setExpectedException('file_exception', 'Invalid component');
         $fs->create_file_from_storedfile($filerecord, $file1->get_id());
     }
 
+    /**
+     * @expectedException        file_exception
+     * @expectedExceptionMessage Invalid filearea
+     * @covers ::create_file_from_storedfile
+     * @covers ::<!public>
+     */
     public function test_create_file_from_storedfile_filearea_invalid() {
         $this->resetAfterTest(true);
 
@@ -1061,10 +1398,15 @@ class filestoragelib_testcase extends advanced_testcase {
         $filerecord->filename = 'invalid.txt';
         $filerecord->filearea = 'bad-filearea';
 
-        $this->setExpectedException('file_exception', 'Invalid filearea');
         $fs->create_file_from_storedfile($filerecord, $file1->get_id());
     }
 
+    /**
+     * @expectedException        file_exception
+     * @expectedExceptionMessage Invalid itemid
+     * @covers ::create_file_from_storedfile
+     * @covers ::<!public>
+     */
     public function test_create_file_from_storedfile_itemid_invalid() {
         $this->resetAfterTest(true);
 
@@ -1077,10 +1419,15 @@ class filestoragelib_testcase extends advanced_testcase {
         $filerecord->filename = 'invalid.txt';
         $filerecord->itemid = 'bad-itemid';
 
-        $this->setExpectedException('file_exception', 'Invalid itemid');
         $fs->create_file_from_storedfile($filerecord, $file1->get_id());
     }
 
+    /**
+     * @expectedException        file_exception
+     * @expectedExceptionMessage Invalid file path
+     * @covers ::create_file_from_storedfile
+     * @covers ::<!public>
+     */
     public function test_create_file_from_storedfile_filepath_invalid() {
         $this->resetAfterTest(true);
 
@@ -1093,10 +1440,15 @@ class filestoragelib_testcase extends advanced_testcase {
         $filerecord->filename = 'invalid.txt';
         $filerecord->filepath = 'a-/bad/-filepath';
 
-        $this->setExpectedException('file_exception', 'Invalid file path');
         $fs->create_file_from_storedfile($filerecord, $file1->get_id());
     }
 
+    /**
+     * @expectedException        file_exception
+     * @expectedExceptionMessage Invalid file name
+     * @covers ::create_file_from_storedfile
+     * @covers ::<!public>
+     */
     public function test_create_file_from_storedfile_filename_invalid() {
         $this->resetAfterTest(true);
 
@@ -1108,10 +1460,15 @@ class filestoragelib_testcase extends advanced_testcase {
 
         $filerecord->filename = '';
 
-        $this->setExpectedException('file_exception', 'Invalid file name');
         $fs->create_file_from_storedfile($filerecord, $file1->get_id());
     }
 
+    /**
+     * @expectedException        file_exception
+     * @expectedExceptionMessage Invalid file timecreated
+     * @covers ::create_file_from_storedfile
+     * @covers ::<!public>
+     */
     public function test_create_file_from_storedfile_timecreated_invalid() {
         $this->resetAfterTest(true);
 
@@ -1124,10 +1481,15 @@ class filestoragelib_testcase extends advanced_testcase {
         $filerecord->filename = 'invalid.txt';
         $filerecord->timecreated = 'today';
 
-        $this->setExpectedException('file_exception', 'Invalid file timecreated');
         $fs->create_file_from_storedfile($filerecord, $file1->get_id());
     }
 
+    /**
+     * @expectedException        file_exception
+     * @expectedExceptionMessage Invalid file timemodified
+     * @covers ::create_file_from_storedfile
+     * @covers ::<!public>
+     */
     public function test_create_file_from_storedfile_timemodified_invalid() {
         $this->resetAfterTest(true);
 
@@ -1140,10 +1502,15 @@ class filestoragelib_testcase extends advanced_testcase {
         $filerecord->filename = 'invalid.txt';
         $filerecord->timemodified  = 'today';
 
-        $this->setExpectedException('file_exception', 'Invalid file timemodified');
         $fs->create_file_from_storedfile($filerecord, $file1->get_id());
     }
 
+    /**
+     * @expectedException        stored_file_creation_exception
+     * @expectedExceptionMessage Can not create file "1/core/phpunit/0/testfile.txt"
+     * @covers ::create_file_from_storedfile
+     * @covers ::<!public>
+     */
     public function test_create_file_from_storedfile_duplicate() {
         $this->resetAfterTest(true);
 
@@ -1154,10 +1521,15 @@ class filestoragelib_testcase extends advanced_testcase {
         $this->assertInstanceOf('stored_file', $file1);
 
         // Creating a file validating unique constraint.
-        $this->setExpectedException('stored_file_creation_exception');
         $fs->create_file_from_storedfile($filerecord, $file1->get_id());
     }
 
+    /**
+     * Tests for create_file_from_storedfile.
+     *
+     * @covers ::create_file_from_storedfile
+     * @covers ::<!public>
+     */
     public function test_create_file_from_storedfile() {
         $this->resetAfterTest(true);
 
@@ -1192,6 +1564,12 @@ class filestoragelib_testcase extends advanced_testcase {
         $this->assertNotEquals($file3->get_timecreated(), $filerecord->timecreated);
     }
 
+    /**
+     * @expectedException        file_exception
+     * @expectedExceptionMessage Invalid contextid
+     * @covers ::create_file_from_string
+     * @covers ::<!public>
+     */
     public function test_create_file_from_string_contextid_invalid() {
         $this->resetAfterTest(true);
 
@@ -1200,10 +1578,15 @@ class filestoragelib_testcase extends advanced_testcase {
 
         $filerecord->contextid = 'invalid';
 
-        $this->setExpectedException('file_exception', 'Invalid contextid');
         $file1 = $fs->create_file_from_string($filerecord, 'text contents');
     }
 
+    /**
+     * @expectedException        file_exception
+     * @expectedExceptionMessage Invalid component
+     * @covers ::create_file_from_string
+     * @covers ::<!public>
+     */
     public function test_create_file_from_string_component_invalid() {
         $this->resetAfterTest(true);
 
@@ -1212,10 +1595,15 @@ class filestoragelib_testcase extends advanced_testcase {
 
         $filerecord->component = 'bad/component';
 
-        $this->setExpectedException('file_exception', 'Invalid component');
         $file1 = $fs->create_file_from_string($filerecord, 'text contents');
     }
 
+    /**
+     * @expectedException        file_exception
+     * @expectedExceptionMessage Invalid filearea
+     * @covers ::create_file_from_string
+     * @covers ::<!public>
+     */
     public function test_create_file_from_string_filearea_invalid() {
         $this->resetAfterTest(true);
 
@@ -1224,10 +1612,15 @@ class filestoragelib_testcase extends advanced_testcase {
 
         $filerecord->filearea = 'bad-filearea';
 
-        $this->setExpectedException('file_exception', 'Invalid filearea');
         $file1 = $fs->create_file_from_string($filerecord, 'text contents');
     }
 
+    /**
+     * @expectedException        file_exception
+     * @expectedExceptionMessage Invalid itemid
+     * @covers ::create_file_from_string
+     * @covers ::<!public>
+     */
     public function test_create_file_from_string_itemid_invalid() {
         $this->resetAfterTest(true);
 
@@ -1236,10 +1629,15 @@ class filestoragelib_testcase extends advanced_testcase {
 
         $filerecord->itemid = 'bad-itemid';
 
-        $this->setExpectedException('file_exception', 'Invalid itemid');
         $file1 = $fs->create_file_from_string($filerecord, 'text contents');
     }
 
+    /**
+     * @expectedException        file_exception
+     * @expectedExceptionMessage Invalid file path
+     * @covers ::create_file_from_string
+     * @covers ::<!public>
+     */
     public function test_create_file_from_string_filepath_invalid() {
         $this->resetAfterTest(true);
 
@@ -1248,10 +1646,15 @@ class filestoragelib_testcase extends advanced_testcase {
 
         $filerecord->filepath = 'a-/bad/-filepath';
 
-        $this->setExpectedException('file_exception', 'Invalid file path');
         $file1 = $fs->create_file_from_string($filerecord, 'text contents');
     }
 
+    /**
+     * @expectedException        file_exception
+     * @expectedExceptionMessage Invalid file name
+     * @covers ::create_file_from_string
+     * @covers ::<!public>
+     */
     public function test_create_file_from_string_filename_invalid() {
         $this->resetAfterTest(true);
 
@@ -1260,10 +1663,15 @@ class filestoragelib_testcase extends advanced_testcase {
 
         $filerecord->filename = '';
 
-        $this->setExpectedException('file_exception', 'Invalid file name');
         $file1 = $fs->create_file_from_string($filerecord, 'text contents');
     }
 
+    /**
+     * @expectedException        file_exception
+     * @expectedExceptionMessage Invalid file timecreated
+     * @covers ::create_file_from_string
+     * @covers ::<!public>
+     */
     public function test_create_file_from_string_timecreated_invalid() {
         $this->resetAfterTest(true);
 
@@ -1272,10 +1680,17 @@ class filestoragelib_testcase extends advanced_testcase {
 
         $filerecord->timecreated = 'today';
 
-        $this->setExpectedException('file_exception', 'Invalid file timecreated');
+        $this->expectException('file_exception');
+        $this->expectExceptionMessage('Invalid file timecreated');
         $file1 = $fs->create_file_from_string($filerecord, 'text contents');
     }
 
+    /**
+     * @expectedException        file_exception
+     * @expectedExceptionMessage Invalid file timemodified
+     * @covers ::create_file_from_string
+     * @covers ::<!public>
+     */
     public function test_create_file_from_string_timemodified_invalid() {
         $this->resetAfterTest(true);
 
@@ -1284,10 +1699,14 @@ class filestoragelib_testcase extends advanced_testcase {
 
         $filerecord->timemodified  = 'today';
 
-        $this->setExpectedException('file_exception', 'Invalid file timemodified');
         $file1 = $fs->create_file_from_string($filerecord, 'text contents');
     }
 
+    /**
+     * Tests for create_file_from_string with a duplicate string.
+     * @covers ::create_file_from_string
+     * @covers ::<!public>
+     */
     public function test_create_file_from_string_duplicate() {
         $this->resetAfterTest(true);
 
@@ -1297,10 +1716,16 @@ class filestoragelib_testcase extends advanced_testcase {
         $file1 = $fs->create_file_from_string($filerecord, 'text contents');
 
         // Creating a file validating unique constraint.
-        $this->setExpectedException('stored_file_creation_exception');
+        $this->expectException('stored_file_creation_exception');
         $file2 = $fs->create_file_from_string($filerecord, 'text contents');
     }
 
+    /**
+     * @expectedException        file_exception
+     * @expectedExceptionMessage Invalid contextid
+     * @covers ::create_file_from_pathname
+     * @covers ::<!public>
+     */
     public function test_create_file_from_pathname_contextid_invalid() {
         global $CFG;
         $path = $CFG->dirroot.'/lib/filestorage/tests/fixtures/testimage.jpg';
@@ -1312,10 +1737,15 @@ class filestoragelib_testcase extends advanced_testcase {
 
         $filerecord->contextid = 'invalid';
 
-        $this->setExpectedException('file_exception', 'Invalid contextid');
         $file1 = $fs->create_file_from_pathname($filerecord, $path);
     }
 
+    /**
+     * @expectedException        file_exception
+     * @expectedExceptionMessage Invalid component
+     * @covers ::create_file_from_pathname
+     * @covers ::<!public>
+     */
     public function test_create_file_from_pathname_component_invalid() {
         global $CFG;
         $path = $CFG->dirroot.'/lib/filestorage/tests/fixtures/testimage.jpg';
@@ -1327,10 +1757,15 @@ class filestoragelib_testcase extends advanced_testcase {
 
         $filerecord->component = 'bad/component';
 
-        $this->setExpectedException('file_exception', 'Invalid component');
         $file1 = $fs->create_file_from_pathname($filerecord, $path);
     }
 
+    /**
+     * @expectedException        file_exception
+     * @expectedExceptionMessage Invalid filearea
+     * @covers ::create_file_from_pathname
+     * @covers ::<!public>
+     */
     public function test_create_file_from_pathname_filearea_invalid() {
         global $CFG;
         $path = $CFG->dirroot.'/lib/filestorage/tests/fixtures/testimage.jpg';
@@ -1342,10 +1777,15 @@ class filestoragelib_testcase extends advanced_testcase {
 
         $filerecord->filearea = 'bad-filearea';
 
-        $this->setExpectedException('file_exception', 'Invalid filearea');
         $file1 = $fs->create_file_from_pathname($filerecord, $path);
     }
 
+    /**
+     * @expectedException        file_exception
+     * @expectedExceptionMessage Invalid itemid
+     * @covers ::create_file_from_pathname
+     * @covers ::<!public>
+     */
     public function test_create_file_from_pathname_itemid_invalid() {
         global $CFG;
         $path = $CFG->dirroot.'/lib/filestorage/tests/fixtures/testimage.jpg';
@@ -1357,10 +1797,15 @@ class filestoragelib_testcase extends advanced_testcase {
 
         $filerecord->itemid = 'bad-itemid';
 
-        $this->setExpectedException('file_exception', 'Invalid itemid');
-        $file1 = $fs->create_file_from_pathname($filerecord, $path);
+         $file1 = $fs->create_file_from_pathname($filerecord, $path);
     }
 
+    /**
+     * @expectedException        file_exception
+     * @expectedExceptionMessage Invalid file path
+     * @covers ::create_file_from_pathname
+     * @covers ::<!public>
+     */
     public function test_create_file_from_pathname_filepath_invalid() {
         global $CFG;
         $path = $CFG->dirroot.'/lib/filestorage/tests/fixtures/testimage.jpg';
@@ -1372,10 +1817,15 @@ class filestoragelib_testcase extends advanced_testcase {
 
         $filerecord->filepath = 'a-/bad/-filepath';
 
-        $this->setExpectedException('file_exception', 'Invalid file path');
         $file1 = $fs->create_file_from_pathname($filerecord, $path);
     }
 
+    /**
+     * @expectedException        file_exception
+     * @expectedExceptionMessage Invalid file name
+     * @covers ::create_file_from_pathname
+     * @covers ::<!public>
+     */
     public function test_create_file_from_pathname_filename_invalid() {
         global $CFG;
         $path = $CFG->dirroot.'/lib/filestorage/tests/fixtures/testimage.jpg';
@@ -1387,10 +1837,15 @@ class filestoragelib_testcase extends advanced_testcase {
 
         $filerecord->filename = '';
 
-        $this->setExpectedException('file_exception', 'Invalid file name');
         $file1 = $fs->create_file_from_pathname($filerecord, $path);
     }
 
+    /**
+     * @expectedException        file_exception
+     * @expectedExceptionMessage Invalid file timecreated
+     * @covers ::create_file_from_pathname
+     * @covers ::<!public>
+     */
     public function test_create_file_from_pathname_timecreated_invalid() {
         global $CFG;
         $path = $CFG->dirroot.'/lib/filestorage/tests/fixtures/testimage.jpg';
@@ -1402,10 +1857,15 @@ class filestoragelib_testcase extends advanced_testcase {
 
         $filerecord->timecreated = 'today';
 
-        $this->setExpectedException('file_exception', 'Invalid file timecreated');
         $file1 = $fs->create_file_from_pathname($filerecord, $path);
     }
 
+    /**
+     * @expectedException        file_exception
+     * @expectedExceptionMessage Invalid file timemodified
+     * @covers ::create_file_from_pathname
+     * @covers ::<!public>
+     */
     public function test_create_file_from_pathname_timemodified_invalid() {
         global $CFG;
         $path = $CFG->dirroot.'/lib/filestorage/tests/fixtures/testimage.jpg';
@@ -1417,10 +1877,15 @@ class filestoragelib_testcase extends advanced_testcase {
 
         $filerecord->timemodified  = 'today';
 
-        $this->setExpectedException('file_exception', 'Invalid file timemodified');
         $file1 = $fs->create_file_from_pathname($filerecord, $path);
     }
 
+    /**
+     * @expectedException        stored_file_creation_exception
+     * @expectedExceptionMessage Can not create file "1/core/phpunit/0/testfile.txt"
+     * @covers ::create_file_from_pathname
+     * @covers ::<!public>
+     */
     public function test_create_file_from_pathname_duplicate_file() {
         global $CFG;
         $this->resetAfterTest(true);
@@ -1434,12 +1899,14 @@ class filestoragelib_testcase extends advanced_testcase {
         $this->assertInstanceOf('stored_file', $file1);
 
         // Creating a file validating unique constraint.
-        $this->setExpectedException('stored_file_creation_exception');
         $file2 = $fs->create_file_from_pathname($filerecord, $path);
     }
 
     /**
      * Calling stored_file::delete_reference() on a non-reference file throws coding_exception
+     *
+     * @covers stored_file::delete_reference
+     * @covers ::<!public>
      */
     public function test_delete_reference_on_nonreference() {
 
@@ -1459,13 +1926,16 @@ class filestoragelib_testcase extends advanced_testcase {
         $this->assertInstanceOf('stored_file', $file);
         $this->assertFalse($file->is_external_file());
 
-        $this->setExpectedException('coding_exception');
+        $this->expectException('coding_exception');
         $file->delete_reference();
     }
 
     /**
      * Calling stored_file::delete_reference() on a reference file does not affect other
      * symlinks to the same original
+     *
+     * @covers stored_file::delete_reference
+     * @covers ::<!public>
      */
     public function test_delete_reference_one_symlink_does_not_rule_them_all() {
 
@@ -1475,7 +1945,7 @@ class filestoragelib_testcase extends advanced_testcase {
         $repos = repository::get_instances(array('type'=>'user'));
         $repo = reset($repos);
 
-        // create two aliases linking the same original
+        // Create two aliases linking the same original.
 
         $originalfile = null;
         foreach ($fs->get_area_files($user->ctxid, 'user', 'private') as $areafile) {
@@ -1486,7 +1956,7 @@ class filestoragelib_testcase extends advanced_testcase {
         }
         $this->assertInstanceOf('stored_file', $originalfile);
 
-        // calling delete_reference() on a non-reference file
+        // Calling delete_reference() on a non-reference file.
 
         $originalrecord = array(
             'contextid' => $originalfile->get_contextid(),
@@ -1509,21 +1979,134 @@ class filestoragelib_testcase extends advanced_testcase {
         $ref = $fs->pack_reference($originalrecord);
         $aliasfile2 = $fs->create_file_from_reference($aliasrecord, $repo->id, $ref);
 
-        // refetch A/symlink.txt
+        // Refetch A/symlink.txt file.
         $symlink1 = $fs->get_file($aliasrecord->contextid, $aliasrecord->component,
             $aliasrecord->filearea, $aliasrecord->itemid, '/A/', 'symlink.txt');
         $this->assertTrue($symlink1->is_external_file());
 
-        // unlink the A/symlink.txt
+        // Unlink the A/symlink.txt file.
         $symlink1->delete_reference();
         $this->assertFalse($symlink1->is_external_file());
 
-        // make sure that B/symlink.txt has not been affected
+        // Make sure that B/symlink.txt has not been affected.
         $symlink2 = $fs->get_file($aliasrecord->contextid, $aliasrecord->component,
             $aliasrecord->filearea, $aliasrecord->itemid, '/B/', 'symlink.txt');
         $this->assertTrue($symlink2->is_external_file());
     }
 
+    /**
+     * Make sure that when internal file is updated all references to it are
+     * updated immediately. When it is deleted, the references are converted
+     * to true copies.
+     */
+    public function test_update_reference_internal() {
+        purge_all_caches();
+        $this->resetAfterTest(true);
+        $user = $this->setup_three_private_files();
+        $fs = get_file_storage();
+        $repos = repository::get_instances(array('type' => 'user'));
+        $repo = reset($repos);
+
+        // Create two aliases linking the same original.
+
+        $areafiles = array_values($fs->get_area_files($user->ctxid, 'user', 'private', false, 'filename', false));
+
+        $originalfile = $areafiles[0];
+        $this->assertInstanceOf('stored_file', $originalfile);
+        $contenthash = $originalfile->get_contenthash();
+        $filesize = $originalfile->get_filesize();
+
+        $substitutefile = $areafiles[1];
+        $this->assertInstanceOf('stored_file', $substitutefile);
+        $newcontenthash = $substitutefile->get_contenthash();
+        $newfilesize = $substitutefile->get_filesize();
+
+        $originalrecord = array(
+            'contextid' => $originalfile->get_contextid(),
+            'component' => $originalfile->get_component(),
+            'filearea'  => $originalfile->get_filearea(),
+            'itemid'    => $originalfile->get_itemid(),
+            'filepath'  => $originalfile->get_filepath(),
+            'filename'  => $originalfile->get_filename(),
+        );
+
+        $aliasrecord = $this->generate_file_record();
+        $aliasrecord->filepath = '/A/';
+        $aliasrecord->filename = 'symlink.txt';
+
+        $ref = $fs->pack_reference($originalrecord);
+        $symlink1 = $fs->create_file_from_reference($aliasrecord, $repo->id, $ref);
+        // Make sure created alias is a reference and has the same size and contenthash as source.
+        $this->assertEquals($contenthash, $symlink1->get_contenthash());
+        $this->assertEquals($filesize, $symlink1->get_filesize());
+        $this->assertEquals($repo->id, $symlink1->get_repository_id());
+        $this->assertNotEmpty($symlink1->get_referencefileid());
+        $referenceid = $symlink1->get_referencefileid();
+
+        $aliasrecord->filepath = '/B/';
+        $aliasrecord->filename = 'symlink.txt';
+        $ref = $fs->pack_reference($originalrecord);
+        $symlink2 = $fs->create_file_from_reference($aliasrecord, $repo->id, $ref);
+        // Make sure created alias is a reference and has the same size and contenthash as source.
+        $this->assertEquals($contenthash, $symlink2->get_contenthash());
+        $this->assertEquals($filesize, $symlink2->get_filesize());
+        $this->assertEquals($repo->id, $symlink2->get_repository_id());
+        // Make sure both aliases have the same reference id.
+        $this->assertEquals($referenceid, $symlink2->get_referencefileid());
+
+        // Overwrite ofiginal file.
+        $originalfile->replace_file_with($substitutefile);
+        $this->assertEquals($newcontenthash, $originalfile->get_contenthash());
+        $this->assertEquals($newfilesize, $originalfile->get_filesize());
+
+        // References to the internal files must be synchronised immediately.
+        // Refetch A/symlink.txt file.
+        $symlink1 = $fs->get_file($aliasrecord->contextid, $aliasrecord->component,
+            $aliasrecord->filearea, $aliasrecord->itemid, '/A/', 'symlink.txt');
+        $this->assertTrue($symlink1->is_external_file());
+        $this->assertEquals($newcontenthash, $symlink1->get_contenthash());
+        $this->assertEquals($newfilesize, $symlink1->get_filesize());
+        $this->assertEquals($repo->id, $symlink1->get_repository_id());
+        $this->assertEquals($referenceid, $symlink1->get_referencefileid());
+
+        // Refetch B/symlink.txt file.
+        $symlink2 = $fs->get_file($aliasrecord->contextid, $aliasrecord->component,
+            $aliasrecord->filearea, $aliasrecord->itemid, '/B/', 'symlink.txt');
+        $this->assertTrue($symlink2->is_external_file());
+        $this->assertEquals($newcontenthash, $symlink2->get_contenthash());
+        $this->assertEquals($newfilesize, $symlink2->get_filesize());
+        $this->assertEquals($repo->id, $symlink2->get_repository_id());
+        $this->assertEquals($referenceid, $symlink2->get_referencefileid());
+
+        // Remove original file.
+        $originalfile->delete();
+
+        // References must be converted to independend files.
+        // Refetch A/symlink.txt file.
+        $symlink1 = $fs->get_file($aliasrecord->contextid, $aliasrecord->component,
+            $aliasrecord->filearea, $aliasrecord->itemid, '/A/', 'symlink.txt');
+        $this->assertFalse($symlink1->is_external_file());
+        $this->assertEquals($newcontenthash, $symlink1->get_contenthash());
+        $this->assertEquals($newfilesize, $symlink1->get_filesize());
+        $this->assertNull($symlink1->get_repository_id());
+        $this->assertNull($symlink1->get_referencefileid());
+
+        // Refetch B/symlink.txt file.
+        $symlink2 = $fs->get_file($aliasrecord->contextid, $aliasrecord->component,
+            $aliasrecord->filearea, $aliasrecord->itemid, '/B/', 'symlink.txt');
+        $this->assertFalse($symlink2->is_external_file());
+        $this->assertEquals($newcontenthash, $symlink2->get_contenthash());
+        $this->assertEquals($newfilesize, $symlink2->get_filesize());
+        $this->assertNull($symlink2->get_repository_id());
+        $this->assertNull($symlink2->get_referencefileid());
+    }
+
+    /**
+     * Tests for get_unused_filename.
+     *
+     * @covers ::get_unused_filename
+     * @covers ::<!public>
+     */
     public function test_get_unused_filename() {
         global $USER;
         $this->resetAfterTest(true);
@@ -1582,9 +2165,68 @@ class filestoragelib_testcase extends advanced_testcase {
         $newfilename = $fs->get_unused_filename($contextid, $component, $filearea, $itemid, $filepath, 'Hurray! (1).php');
         $this->assertEquals('Hurray! (3).php', $newfilename);
 
-        $this->setExpectedException('coding_exception');
+        $this->expectException('coding_exception');
         $fs->get_unused_filename($contextid, $component, $filearea, $itemid, $filepath, '');
     }
+
+    /**
+     * Test that mimetype_from_file returns appropriate output when the
+     * file could not be found.
+     *
+     * @covers ::mimetype
+     * @covers ::<!public>
+     */
+    public function test_mimetype_not_found() {
+        $mimetype = file_storage::mimetype('/path/to/nonexistent/file');
+        $this->assertEquals('document/unknown', $mimetype);
+    }
+
+    /**
+     * Test that mimetype_from_file returns appropriate output for a known
+     * file.
+     *
+     * Note: this is not intended to check that functions outside of this
+     * file works. It is intended to validate the codepath contains no
+     * errors and behaves as expected.
+     *
+     * @covers ::mimetype
+     * @covers ::<!public>
+     */
+    public function test_mimetype_known() {
+        $filepath = __DIR__ . '/fixtures/testimage.jpg';
+        $mimetype = file_storage::mimetype_from_file($filepath);
+        $this->assertEquals('image/jpeg', $mimetype);
+    }
+
+    /**
+     * Test that mimetype_from_file returns appropriate output when the
+     * file could not be found.
+     *
+     * @covers ::mimetype
+     * @covers ::<!public>
+     */
+    public function test_mimetype_from_file_not_found() {
+        $mimetype = file_storage::mimetype_from_file('/path/to/nonexistent/file');
+        $this->assertEquals('document/unknown', $mimetype);
+    }
+
+    /**
+     * Test that mimetype_from_file returns appropriate output for a known
+     * file.
+     *
+     * Note: this is not intended to check that functions outside of this
+     * file works. It is intended to validate the codepath contains no
+     * errors and behaves as expected.
+     *
+     * @covers ::mimetype
+     * @covers ::<!public>
+     */
+    public function test_mimetype_from_file_known() {
+        $filepath = __DIR__ . '/fixtures/testimage.jpg';
+        $mimetype = file_storage::mimetype_from_file($filepath);
+        $this->assertEquals('image/jpeg', $mimetype);
+    }
+
 }
 
 class test_stored_file_inspection extends stored_file {

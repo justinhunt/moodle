@@ -68,7 +68,7 @@ class cache_config_writer extends cache_config {
      */
     protected function config_save() {
         global $CFG;
-        $cachefile = self::get_config_file_path();
+        $cachefile = static::get_config_file_path();
         $directory = dirname($cachefile);
         if ($directory !== $CFG->dataroot && !file_exists($directory)) {
             $result = make_writable_directory($directory, false);
@@ -108,6 +108,9 @@ class cache_config_writer extends cache_config {
             fflush($handle);
             fclose($handle);
             $locking->unlock('configwrite', 'config');
+            @chmod($cachefile, $CFG->filepermissions);
+            // Tell PHP to recompile the script.
+            core_component::invalidate_opcode_php_cache($cachefile);
         } else {
             throw new cache_exception('ex_configcannotsave', 'cache', '', null, 'Unable to open the cache config file.');
         }
@@ -146,7 +149,7 @@ class cache_config_writer extends cache_config {
         }
         $class = 'cachestore_'.$plugin;
         if (!class_exists($class)) {
-            $plugins = get_plugin_list_with_file('cachestore', 'lib.php');
+            $plugins = core_component::get_plugin_list_with_file('cachestore', 'lib.php');
             if (!array_key_exists($plugin, $plugins)) {
                 throw new cache_exception('Invalid plugin name specified. The plugin does not exist or is not valid.');
             }
@@ -201,7 +204,7 @@ class cache_config_writer extends cache_config {
         }
         $class = 'cachelock_'.$plugin;
         if (!class_exists($class)) {
-            $plugins = get_plugin_list_with_file('cachelock', 'lib.php');
+            $plugins = core_component::get_plugin_list_with_file('cachelock', 'lib.php');
             if (!array_key_exists($plugin, $plugins)) {
                 throw new cache_exception('Invalid lock name specified. The plugin does not exist or is not valid.');
             }
@@ -312,7 +315,7 @@ class cache_config_writer extends cache_config {
         if (!array_key_exists($name, $this->configstores)) {
             throw new cache_exception('The requested instance does not exist.');
         }
-        $plugins = get_plugin_list_with_file('cachestore', 'lib.php');
+        $plugins = core_component::get_plugin_list_with_file('cachestore', 'lib.php');
         if (!array_key_exists($plugin, $plugins)) {
             throw new cache_exception('Invalid plugin name specified. The plugin either does not exist or is not valid.');
         }
@@ -518,9 +521,9 @@ class cache_config_writer extends cache_config {
         }
 
         if (!$coreonly) {
-            $plugintypes = get_plugin_types();
+            $plugintypes = core_component::get_plugin_types();
             foreach ($plugintypes as $type => $location) {
-                $plugins = get_plugin_list_with_file($type, 'db/caches.php');
+                $plugins = core_component::get_plugin_list_with_file($type, 'db/caches.php');
                 foreach ($plugins as $plugin => $filepath) {
                     $component = clean_param($type.'_'.$plugin, PARAM_COMPONENT); // Standardised plugin name.
                     $files[$component] = $filepath;
@@ -681,32 +684,36 @@ abstract class cache_administration_helper extends cache_helper {
         $locks = $instance->get_locks();
         foreach ($stores as $name => $details) {
             $class = $details['class'];
-            $store = new $class($details['name'], $details['configuration']);
+            $store = false;
+            if ($class::are_requirements_met()) {
+                $store = new $class($details['name'], $details['configuration']);
+            }
             $lock = (isset($details['lock'])) ? $locks[$details['lock']] : $instance->get_default_lock();
             $record = array(
                 'name' => $name,
                 'plugin' => $details['plugin'],
                 'default' => $details['default'],
-                'isready' => $store->is_ready(),
-                'requirementsmet' => $store->are_requirements_met(),
+                'isready' => $store ? $store->is_ready() : false,
+                'requirementsmet' => $class::are_requirements_met(),
                 'mappings' => 0,
                 'lock' => $lock,
                 'modes' => array(
                     cache_store::MODE_APPLICATION =>
-                        ($store->get_supported_modes($return) & cache_store::MODE_APPLICATION) == cache_store::MODE_APPLICATION,
+                        ($class::get_supported_modes($return) & cache_store::MODE_APPLICATION) == cache_store::MODE_APPLICATION,
                     cache_store::MODE_SESSION =>
-                        ($store->get_supported_modes($return) & cache_store::MODE_SESSION) == cache_store::MODE_SESSION,
+                        ($class::get_supported_modes($return) & cache_store::MODE_SESSION) == cache_store::MODE_SESSION,
                     cache_store::MODE_REQUEST =>
-                        ($store->get_supported_modes($return) & cache_store::MODE_REQUEST) == cache_store::MODE_REQUEST,
+                        ($class::get_supported_modes($return) & cache_store::MODE_REQUEST) == cache_store::MODE_REQUEST,
                 ),
                 'supports' => array(
-                    'multipleidentifiers' => $store->supports_multiple_identifiers(),
-                    'dataguarantee' => $store->supports_data_guarantee(),
-                    'nativettl' => $store->supports_native_ttl(),
+                    'multipleidentifiers' => $store ? $store->supports_multiple_identifiers() : false,
+                    'dataguarantee' => $store ? $store->supports_data_guarantee() : false,
+                    'nativettl' => $store ? $store->supports_native_ttl() : false,
                     'nativelocking' => ($store instanceof cache_is_lockable),
                     'keyawareness' => ($store instanceof cache_is_key_aware),
                     'searchable' => ($store instanceof cache_is_searchable)
-                )
+                ),
+                'warnings' => $store ? $store->get_warnings() : array()
             );
             if (empty($details['default'])) {
                 $return[$name] = $record;
@@ -731,11 +738,13 @@ abstract class cache_administration_helper extends cache_helper {
 
     /**
      * Returns an array of information about plugins, everything a renderer needs.
-     * @return array
+     *
+     * @return array for each store, an array containing various information about each store.
+     *     See the code below for details
      */
     public static function get_store_plugin_summaries() {
         $return = array();
-        $plugins = get_plugin_list_with_file('cachestore', 'lib.php', true);
+        $plugins = core_component::get_plugin_list_with_file('cachestore', 'lib.php', true);
         foreach ($plugins as $plugin => $path) {
             $class = 'cachestore_'.$plugin;
             $return[$plugin] = array(
@@ -772,66 +781,42 @@ abstract class cache_administration_helper extends cache_helper {
 
     /**
      * Returns an array about the definitions. All the information a renderer needs.
-     * @return array
+     *
+     * @return array for each store, an array containing various information about each store.
+     *     See the code below for details
      */
     public static function get_definition_summaries() {
-        $instance = cache_config::instance();
-        $definitions = $instance->get_definitions();
-
+        $factory = cache_factory::instance();
+        $config = $factory->create_config_instance();
         $storenames = array();
-        foreach ($instance->get_all_stores() as $key => $store) {
+        foreach ($config->get_all_stores() as $key => $store) {
             if (!empty($store['default'])) {
                 $storenames[$key] = new lang_string('store_'.$key, 'cache');
-            }
-        }
-
-        $modemappings = array();
-        foreach ($instance->get_mode_mappings() as $mapping) {
-            $mode = $mapping['mode'];
-            if (!array_key_exists($mode, $modemappings)) {
-                $modemappings[$mode] = array();
-            }
-            if (array_key_exists($mapping['store'], $storenames)) {
-                $modemappings[$mode][] = $storenames[$mapping['store']];
             } else {
-                $modemappings[$mode][] = $mapping['store'];
+                $storenames[$store['name']] = $store['name'];
             }
         }
-
-        $definitionmappings = array();
-        foreach ($instance->get_definition_mappings() as $mapping) {
-            $definition = $mapping['definition'];
-            if (!array_key_exists($definition, $definitionmappings)) {
-                $definitionmappings[$definition] = array();
-            }
-            if (array_key_exists($mapping['store'], $storenames)) {
-                $definitionmappings[$definition][] = $storenames[$mapping['store']];
-            } else {
-                $definitionmappings[$definition][] = $mapping['store'];
-            }
+        /* @var cache_definition[] $definitions */
+        $definitions = array();
+        foreach ($config->get_definitions() as $key => $definition) {
+            $definitions[$key] = cache_definition::load($definition['component'].'/'.$definition['area'], $definition);
         }
-
-        $return = array();
-
         foreach ($definitions as $id => $definition) {
-
             $mappings = array();
-            if (array_key_exists($id, $definitionmappings)) {
-                $mappings = $definitionmappings[$id];
-            } else if (empty($definition['mappingsonly'])) {
-                $mappings = $modemappings[$definition['mode']];
+            foreach (cache_helper::get_stores_suitable_for_definition($definition) as $store) {
+                $mappings[] = $storenames[$store->my_name()];
             }
-
             $return[$id] = array(
                 'id' => $id,
-                'name' => cache_helper::get_definition_name($definition),
-                'mode' => $definition['mode'],
-                'component' => $definition['component'],
-                'area' => $definition['area'],
+                'name' => $definition->get_name(),
+                'mode' => $definition->get_mode(),
+                'component' => $definition->get_component(),
+                'area' => $definition->get_area(),
                 'mappings' => $mappings,
-                'sharingoptions' => self::get_definition_sharing_options($definition['sharingoptions'], false),
-                'selectedsharingoption' => self::get_definition_sharing_options($definition['selectedsharingoption'], true),
-                'userinputsharingkey' => $definition['userinputsharingkey']
+                'canuselocalstore' => $definition->can_use_localstore(),
+                'sharingoptions' => self::get_definition_sharing_options($definition->get_sharing_options(), false),
+                'selectedsharingoption' => self::get_definition_sharing_options($definition->get_selected_sharing_option(), true),
+                'userinputsharingkey' => $definition->get_user_input_sharing_key()
             );
         }
         return $return;
@@ -864,10 +849,14 @@ abstract class cache_administration_helper extends cache_helper {
 
     /**
      * Returns all of the actions that can be performed on a definition.
-     * @param context $context
-     * @return array
+     *
+     * @param context $context the system context.
+     * @param array $definitionsummary information about this cache, from the array returned by
+     *      cache_administration_helper::get_definition_summaries(). Currently only 'sharingoptions'
+     *      element is used.
+     * @return array of actions. Each action is an array with two elements, 'text' and 'url'.
      */
-    public static function get_definition_actions(context $context, array $definition) {
+    public static function get_definition_actions(context $context, array $definitionsummary) {
         if (has_capability('moodle/site:config', $context)) {
             $actions = array();
             // Edit mappings.
@@ -876,7 +865,7 @@ abstract class cache_administration_helper extends cache_helper {
                 'url' => new moodle_url('/cache/admin.php', array('action' => 'editdefinitionmapping', 'sesskey' => sesskey()))
             );
             // Edit sharing.
-            if (count($definition['sharingoptions']) > 1) {
+            if (count($definitionsummary['sharingoptions']) > 1) {
                 $actions[] = array(
                     'text' => get_string('editsharing', 'cache'),
                     'url' => new moodle_url('/cache/admin.php', array('action' => 'editdefinitionsharing', 'sesskey' => sesskey()))
@@ -896,12 +885,13 @@ abstract class cache_administration_helper extends cache_helper {
      * Returns all of the actions that can be performed on a store.
      *
      * @param string $name The name of the store
-     * @param array $storedetails
-     * @return array
+     * @param array $storedetails information about this store, from the array returned by
+     *      cache_administration_helper::get_store_instance_summaries().
+     * @return array of actions. Each action is an array with two elements, 'text' and 'url'.
      */
     public static function get_store_instance_actions($name, array $storedetails) {
         $actions = array();
-        if (has_capability('moodle/site:config', get_system_context())) {
+        if (has_capability('moodle/site:config', context_system::instance())) {
             $baseurl = new moodle_url('/cache/admin.php', array('store' => $name, 'sesskey' => sesskey()));
             if (empty($storedetails['default'])) {
                 $actions[] = array(
@@ -921,11 +911,12 @@ abstract class cache_administration_helper extends cache_helper {
         return $actions;
     }
 
-
     /**
      * Returns all of the actions that can be performed on a plugin.
      *
      * @param string $name The name of the plugin
+     * @param array $plugindetails information about this store, from the array returned by
+     *      cache_administration_helper::get_store_plugin_summaries().
      * @param array $plugindetails
      * @return array
      */
@@ -952,7 +943,7 @@ abstract class cache_administration_helper extends cache_helper {
      */
     public static function get_add_store_form($plugin) {
         global $CFG; // Needed for includes.
-        $plugins = get_plugin_list('cachestore');
+        $plugins = core_component::get_plugin_list('cachestore');
         if (!array_key_exists($plugin, $plugins)) {
             throw new coding_exception('Invalid cache plugin used when trying to create an edit form.');
         }
@@ -984,7 +975,7 @@ abstract class cache_administration_helper extends cache_helper {
      */
     public static function get_edit_store_form($plugin, $store) {
         global $CFG; // Needed for includes.
-        $plugins = get_plugin_list('cachestore');
+        $plugins = core_component::get_plugin_list('cachestore');
         if (!array_key_exists($plugin, $plugins)) {
             throw new coding_exception('Invalid cache plugin used when trying to create an edit form.');
         }
@@ -1123,7 +1114,10 @@ abstract class cache_administration_helper extends cache_helper {
      * @return array An array containing sub-arrays, one for each mode.
      */
     public static function get_default_mode_stores() {
+        global $OUTPUT;
         $instance = cache_config::instance();
+        $adequatestores = cache_helper::get_stores_suitable_for_mode_default();
+        $icon = new pix_icon('i/warning', new lang_string('inadequatestoreformapping', 'cache'));
         $storenames = array();
         foreach ($instance->get_all_stores() as $key => $store) {
             if (!empty($store['default'])) {
@@ -1145,6 +1139,9 @@ abstract class cache_administration_helper extends cache_helper {
                 $modemappings[$mode][$mapping['store']] = $storenames[$mapping['store']];
             } else {
                 $modemappings[$mode][$mapping['store']] = $mapping['store'];
+            }
+            if (!array_key_exists($mapping['store'], $adequatestores)) {
+                $modemappings[$mode][$mapping['store']] = $modemappings[$mode][$mapping['store']].' '.$OUTPUT->render($icon);
             }
         }
         return $modemappings;
@@ -1189,7 +1186,7 @@ abstract class cache_administration_helper extends cache_helper {
      * @return array
      */
     public static function get_addable_lock_options() {
-        $plugins = get_plugin_list_with_class('cachelock', '', 'lib.php');
+        $plugins = core_component::get_plugin_list_with_class('cachelock', '', 'lib.php');
         $options = array();
         $len = strlen('cachelock_');
         foreach ($plugins as $plugin => $class) {
@@ -1213,7 +1210,7 @@ abstract class cache_administration_helper extends cache_helper {
      */
     public static function get_add_lock_form($plugin, array $lockplugin = null) {
         global $CFG; // Needed for includes.
-        $plugins = get_plugin_list('cachelock');
+        $plugins = core_component::get_plugin_list('cachelock');
         if (!array_key_exists($plugin, $plugins)) {
             throw new coding_exception('Invalid cache lock plugin requested when trying to create a form.');
         }

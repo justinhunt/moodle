@@ -86,7 +86,7 @@ abstract class static_data_store extends cache_store {
  * @copyright  2012 Sam Hemelryk
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
-class cachestore_static extends static_data_store implements cache_is_key_aware {
+class cachestore_static extends static_data_store implements cache_is_key_aware, cache_is_searchable {
 
     /**
      * The name of the store
@@ -107,10 +107,28 @@ class cachestore_static extends static_data_store implements cache_is_key_aware 
     protected $store;
 
     /**
-     * The ttl if there is one. Hopefully not.
+     * The maximum size for the store, or false if there isn't one.
+     * @var bool
+     */
+    protected $maxsize = false;
+
+    /**
+     * Where this cache uses simpledata and we don't need to serialize it.
+     * @var bool
+     */
+    protected $simpledata = false;
+
+    /**
+     * The number of items currently being stored.
      * @var int
      */
-    protected $ttl = 0;
+    protected $storecount = 0;
+
+    /**
+     * igbinary extension available.
+     * @var bool
+     */
+    protected $igbinaryfound = false;
 
     /**
      * Constructs the store instance.
@@ -133,18 +151,21 @@ class cachestore_static extends static_data_store implements cache_is_key_aware 
      */
     public static function get_supported_features(array $configuration = array()) {
         return self::SUPPORTS_DATA_GUARANTEE +
-               self::SUPPORTS_NATIVE_TTL;
+               self::SUPPORTS_NATIVE_TTL +
+               self::IS_SEARCHABLE +
+               self::SUPPORTS_MULTIPLE_IDENTIFIERS +
+               self::DEREFERENCES_OBJECTS;
     }
 
     /**
-     * Returns false as this store does not support multiple identifiers.
+     * Returns true as this store does support multiple identifiers.
      * (This optional function is a performance optimisation; it must be
      * consistent with the value from get_supported_features.)
      *
-     * @return bool False
+     * @return bool true
      */
     public function supports_multiple_identifiers() {
-        return false;
+        return true;
     }
 
     /**
@@ -184,9 +205,17 @@ class cachestore_static extends static_data_store implements cache_is_key_aware 
      * @param cache_definition $definition
      */
     public function initialise(cache_definition $definition) {
-        $this->storeid = $definition->generate_definition_hash();
+        $keyarray = $definition->generate_multi_key_parts();
+        $this->storeid = $keyarray['mode'].'/'.$keyarray['component'].'/'.$keyarray['area'].'/'.$keyarray['siteidentifier'];
         $this->store = &self::register_store_id($this->storeid);
-        $this->ttl = $definition->get_ttl();
+        $maxsize = $definition->get_maxsize();
+        $this->simpledata = $definition->uses_simple_data();
+        $this->igbinaryfound = extension_loaded('igbinary');
+        if ($maxsize !== null) {
+            // Must be a positive int.
+            $this->maxsize = abs((int)$maxsize);
+            $this->storecount = count($this->store);
+        }
     }
 
     /**
@@ -199,11 +228,38 @@ class cachestore_static extends static_data_store implements cache_is_key_aware 
     }
 
     /**
-     * Returns true if this store instance is ready to be used.
-     * @return bool
+     * Uses igbinary serializer if igbinary extension is loaded.
+     * Fallback to PHP serializer.
+     *
+     * @param mixed $data
+     * The value to be serialized.
+     * @return string a string containing a byte-stream representation of
+     * value that can be stored anywhere.
      */
-    public function is_ready() {
-        return true;
+    protected function serialize($data) {
+        if ($this->igbinaryfound) {
+            return igbinary_serialize($data);
+        } else {
+            return serialize($data);
+        }
+    }
+
+    /**
+     * Uses igbinary unserializer if igbinary extension is loaded.
+     * Fallback to PHP unserializer.
+     *
+     * @param string $str
+     * The serialized string.
+     * @return mixed The converted value is returned, and can be a boolean,
+     * integer, float, string,
+     * array or object.
+     */
+    protected function unserialize($str) {
+        if ($this->igbinaryfound) {
+            return igbinary_unserialize($str);
+        } else {
+            return unserialize($str);
+        }
     }
 
     /**
@@ -213,12 +269,16 @@ class cachestore_static extends static_data_store implements cache_is_key_aware 
      * @return mixed The data that was associated with the key, or false if the key did not exist.
      */
     public function get($key) {
-        $maxtime = cache::now() - $this->ttl;
-        if (array_key_exists($key, $this->store)) {
-            if ($this->ttl == 0) {
-                return $this->store[$key];
-            } else if ($this->store[$key][1] >= $maxtime) {
-                return $this->store[$key][0];
+        if (!is_array($key)) {
+            $key = array('key' => $key);
+        }
+
+        $key = $key['key'];
+        if (isset($this->store[$key])) {
+            if ($this->store[$key]['serialized']) {
+                return $this->unserialize($this->store[$key]['data']);
+            } else {
+                return $this->store[$key]['data'];
             }
         }
         return false;
@@ -235,14 +295,18 @@ class cachestore_static extends static_data_store implements cache_is_key_aware 
      */
     public function get_many($keys) {
         $return = array();
-        $maxtime = cache::now() - $this->ttl;
+
         foreach ($keys as $key) {
+            if (!is_array($key)) {
+                $key = array('key' => $key);
+            }
+            $key = $key['key'];
             $return[$key] = false;
-            if (array_key_exists($key, $this->store)) {
-                if ($this->ttl == 0) {
-                    $return[$key] = $this->store[$key];
-                } else if ($this->store[$key][1] >= $maxtime) {
-                    $return[$key] = $this->store[$key][0];
+            if (isset($this->store[$key])) {
+                if ($this->store[$key]['serialized']) {
+                    $return[$key] = $this->unserialize($this->store[$key]['data']);
+                } else {
+                    $return[$key] = $this->store[$key]['data'];
                 }
             }
         }
@@ -254,13 +318,32 @@ class cachestore_static extends static_data_store implements cache_is_key_aware 
      *
      * @param string $key The key to use.
      * @param mixed $data The data to set.
+     * @param bool $testmaxsize If set to true then we test the maxsize arg and reduce if required.
      * @return bool True if the operation was a success false otherwise.
      */
-    public function set($key, $data) {
-        if ($this->ttl == 0) {
-            $this->store[$key] = $data;
+    public function set($key, $data, $testmaxsize = true) {
+        if (!is_array($key)) {
+            $key = array('key' => $key);
+        }
+        $key = $key['key'];
+        $testmaxsize = ($testmaxsize && $this->maxsize !== false);
+        if ($testmaxsize) {
+            $increment = (!isset($this->store[$key]));
+        }
+
+        if ($this->simpledata || is_scalar($data)) {
+            $this->store[$key]['data'] = $data;
+            $this->store[$key]['serialized'] = false;
         } else {
-            $this->store[$key] = array($data, cache::now());
+            $this->store[$key]['data'] = $this->serialize($data);
+            $this->store[$key]['serialized'] = true;
+        }
+
+        if ($testmaxsize && $increment) {
+            $this->storecount++;
+            if ($this->storecount > $this->maxsize) {
+                $this->reduce_for_maxsize();
+            }
         }
         return true;
     }
@@ -276,8 +359,18 @@ class cachestore_static extends static_data_store implements cache_is_key_aware 
     public function set_many(array $keyvaluearray) {
         $count = 0;
         foreach ($keyvaluearray as $pair) {
-            $this->set($pair['key'], $pair['value']);
+            if (!is_array($pair['key'])) {
+                $pair['key'] = array('key' => $pair['key']);
+            }
+            // Don't test the maxsize here. We'll do it once when we are done.
+            $this->set($pair['key']['key'], $pair['value'], false);
             $count++;
+        }
+        if ($this->maxsize !== false) {
+            $this->storecount += $count;
+            if ($this->storecount > $this->maxsize) {
+                $this->reduce_for_maxsize();
+            }
         }
         return $count;
     }
@@ -289,15 +382,10 @@ class cachestore_static extends static_data_store implements cache_is_key_aware 
      * @return bool
      */
     public function has($key) {
-        $maxtime = cache::now() - $this->ttl;
-        if (array_key_exists($key, $this->store)) {
-            if ($this->ttl == 0) {
-                return true;
-            } else if ($this->store[$key][1] >= $maxtime) {
-                return true;
-            }
+        if (is_array($key)) {
+            $key = $key['key'];
         }
-        return false;
+        return isset($this->store[$key]);
     }
 
     /**
@@ -307,12 +395,12 @@ class cachestore_static extends static_data_store implements cache_is_key_aware 
      * @return bool
      */
     public function has_all(array $keys) {
-        $maxtime = cache::now() - $this->ttl;
         foreach ($keys as $key) {
-            if (!array_key_exists($key, $this->store)) {
-                return false;
+            if (!is_array($key)) {
+                $key = array('key' => $key);
             }
-            if ($this->ttl != 0 && $this->store[$key][1] < $maxtime) {
+            $key = $key['key'];
+            if (!isset($this->store[$key])) {
                 return false;
             }
         }
@@ -326,9 +414,13 @@ class cachestore_static extends static_data_store implements cache_is_key_aware 
      * @return bool
      */
     public function has_any(array $keys) {
-        $maxtime = cache::now() - $this->ttl;
         foreach ($keys as $key) {
-            if (array_key_exists($key, $this->store) && ($this->ttl == 0 || $this->store[$key][1] >= $maxtime)) {
+            if (!is_array($key)) {
+                $key = array('key' => $key);
+            }
+            $key = $key['key'];
+
+            if (isset($this->store[$key])) {
                 return true;
             }
         }
@@ -342,8 +434,15 @@ class cachestore_static extends static_data_store implements cache_is_key_aware 
      * @return bool Returns true if the operation was a success, false otherwise.
      */
     public function delete($key) {
+        if (!is_array($key)) {
+            $key = array('key' => $key);
+        }
+        $key = $key['key'];
         $result = isset($this->store[$key]);
         unset($this->store[$key]);
+        if ($this->maxsize !== false) {
+            $this->storecount--;
+        }
         return $result;
     }
 
@@ -356,10 +455,17 @@ class cachestore_static extends static_data_store implements cache_is_key_aware 
     public function delete_many(array $keys) {
         $count = 0;
         foreach ($keys as $key) {
+            if (!is_array($key)) {
+                $key = array('key' => $key);
+            }
+            $key = $key['key'];
             if (isset($this->store[$key])) {
                 $count++;
             }
             unset($this->store[$key]);
+        }
+        if ($this->maxsize !== false) {
+            $this->storecount -= $count;
         }
         return $count;
     }
@@ -372,7 +478,32 @@ class cachestore_static extends static_data_store implements cache_is_key_aware 
     public function purge() {
         $this->flush_store_by_id($this->storeid);
         $this->store = &self::register_store_id($this->storeid);
+        // Don't worry about checking if we're using max size just set it as thats as fast as the check.
+        $this->storecount = 0;
         return true;
+    }
+
+    /**
+     * Reduces the size of the array if maxsize has been hit.
+     *
+     * This function reduces the size of the store reducing it by 10% of its maxsize.
+     * It removes the oldest items in the store when doing this.
+     * The reason it does this an doesn't use a least recently used system is purely the overhead such a system
+     * requires. The current approach is focused on speed, MUC already adds enough overhead to static/session caches
+     * and avoiding more is of benefit.
+     *
+     * @return int
+     */
+    protected function reduce_for_maxsize() {
+        $diff = $this->storecount - $this->maxsize;
+        if ($diff < 1) {
+            return 0;
+        }
+        // Reduce it by an extra 10% to avoid calling this repetitively if we are in a loop.
+        $diff += floor($this->maxsize / 10);
+        $this->store = array_slice($this->store, $diff, null, true);
+        $this->storecount -= $diff;
+        return $diff;
     }
 
     /**
@@ -395,7 +526,7 @@ class cachestore_static extends static_data_store implements cache_is_key_aware 
      * Generates an instance of the cache store that can be used for testing.
      *
      * @param cache_definition $definition
-     * @return false
+     * @return cachestore_static
      */
     public static function initialise_test_instance(cache_definition $definition) {
         // Do something here perhaps.
@@ -405,10 +536,43 @@ class cachestore_static extends static_data_store implements cache_is_key_aware 
     }
 
     /**
+     * Generates the appropriate configuration required for unit testing.
+     *
+     * @return array Array of unit test configuration data to be used by initialise().
+     */
+    public static function unit_test_configuration() {
+        return array();
+    }
+
+    /**
      * Returns the name of this instance.
      * @return string
      */
     public function my_name() {
         return $this->name;
+    }
+
+    /**
+     * Finds all of the keys being stored in the cache store instance.
+     *
+     * @return array
+     */
+    public function find_all() {
+        return array_keys($this->store);
+    }
+
+    /**
+     * Finds all of the keys whose keys start with the given prefix.
+     *
+     * @param string $prefix
+     */
+    public function find_by_prefix($prefix) {
+        $return = array();
+        foreach ($this->find_all() as $key) {
+            if (strpos($key, $prefix) === 0) {
+                $return[] = $key;
+            }
+        }
+        return $return;
     }
 }

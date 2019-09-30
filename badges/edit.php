@@ -24,12 +24,12 @@
  * @author     Yuliya Bozhko <yuliya.bozhko@totaralms.com>
  */
 
-require_once(dirname(dirname(__FILE__)) . '/config.php');
+require_once(__DIR__ . '/../config.php');
 require_once($CFG->libdir . '/badgeslib.php');
-require_once($CFG->dirroot . '/badges/edit_form.php');
+require_once($CFG->libdir . '/filelib.php');
 
 $badgeid = required_param('id', PARAM_INT);
-$action = optional_param('action', 'details', PARAM_TEXT);
+$action = optional_param('action', 'badge', PARAM_TEXT);
 
 require_login();
 
@@ -41,7 +41,11 @@ $badge = new badge($badgeid);
 $context = $badge->get_context();
 $navurl = new moodle_url('/badges/index.php', array('type' => $badge->type));
 
-require_capability('moodle/badges:configuredetails', $context);
+if ($action == 'message') {
+    require_capability('moodle/badges:configuremessages', $context);
+} else {
+    require_capability('moodle/badges:configuredetails', $context);
+}
 
 if ($badge->type == BADGE_TYPE_COURSE) {
     if (empty($CFG->badges_allowcoursebadges)) {
@@ -49,18 +53,19 @@ if ($badge->type == BADGE_TYPE_COURSE) {
     }
     require_login($badge->courseid);
     $navurl = new moodle_url('/badges/index.php', array('type' => $badge->type, 'id' => $badge->courseid));
+    $PAGE->set_pagelayout('incourse');
+    navigation_node::override_active_url($navurl);
+} else {
+    $PAGE->set_pagelayout('admin');
+    navigation_node::override_active_url($navurl, true);
 }
 
 $currenturl = new moodle_url('/badges/edit.php', array('id' => $badge->id, 'action' => $action));
 
 $PAGE->set_context($context);
 $PAGE->set_url($currenturl);
-$PAGE->set_pagelayout('standard');
 $PAGE->set_heading($badge->name);
 $PAGE->set_title($badge->name);
-
-// Set up navigation and breadcrumbs.
-navigation_node::override_active_url($navurl);
 $PAGE->navbar->add($badge->name);
 
 $output = $PAGE->get_renderer('core', 'badges');
@@ -79,15 +84,21 @@ $editoroptions = array(
         );
 $badge = file_prepare_standard_editor($badge, 'message', $editoroptions, $context);
 
-$form_class = 'edit_' . $action . '_form';
-$form = new $form_class($currenturl, array('badge' => $badge, 'action' => $action, 'editoroptions' => $editoroptions));
+$formclass = '\core_badges\form' . '\\' . $action;
+$form = new $formclass($currenturl, array('badge' => $badge, 'action' => $action, 'editoroptions' => $editoroptions));
 
 if ($form->is_cancelled()) {
     redirect(new moodle_url('/badges/overview.php', array('id' => $badgeid)));
 } else if ($form->is_submitted() && $form->is_validated() && ($data = $form->get_data())) {
-    if ($action == 'details') {
+    if ($action == 'badge') {
         $badge->name = $data->name;
+        $badge->version = trim($data->version);
+        $badge->language = $data->language;
         $badge->description = $data->description;
+        $badge->imageauthorname = $data->imageauthorname;
+        $badge->imageauthoremail = $data->imageauthoremail;
+        $badge->imageauthorurl = $data->imageauthorurl;
+        $badge->imagecaption = $data->imagecaption;
         $badge->usermodified = $USER->id;
         $badge->issuername = $data->issuername;
         $badge->issuerurl = $data->issuerurl;

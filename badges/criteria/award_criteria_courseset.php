@@ -78,23 +78,10 @@ class award_criteria_courseset extends award_criteria {
         require_once($CFG->dirroot . '/course/lib.php');
         $buttonarray = array();
 
-        // Get courses with enabled completion.
-        $courses = $DB->get_records('course', array('enablecompletion' => COMPLETION_ENABLED));
-        if (!empty($courses)) {
-            require_once($CFG->libdir . '/coursecatlib.php');
-            $list = coursecat::make_categories_list();
-
-            $select = array();
-            $selected = array();
-            foreach ($courses as $c) {
-                $select[$c->id] = $list[$c->category] . ' / ' . format_string($c->fullname, true, array('context' => context_course::instance($c->id)));
-            }
-
-            if ($this->id !== 0) {
-                $selected = array_keys($this->params);
-            }
-            $settings = array('multiple' => 'multiple', 'size' => 20, 'style' => 'width:300px');
-            $mform->addElement('select', 'courses', get_string('addcourse', 'badges'), $select, $settings);
+        $hasselectablecourses = core_course_category::search_courses(['onlywithcompletion' => true], ['limit' => 1]);
+        if ($hasselectablecourses) {
+            $settings = array('multiple' => 'multiple', 'onlywithcompletion' => 1);
+            $mform->addElement('course', 'courses', get_string('addcourse', 'badges'), $settings);
             $mform->addRule('courses', get_string('requiredcourse', 'badges'), 'required');
             $mform->addHelpButton('courses', 'addcourse', 'badges');
 
@@ -105,6 +92,7 @@ class award_criteria_courseset extends award_criteria {
             $mform->addElement('hidden', 'addcourse', 'addcourse');
             $mform->setType('addcourse', PARAM_TEXT);
             if ($this->id !== 0) {
+                $selected = array_keys($this->params);
                 $mform->setDefault('courses', $selected);
             }
             $mform->setType('agg', PARAM_INT);
@@ -160,10 +148,11 @@ class award_criteria_courseset extends award_criteria {
         // In courseset, print out only the ones that were already selected.
         foreach ($this->params as $p) {
             if ($course = $DB->get_record('course', array('id' => $p['course']))) {
+                $coursecontext = context_course::instance($course->id);
                 $param = array(
                         'id' => $course->id,
                         'checked' => true,
-                        'name' => ucfirst($course->fullname),
+                        'name' => format_string($course->fullname, true, array('context' => $coursecontext)),
                         'error' => false
                 );
 
@@ -201,12 +190,17 @@ class award_criteria_courseset extends award_criteria {
     /**
      * Review this criteria and decide if it has been completed
      *
+     * @param int $userid User whose criteria completion needs to be reviewed.
+     * @param bool $filtered An additional parameter indicating that user list
+     *        has been reduced and some expensive checks can be skipped.
+     *
      * @return bool Whether criteria is complete
      */
-    public function review($userid) {
-        global $DB;
+    public function review($userid, $filtered = false) {
         foreach ($this->params as $param) {
-            $course = $DB->get_record('course', array('id' => $param['course']));
+            $course =  new stdClass();
+            $course->id = $param['course'];
+
             $info = new completion_info($course);
             $check_grade = true;
             $check_date = true;
@@ -216,7 +210,7 @@ class award_criteria_courseset extends award_criteria {
                 $check_grade = ($grade->grade >= $param['grade']);
             }
 
-            if (isset($param['bydate'])) {
+            if (!$filtered && isset($param['bydate'])) {
                 $cparams = array(
                         'userid' => $userid,
                         'course' => $course->id,
@@ -234,7 +228,7 @@ class award_criteria_courseset extends award_criteria {
                 } else {
                     return false;
                 }
-            } else if ($this->method == BADGE_CRITERIA_AGGREGATION_ANY) {
+            } else {
                 if ($info->is_course_complete($userid) && $check_grade && $check_date) {
                     return true;
                 } else {
@@ -245,5 +239,40 @@ class award_criteria_courseset extends award_criteria {
         }
 
         return $overall;
+    }
+
+    /**
+     * Returns array with sql code and parameters returning all ids
+     * of users who meet this particular criterion.
+     *
+     * @return array list($join, $where, $params)
+     */
+    public function get_completed_criteria_sql() {
+        $join = '';
+        $where = '';
+        $params = array();
+
+        if ($this->method == BADGE_CRITERIA_AGGREGATION_ANY) {
+            foreach ($this->params as $param) {
+                $coursedata[] = " cc.course = :completedcourse{$param['course']} ";
+                $params["completedcourse{$param['course']}"] = $param['course'];
+            }
+            if (!empty($coursedata)) {
+                $extraon = implode(' OR ', $coursedata);
+                $join = " JOIN {course_completions} cc ON cc.userid = u.id AND
+                          cc.timecompleted > 0 AND ({$extraon})";
+            }
+            return array($join, $where, $params);
+        } else {
+            foreach ($this->params as $param) {
+                $join .= " LEFT JOIN {course_completions} cc{$param['course']} ON
+                          cc{$param['course']}.userid = u.id AND
+                          cc{$param['course']}.course = :completedcourse{$param['course']} AND
+                          cc{$param['course']}.timecompleted > 0 ";
+                $where .= " AND cc{$param['course']}.course IS NOT NULL ";
+                $params["completedcourse{$param['course']}"] = $param['course'];
+            }
+            return array($join, $where, $params);
+        }
     }
 }

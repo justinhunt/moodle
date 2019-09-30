@@ -17,8 +17,7 @@
 /**
  * Unit tests for the Moodle XML format.
  *
- * @package    qformat
- * @subpackage xml
+ * @package    qformat_xml
  * @copyright  2010 The Open University
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
@@ -49,6 +48,7 @@ class qformat_xml_test extends question_testcase {
         $q = new stdClass();
         $q->id = 0;
         $q->contextid = 0;
+        $q->idnumber = null;
         $q->category = 0;
         $q->parent = 0;
         $q->questiontextformat = FORMAT_HTML;
@@ -91,7 +91,7 @@ class qformat_xml_test extends question_testcase {
     protected function itemid_to_files($var) {
         if (is_object($var)) {
             $newvar = new stdClass();
-            foreach(get_object_vars($var) as $field => $value) {
+            foreach (get_object_vars($var) as $field => $value) {
                 $newvar->$field = $this->itemid_to_files($value);
             }
 
@@ -112,8 +112,43 @@ class qformat_xml_test extends question_testcase {
         return $newvar;
     }
 
+    public function test_xml_escape_simple_input_not_escaped() {
+        $exporter = new qformat_xml();
+        $string = 'Nothing funny here. Even if we go to a café or to 日本.';
+        $this->assertEquals($string, $exporter->xml_escape($string));
+    }
+
+    public function test_xml_escape_html_wrapped_in_cdata() {
+        $exporter = new qformat_xml();
+        $string = '<p>Nothing <b>funny<b> here. Even if we go to a café or to 日本.</p>';
+        $this->assertEquals('<![CDATA[' . $string . ']]>', $exporter->xml_escape($string));
+    }
+
+    public function test_xml_escape_script_tag_handled_ok() {
+        $exporter = new qformat_xml();
+        $input = '<script><![CDATA[alert(1<2);]]></script>';
+        $expected = '<![CDATA[<script><![CDATA[alert(1<2);]]]]><![CDATA[></script>]]>';
+        $this->assertEquals($expected, $exporter->xml_escape($input));
+
+        // Check that parsing the expected result does give the input again.
+        $parsed = simplexml_load_string('<div>' . $expected . '</div>');
+        $this->assertEquals($input, $parsed->xpath('//div')[0]);
+    }
+
+    public function test_xml_escape_code_that_looks_like_cdata_end_ok() {
+        $exporter = new qformat_xml();
+        $input = "if (x[[0]]>a) print('hah');";
+        $expected = "<![CDATA[if (x[[0]]]]><![CDATA[>a) print('hah');]]>";
+        $this->assertEquals($expected, $exporter->xml_escape($input));
+
+        // Check that parsing the expected result does give the input again.
+        $parsed = simplexml_load_string('<div>' . $expected . '</div>');
+        $this->assertEquals($input, $parsed->xpath('//div')[0]);
+    }
+
     public function test_write_hint_basic() {
         $q = $this->make_test_question();
+        $q->contextid = \context_system::instance()->id;
         $q->name = 'Short answer question';
         $q->questiontext = 'Name an amphibian: __________';
         $q->generalfeedback = 'Generalfeedback: frog or toad would have been OK.';
@@ -143,6 +178,7 @@ class qformat_xml_test extends question_testcase {
 
     public function test_write_hint_with_parts() {
         $q = $this->make_test_question();
+        $q->contextid = \context_system::instance()->id;
         $q->name = 'Matching question';
         $q->questiontext = 'Classify the animals.';
         $q->generalfeedback = 'Frogs and toads are amphibians, the others are mammals.';
@@ -269,6 +305,10 @@ END;
     <defaultgrade>0</defaultgrade>
     <penalty>0</penalty>
     <hidden>0</hidden>
+    <tags>
+      <tag><text>tagDescription</text></tag>
+      <tag><text>tagTest</text></tag>
+    </tags>
   </question>';
         $xmldata = xmlize($xml);
 
@@ -284,6 +324,7 @@ END;
         $expectedq->defaultmark = 0;
         $expectedq->length = 0;
         $expectedq->penalty = 0;
+        $expectedq->tags = array('tagDescription', 'tagTest');
 
         $this->assert(new question_check_specified_fields_expectation($expectedq), $q);
     }
@@ -291,7 +332,7 @@ END;
     public function test_export_description() {
         $qdata = new stdClass();
         $qdata->id = 123;
-        $qdata->contextid = 0;
+        $qdata->contextid = \context_system::instance()->id;
         $qdata->qtype = 'description';
         $qdata->name = 'A description';
         $qdata->questiontext = 'The question text.';
@@ -302,6 +343,7 @@ END;
         $qdata->length = 0;
         $qdata->penalty = 0;
         $qdata->hidden = 0;
+        $qdata->idnumber = null;
 
         $exporter = new qformat_xml();
         $xml = $exporter->writequestion($qdata);
@@ -320,6 +362,7 @@ END;
     <defaultgrade>0</defaultgrade>
     <penalty>0</penalty>
     <hidden>0</hidden>
+    <idnumber></idnumber>
   </question>
 ';
 
@@ -340,6 +383,11 @@ END;
     <defaultgrade>1</defaultgrade>
     <penalty>0</penalty>
     <hidden>0</hidden>
+    <tags>
+      <tag><text>tagEssay</text></tag>
+      <tag><text>tagEssay20</text></tag>
+      <tag><text>tagTest</text></tag>
+    </tags>
   </question>';
         $xmldata = xmlize($xml);
 
@@ -356,12 +404,15 @@ END;
         $expectedq->length = 1;
         $expectedq->penalty = 0;
         $expectedq->responseformat = 'editor';
+        $expectedq->responserequired = 1;
         $expectedq->responsefieldlines = 15;
         $expectedq->attachments = 0;
+        $expectedq->attachmentsrequired = 0;
         $expectedq->graderinfo['text'] = '';
         $expectedq->graderinfo['format'] = FORMAT_MOODLE;
         $expectedq->responsetemplate['text'] = '';
         $expectedq->responsetemplate['format'] = FORMAT_MOODLE;
+        $expectedq->tags = array('tagEssay', 'tagEssay20', 'tagTest');
 
         $this->assert(new question_check_specified_fields_expectation($expectedq), $q);
     }
@@ -381,14 +432,21 @@ END;
     <penalty>0</penalty>
     <hidden>0</hidden>
     <responseformat>monospaced</responseformat>
+    <responserequired>0</responserequired>
     <responsefieldlines>42</responsefieldlines>
     <attachments>-1</attachments>
+    <attachmentsrequired>1</attachmentsrequired>
     <graderinfo format="html">
         <text><![CDATA[<p>Grade <b>generously</b>!</p>]]></text>
     </graderinfo>
     <responsetemplate format="html">
         <text><![CDATA[<p>Here is something <b>really</b> interesting.</p>]]></text>
     </responsetemplate>
+    <tags>
+      <tag><text>tagEssay</text></tag>
+      <tag><text>tagEssay21</text></tag>
+      <tag><text>tagTest</text></tag>
+    </tags>
   </question>';
         $xmldata = xmlize($xml);
 
@@ -405,12 +463,15 @@ END;
         $expectedq->length = 1;
         $expectedq->penalty = 0;
         $expectedq->responseformat = 'monospaced';
+        $expectedq->responserequired = 0;
         $expectedq->responsefieldlines = 42;
         $expectedq->attachments = -1;
+        $expectedq->attachmentsrequired = 1;
         $expectedq->graderinfo['text'] = '<p>Grade <b>generously</b>!</p>';
         $expectedq->graderinfo['format'] = FORMAT_HTML;
         $expectedq->responsetemplate['text'] = '<p>Here is something <b>really</b> interesting.</p>';
         $expectedq->responsetemplate['format'] = FORMAT_HTML;
+        $expectedq->tags = array('tagEssay', 'tagEssay21', 'tagTest');
 
         $this->assert(new question_check_specified_fields_expectation($expectedq), $q);
     }
@@ -418,7 +479,7 @@ END;
     public function test_export_essay() {
         $qdata = new stdClass();
         $qdata->id = 123;
-        $qdata->contextid = 0;
+        $qdata->contextid = \context_system::instance()->id;
         $qdata->qtype = 'essay';
         $qdata->name = 'An essay';
         $qdata->questiontext = 'Write something.';
@@ -429,12 +490,15 @@ END;
         $qdata->length = 1;
         $qdata->penalty = 0;
         $qdata->hidden = 0;
+        $qdata->idnumber = null;
         $qdata->options = new stdClass();
         $qdata->options->id = 456;
         $qdata->options->questionid = 123;
         $qdata->options->responseformat = 'monospaced';
+        $qdata->options->responserequired = 0;
         $qdata->options->responsefieldlines = 42;
         $qdata->options->attachments = -1;
+        $qdata->options->attachmentsrequired = 1;
         $qdata->options->graderinfo = '<p>Grade <b>generously</b>!</p>';
         $qdata->options->graderinfoformat = FORMAT_HTML;
         $qdata->options->responsetemplate = '<p>Here is something <b>really</b> interesting.</p>';
@@ -456,9 +520,12 @@ END;
     <defaultgrade>1</defaultgrade>
     <penalty>0</penalty>
     <hidden>0</hidden>
+    <idnumber></idnumber>
     <responseformat>monospaced</responseformat>
+    <responserequired>0</responserequired>
     <responsefieldlines>42</responsefieldlines>
     <attachments>-1</attachments>
+    <attachmentsrequired>1</attachmentsrequired>
     <graderinfo format="html">
       <text><![CDATA[<p>Grade <b>generously</b>!</p>]]></text>
     </graderinfo>
@@ -528,6 +595,10 @@ END;
       <shownumcorrect />
       <clearwrong />
     </hint>
+    <tags>
+      <tag><text>tagMatching</text></tag>
+      <tag><text>tagTest</text></tag>
+    </tags>
   </question>';
         $xmldata = xmlize($xml);
 
@@ -564,6 +635,7 @@ END;
         );
         $expectedq->hintshownumcorrect = array(true, true);
         $expectedq->hintclearwrong = array(false, true);
+        $expectedq->tags = array('tagMatching', 'tagTest');
 
         $this->assert(new question_check_specified_fields_expectation($expectedq), $q);
     }
@@ -571,7 +643,7 @@ END;
     public function test_export_match() {
         $qdata = new stdClass();
         $qdata->id = 123;
-        $qdata->contextid = 0;
+        $qdata->contextid = \context_system::instance()->id;
         $qdata->qtype = 'match';
         $qdata->name = 'Matching question';
         $qdata->questiontext = 'Match the upper and lower case letters.';
@@ -582,6 +654,7 @@ END;
         $qdata->length = 1;
         $qdata->penalty = 0.3333333;
         $qdata->hidden = 0;
+        $qdata->idnumber = null;
 
         $qdata->options = new stdClass();
         $qdata->options->shuffleanswers = 1;
@@ -642,6 +715,7 @@ END;
     <defaultgrade>1</defaultgrade>
     <penalty>0.3333333</penalty>
     <hidden>0</hidden>
+    <idnumber></idnumber>
     <shuffleanswers>true</shuffleanswers>
     <correctfeedback format="html">
       <text>Well done.</text>
@@ -802,7 +876,7 @@ END;
     public function test_export_multichoice() {
         $qdata = new stdClass();
         $qdata->id = 123;
-        $qdata->contextid = 0;
+        $qdata->contextid = \context_system::instance()->id;
         $qdata->qtype = 'multichoice';
         $qdata->name = 'Multiple choice question';
         $qdata->questiontext = 'Which are the even numbers?';
@@ -813,6 +887,7 @@ END;
         $qdata->length = 1;
         $qdata->penalty = 0.3333333;
         $qdata->hidden = 0;
+        $qdata->idnumber = null;
 
         $qdata->options = new stdClass();
         $qdata->options->single = 0;
@@ -855,6 +930,7 @@ END;
     <defaultgrade>2</defaultgrade>
     <penalty>0.3333333</penalty>
     <hidden>0</hidden>
+    <idnumber></idnumber>
     <single>false</single>
     <shuffleanswers>false</shuffleanswers>
     <answernumbering>abc</answernumbering>
@@ -975,7 +1051,7 @@ END;
 
         $qdata = new stdClass();
         $qdata->id = 123;
-        $qdata->contextid = 0;
+        $qdata->contextid = \context_system::instance()->id;
         $qdata->qtype = 'numerical';
         $qdata->name = 'Numerical question';
         $qdata->questiontext = 'What is the answer?';
@@ -986,6 +1062,7 @@ END;
         $qdata->length = 1;
         $qdata->penalty = 0.1;
         $qdata->hidden = 0;
+        $qdata->idnumber = null;
 
         $qdata->options = new stdClass();
         $qdata->options->answers = array(
@@ -1016,6 +1093,7 @@ END;
     <defaultgrade>1</defaultgrade>
     <penalty>0.1</penalty>
     <hidden>0</hidden>
+    <idnumber></idnumber>
     <answer fraction="100" format="plain_text">
       <text>42</text>
       <feedback format="html">
@@ -1105,7 +1183,7 @@ END;
     public function test_export_shortanswer() {
         $qdata = new stdClass();
         $qdata->id = 123;
-        $qdata->contextid = 0;
+        $qdata->contextid = \context_system::instance()->id;
         $qdata->qtype = 'shortanswer';
         $qdata->name = 'Short answer question';
         $qdata->questiontext = 'Fill in the gap in this sequence: Alpha, ________, Gamma.';
@@ -1116,6 +1194,7 @@ END;
         $qdata->length = 1;
         $qdata->penalty = 0.3333333;
         $qdata->hidden = 0;
+        $qdata->idnumber = null;
 
         $qdata->options = new stdClass();
         $qdata->options->usecase = 0;
@@ -1147,6 +1226,7 @@ END;
     <defaultgrade>1</defaultgrade>
     <penalty>0.3333333</penalty>
     <hidden>0</hidden>
+    <idnumber></idnumber>
     <usecase>0</usecase>
     <answer fraction="100" format="plain_text">
       <text>Beta</text>
@@ -1223,10 +1303,63 @@ END;
         $this->assert(new question_check_specified_fields_expectation($expectedq), $q);
     }
 
+    public function test_import_truefalse_with_idnumber() {
+        $xml = '  <question type="truefalse">
+    <name>
+      <text>True false question</text>
+    </name>
+    <questiontext format="html">
+      <text>The answer is true.</text>
+    </questiontext>
+    <generalfeedback>
+      <text>General feedback: You should have chosen true.</text>
+    </generalfeedback>
+    <defaultgrade>1</defaultgrade>
+    <penalty>1</penalty>
+    <hidden>0</hidden>
+    <idnumber>TestIdNum1</idnumber>
+    <answer fraction="100">
+      <text>true</text>
+      <feedback>
+        <text>Well done!</text>
+      </feedback>
+    </answer>
+    <answer fraction="0">
+      <text>false</text>
+      <feedback>
+        <text>Doh!</text>
+      </feedback>
+    </answer>
+  </question>';
+        $xmldata = xmlize($xml);
+
+        $importer = new qformat_xml();
+        $q = $importer->import_truefalse($xmldata['question']);
+
+        $expectedq = new stdClass();
+        $expectedq->qtype = 'truefalse';
+        $expectedq->name = 'True false question';
+        $expectedq->questiontext = 'The answer is true.';
+        $expectedq->questiontextformat = FORMAT_HTML;
+        $expectedq->generalfeedback = 'General feedback: You should have chosen true.';
+        $expectedq->defaultmark = 1;
+        $expectedq->length = 1;
+        $expectedq->penalty = 1;
+        $expectedq->idnumber = 'TestIdNum1';
+
+        $expectedq->feedbacktrue = array('text' => 'Well done!',
+                'format' => FORMAT_HTML);
+        $expectedq->feedbackfalse = array('text' => 'Doh!',
+                'format' => FORMAT_HTML);
+        $expectedq->correctanswer = true;
+
+        $this->assert(new question_check_specified_fields_expectation($expectedq), $q);
+    }
+
     public function test_export_truefalse() {
         $qdata = new stdClass();
         $qdata->id = 12;
-        $qdata->contextid = 0;
+        $qdata->contextid = \context_system::instance()->id;
         $qdata->qtype = 'truefalse';
         $qdata->name = 'True false question';
         $qdata->questiontext = 'The answer is true.';
@@ -1237,6 +1370,7 @@ END;
         $qdata->length = 1;
         $qdata->penalty = 1;
         $qdata->hidden = 0;
+        $qdata->idnumber = null;
 
         $qdata->options = new stdClass();
         $qdata->options->answers = array(
@@ -1263,6 +1397,67 @@ END;
     <defaultgrade>1</defaultgrade>
     <penalty>1</penalty>
     <hidden>0</hidden>
+    <idnumber></idnumber>
+    <answer fraction="100" format="plain_text">
+      <text>true</text>
+      <feedback format="html">
+        <text>Well done!</text>
+      </feedback>
+    </answer>
+    <answer fraction="0" format="plain_text">
+      <text>false</text>
+      <feedback format="html">
+        <text>Doh!</text>
+      </feedback>
+    </answer>
+  </question>
+';
+
+        $this->assert_same_xml($expectedxml, $xml);
+    }
+
+    public function test_export_truefalse_with_idnumber() {
+        $qdata = new stdClass();
+        $qdata->id = 12;
+        $qdata->contextid = \context_system::instance()->id;
+        $qdata->qtype = 'truefalse';
+        $qdata->name = 'True false question';
+        $qdata->questiontext = 'The answer is true.';
+        $qdata->questiontextformat = FORMAT_HTML;
+        $qdata->generalfeedback = 'General feedback: You should have chosen true.';
+        $qdata->generalfeedbackformat = FORMAT_HTML;
+        $qdata->defaultmark = 1;
+        $qdata->length = 1;
+        $qdata->penalty = 1;
+        $qdata->hidden = 0;
+        $qdata->idnumber = 'TestIDNum2';
+
+        $qdata->options = new stdClass();
+        $qdata->options->answers = array(
+                1 => new question_answer(1, 'True', 1, 'Well done!', FORMAT_HTML),
+                2 => new question_answer(2, 'False', 0, 'Doh!', FORMAT_HTML),
+        );
+        $qdata->options->trueanswer = 1;
+        $qdata->options->falseanswer = 2;
+
+        $exporter = new qformat_xml();
+        $xml = $exporter->writequestion($qdata);
+
+        $expectedxml = '<!-- question: 12  -->
+  <question type="truefalse">
+    <name>
+      <text>True false question</text>
+    </name>
+    <questiontext format="html">
+      <text>The answer is true.</text>
+    </questiontext>
+    <generalfeedback format="html">
+      <text>General feedback: You should have chosen true.</text>
+    </generalfeedback>
+    <defaultgrade>1</defaultgrade>
+    <penalty>1</penalty>
+    <hidden>0</hidden>
+    <idnumber>TestIDNum2</idnumber>
     <answer fraction="100" format="plain_text">
       <text>true</text>
       <feedback format="html">
@@ -1300,6 +1495,10 @@ END;
     <hint format="html">
       <text>Hint 2</text>
     </hint>
+    <tags>
+      <tag><text>tagCloze</text></tag>
+      <tag><text>tagTest</text></tag>
+    </tags>
   </question>
 ';
         $xmldata = xmlize($xml);
@@ -1314,7 +1513,8 @@ END;
         $expectedqa->name = 'Simple multianswer';
         $expectedqa->qtype = 'multianswer';
         $expectedqa->questiontext = 'Complete this opening line of verse: "The {#1} and the {#2} went to sea".';
-        $expectedqa->generalfeedback = 'General feedback: It\'s from "The Owl and the Pussy-cat" by Lear: "The owl and the pussycat went to sea".';
+        $expectedqa->generalfeedback =
+                'General feedback: It\'s from "The Owl and the Pussy-cat" by Lear: "The owl and the pussycat went to sea".';
         $expectedqa->defaultmark = 2;
         $expectedqa->penalty = 0.5;
 
@@ -1352,7 +1552,7 @@ END;
 
         $mc->layout = 0;
         $mc->single = 1;
-        $mc->shuffleanswers = 1;
+        $mc->shuffleanswers = 0;
         $mc->correctfeedback =          array('text' => '', 'format' => FORMAT_HTML, 'itemid' => null);
         $mc->partiallycorrectfeedback = array('text' => '', 'format' => FORMAT_HTML, 'itemid' => null);
         $mc->incorrectfeedback =        array('text' => '', 'format' => FORMAT_HTML, 'itemid' => null);
@@ -1375,6 +1575,7 @@ END;
             1 => $sa,
             2 => $mc,
         );
+        $expectedqa->tags = array('tagCloze', 'tagTest');
 
         $this->assertEquals($expectedqa->hint, $q->hint);
         $this->assertEquals($expectedqa->options->questions[1], $q->options->questions[1]);
@@ -1384,7 +1585,7 @@ END;
 
     public function test_export_multianswer() {
         $qdata = test_question_maker::get_question_data('multianswer', 'twosubq');
-
+        $qdata->contextid = \context_system::instance()->id;
         $exporter = new qformat_xml();
         $xml = $exporter->writequestion($qdata);
 
@@ -1401,12 +1602,39 @@ END;
     </generalfeedback>
     <penalty>0.3333333</penalty>
     <hidden>0</hidden>
+    <idnumber></idnumber>
     <hint format="html">
       <text>Hint 1</text>
     </hint>
     <hint format="html">
       <text>Hint 2</text>
     </hint>
+  </question>
+';
+
+        $this->assert_same_xml($expectedxml, $xml);
+    }
+
+    public function test_export_multianswer_withdollars() {
+        $qdata = test_question_maker::get_question_data('multianswer', 'dollarsigns');
+        $qdata->contextid = \context_system::instance()->id;
+        $exporter = new qformat_xml();
+        $xml = $exporter->writequestion($qdata);
+
+        $expectedxml = '<!-- question: 0  -->
+  <question type="cloze">
+    <name>
+      <text>Multianswer with $s</text>
+    </name>
+    <questiontext format="html">
+      <text>Which is the right order? {1:MULTICHOICE:=y,y,$3~$3,y,y}</text>
+    </questiontext>
+    <generalfeedback format="html">
+      <text></text>
+    </generalfeedback>
+    <penalty>0.3333333</penalty>
+    <hidden>0</hidden>
+    <idnumber></idnumber>
   </question>
 ';
 
@@ -1437,5 +1665,88 @@ END;
         $this->assertEquals('moodle.txt', $file->filename);
         $this->assertEquals('/',          $file->filepath);
         $this->assertEquals(6,            $file->size);
+    }
+
+    public function test_import_truefalse_wih_files() {
+        $this->resetAfterTest();
+        $this->setAdminUser();
+
+        $xml = '<question type="truefalse">
+    <name>
+      <text>truefalse</text>
+    </name>
+    <questiontext format="html">
+      <text><![CDATA[<p><a href="@@PLUGINFILE@@/myfolder/moodle.txt">This text file</a> contains the word Moodle.</p>]]></text>
+<file name="moodle.txt" path="/myfolder/" encoding="base64">TW9vZGxl</file>
+    </questiontext>
+    <generalfeedback format="html">
+      <text><![CDATA[<p>For further information, see the documentation about Moodle.</p>]]></text>
+</generalfeedback>
+    <defaultgrade>1.0000000</defaultgrade>
+    <penalty>1.0000000</penalty>
+    <hidden>0</hidden>
+    <answer fraction="100" format="moodle_auto_format">
+      <text>true</text>
+      <feedback format="html">
+        <text></text>
+      </feedback>
+    </answer>
+    <answer fraction="0" format="moodle_auto_format">
+      <text>false</text>
+      <feedback format="html">
+        <text></text>
+      </feedback>
+    </answer>
+  </question>';
+        $xmldata = xmlize($xml);
+
+        $importer = new qformat_xml();
+        $q = $importer->import_truefalse($xmldata['question']);
+
+        $draftitemid = $q->questiontextitemid;
+        $files = file_get_drafarea_files($draftitemid, '/myfolder/');
+
+        $this->assertEquals(1, count($files->list));
+
+        $file = $files->list[0];
+        $this->assertEquals('moodle.txt', $file->filename);
+        $this->assertEquals('/myfolder/', $file->filepath);
+        $this->assertEquals(6,            $file->size);
+    }
+
+    public function test_create_dummy_question() {
+
+        $testobject = new mock_qformat_xml();
+        $categoryname = 'name1';
+        $categoryinfo = new stdClass();
+        $categoryinfo->info = 'info1';
+        $categoryinfo->infoformat = 'infoformat1';
+        $dummyquestion = $testobject->mock_create_dummy_question_representing_category($categoryname, $categoryinfo);
+
+        $this->assertEquals('category', $dummyquestion->qtype);
+        $this->assertEquals($categoryname, $dummyquestion->category);
+        $this->assertEquals($categoryinfo->info, $dummyquestion->info);
+        $this->assertEquals($categoryinfo->infoformat, $dummyquestion->infoformat);
+        $this->assertEquals('Switch category to ' . $categoryname, $dummyquestion->name);
+        $this->assertEquals(0, $dummyquestion->id);
+        $this->assertEquals('', $dummyquestion->questiontextformat);
+        $this->assertEquals(0, $dummyquestion->contextid);
+    }
+}
+
+/**
+ * Class mock_qformat_xml exists only to enable testing of the create dummy question category.
+ * @package    qformat_xml
+ * @copyright  2018 The Open University
+ * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
+ */
+class mock_qformat_xml extends qformat_xml {
+    /**
+     * Make public an otherwise protected function.
+     * @param string $categoryname the name of the category
+     * @param object $categoryinfo description of the category
+     */
+    public function mock_create_dummy_question_representing_category(string $categoryname, $categoryinfo) {
+        return $this->create_dummy_question_representing_category($categoryname, $categoryinfo);
     }
 }

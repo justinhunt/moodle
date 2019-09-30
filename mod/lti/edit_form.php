@@ -30,13 +30,12 @@
 //
 // BasicLTI4Moodle is copyright 2009 by Marc Alier Forment, Jordi Piguillem and Nikolas Galanis
 // of the Universitat Politecnica de Catalunya http://www.upc.edu
-// Contact info: Marc Alier Forment granludo @ gmail.com or marc.alier @ upc.edu
+// Contact info: Marc Alier Forment granludo @ gmail.com or marc.alier @ upc.edu.
 
 /**
  * This file defines de main basiclti configuration form
  *
- * @package    mod
- * @subpackage lti
+ * @package mod_lti
  * @copyright  2009 Marc Alier, Jordi Piguillem, Nikolas Galanis
  *  marc.alier@upc.edu
  * @copyright  2009 Universitat Politecnica de Catalunya http://www.upc.edu
@@ -50,15 +49,34 @@
 
 defined('MOODLE_INTERNAL') || die;
 
+global $CFG;
 require_once($CFG->libdir.'/formslib.php');
 require_once($CFG->dirroot.'/mod/lti/locallib.php');
 
-class mod_lti_edit_types_form extends moodleform{
+/**
+ * LTI Edit Form
+ *
+ * @package    mod_lti
+ * @copyright  2009 Marc Alier, Jordi Piguillem, Nikolas Galanis
+ *  marc.alier@upc.edu
+ * @copyright  2009 Universitat Politecnica de Catalunya http://www.upc.edu
+ * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
+ */
+class mod_lti_edit_types_form extends moodleform {
+
+    /**
+     * Define this form.
+     */
     public function definition() {
+        global $CFG, $PAGE;
+
         $mform    =& $this->_form;
 
-        //-------------------------------------------------------------------------------
-        // Add basiclti elements
+        $istool = $this->_customdata && isset($this->_customdata->istool) && $this->_customdata->istool;
+        $typeid = $this->_customdata->id ?? '';
+        $clientid = $this->_customdata->clientid ?? '';
+
+        // Add basiclti elements.
         $mform->addElement('header', 'setup', get_string('tool_settings', 'lti'));
 
         $mform->addElement('text', 'lti_typename', get_string('typename', 'lti'));
@@ -66,37 +84,111 @@ class mod_lti_edit_types_form extends moodleform{
         $mform->addHelpButton('lti_typename', 'typename', 'lti');
         $mform->addRule('lti_typename', null, 'required', null, 'client');
 
-        $mform->addElement('text', 'lti_toolurl', get_string('toolurl', 'lti'), array('size'=>'64'));
-        $mform->setType('lti_toolurl', PARAM_TEXT);
+        $mform->addElement('text', 'lti_toolurl', get_string('toolurl', 'lti'), array('size' => '64'));
+        $mform->setType('lti_toolurl', PARAM_URL);
         $mform->addHelpButton('lti_toolurl', 'toolurl', 'lti');
-        $mform->addRule('lti_toolurl', null, 'required', null, 'client');
 
-        $mform->addElement('text', 'lti_resourcekey', get_string('resourcekey_admin', 'lti'));
-        $mform->setType('lti_resourcekey', PARAM_TEXT);
-        $mform->addHelpButton('lti_resourcekey', 'resourcekey_admin', 'lti');
+        $mform->addElement('textarea', 'lti_description', get_string('tooldescription', 'lti'), array('rows' => 4, 'cols' => 60));
+        $mform->setType('lti_description', PARAM_TEXT);
+        $mform->addHelpButton('lti_description', 'tooldescription', 'lti');
+        if (!$istool) {
+            $mform->addRule('lti_toolurl', null, 'required', null, 'client');
+        } else {
+            $mform->disabledIf('lti_toolurl', null);
+        }
 
-        $mform->addElement('passwordunmask', 'lti_password', get_string('password_admin', 'lti'));
-        $mform->setType('lti_password', PARAM_TEXT);
-        $mform->addHelpButton('lti_password', 'password_admin', 'lti');
+        if (!$istool) {
+            $options = array(
+                LTI_VERSION_1 => get_string('oauthsecurity', 'lti'),
+                LTI_VERSION_1P3 => get_string('jwtsecurity', 'lti'),
+            );
+            $mform->addElement('select', 'lti_ltiversion', get_string('ltiversion', 'lti'), $options);
+            $mform->setType('lti_ltiversion', PARAM_TEXT);
+            $mform->addHelpButton('lti_ltiversion', 'ltiversion', 'lti');
+            $mform->setDefault('lti_ltiversion', LTI_VERSION_1);
 
-        $mform->addElement('textarea', 'lti_customparameters', get_string('custom', 'lti'), array('rows'=>4, 'cols'=>60));
+            $mform->addElement('text', 'lti_resourcekey', get_string('resourcekey_admin', 'lti'));
+            $mform->setType('lti_resourcekey', PARAM_TEXT);
+            $mform->addHelpButton('lti_resourcekey', 'resourcekey_admin', 'lti');
+            $mform->hideIf('lti_resourcekey', 'lti_ltiversion', 'eq', LTI_VERSION_1P3);
+            $mform->setForceLtr('lti_resourcekey');
+
+            $mform->addElement('passwordunmask', 'lti_password', get_string('password_admin', 'lti'));
+            $mform->setType('lti_password', PARAM_TEXT);
+            $mform->addHelpButton('lti_password', 'password_admin', 'lti');
+            $mform->hideIf('lti_password', 'lti_ltiversion', 'eq', LTI_VERSION_1P3);
+
+            if (!empty($typeid)) {
+                $mform->addElement('text', 'lti_clientid_disabled', get_string('clientidadmin', 'lti'));
+                $mform->setType('lti_clientid_disabled', PARAM_TEXT);
+                $mform->addHelpButton('lti_clientid_disabled', 'clientidadmin', 'lti');
+                $mform->hideIf('lti_clientid_disabled', 'lti_ltiversion', 'neq', LTI_VERSION_1P3);
+                $mform->disabledIf('lti_clientid_disabled', null);
+                $mform->setForceLtr('lti_clientid_disabled');
+                $mform->addElement('hidden', 'lti_clientid');
+                $mform->setType('lti_clientid', PARAM_TEXT);
+            }
+
+            $mform->addElement('textarea', 'lti_publickey', get_string('publickey', 'lti'), array('rows' => 8, 'cols' => 60));
+            $mform->setType('lti_publickey', PARAM_TEXT);
+            $mform->addHelpButton('lti_publickey', 'publickey', 'lti');
+            $mform->hideIf('lti_publickey', 'lti_ltiversion', 'neq', LTI_VERSION_1P3);
+            $mform->setForceLtr('lti_publickey');
+
+            $mform->addElement('text', 'lti_initiatelogin', get_string('initiatelogin', 'lti'), array('size' => '64'));
+            $mform->setType('lti_initiatelogin', PARAM_URL);
+            $mform->addHelpButton('lti_initiatelogin', 'initiatelogin', 'lti');
+            $mform->hideIf('lti_initiatelogin', 'lti_ltiversion', 'neq', LTI_VERSION_1P3);
+
+            $mform->addElement('textarea', 'lti_redirectionuris', get_string('redirectionuris', 'lti'),
+                array('rows' => 3, 'cols' => 60));
+            $mform->setType('lti_redirectionuris', PARAM_TEXT);
+            $mform->addHelpButton('lti_redirectionuris', 'redirectionuris', 'lti');
+            $mform->hideIf('lti_redirectionuris', 'lti_ltiversion', 'neq', LTI_VERSION_1P3);
+            $mform->setForceLtr('lti_redirectionuris');
+        }
+
+        if ($istool) {
+            $mform->addElement('textarea', 'lti_parameters', get_string('parameter', 'lti'), array('rows' => 4, 'cols' => 60));
+            $mform->setType('lti_parameters', PARAM_TEXT);
+            $mform->addHelpButton('lti_parameters', 'parameter', 'lti');
+            $mform->disabledIf('lti_parameters', null);
+            $mform->setForceLtr('lti_parameters');
+        }
+
+        $mform->addElement('textarea', 'lti_customparameters', get_string('custom', 'lti'), array('rows' => 4, 'cols' => 60));
         $mform->setType('lti_customparameters', PARAM_TEXT);
         $mform->addHelpButton('lti_customparameters', 'custom', 'lti');
+        $mform->setForceLtr('lti_customparameters');
 
         if (!empty($this->_customdata->isadmin)) {
-            $mform->addElement('checkbox', 'lti_coursevisible', '&nbsp;', ' ' . get_string('show_in_course', 'lti'));
-            $mform->addHelpButton('lti_coursevisible', 'show_in_course', 'lti');
+            $options = array(
+                LTI_COURSEVISIBLE_NO => get_string('show_in_course_no', 'lti'),
+                LTI_COURSEVISIBLE_PRECONFIGURED => get_string('show_in_course_preconfigured', 'lti'),
+                LTI_COURSEVISIBLE_ACTIVITYCHOOSER => get_string('show_in_course_activity_chooser', 'lti'),
+            );
+            if ($istool) {
+                // LTI2 tools can not be matched by URL, they have to be either in preconfigured tools or in activity chooser.
+                unset($options[LTI_COURSEVISIBLE_NO]);
+                $stringname = 'show_in_course_lti2';
+            } else {
+                $stringname = 'show_in_course_lti1';
+            }
+            $mform->addElement('select', 'lti_coursevisible', get_string($stringname, 'lti'), $options);
+            $mform->addHelpButton('lti_coursevisible', $stringname, 'lti');
+            $mform->setDefault('lti_coursevisible', '1');
         } else {
-            $mform->addElement('hidden', 'lti_coursevisible', '1');
+            $mform->addElement('hidden', 'lti_coursevisible', LTI_COURSEVISIBLE_PRECONFIGURED);
         }
-        $mform->setType('lti_coursevisible', PARAM_BOOL);
+        $mform->setType('lti_coursevisible', PARAM_INT);
 
         $mform->addElement('hidden', 'typeid');
         $mform->setType('typeid', PARAM_INT);
 
-        $launchoptions=array();
+        $launchoptions = array();
         $launchoptions[LTI_LAUNCH_CONTAINER_EMBED] = get_string('embed', 'lti');
         $launchoptions[LTI_LAUNCH_CONTAINER_EMBED_NO_BLOCKS] = get_string('embed_no_blocks', 'lti');
+        $launchoptions[LTI_LAUNCH_CONTAINER_REPLACE_MOODLE_WINDOW] = get_string('existing_window', 'lti');
         $launchoptions[LTI_LAUNCH_CONTAINER_WINDOW] = get_string('new_window', 'lti');
 
         $mform->addElement('select', 'lti_launchcontainer', get_string('default_launch_container', 'lti'), $launchoptions);
@@ -104,71 +196,107 @@ class mod_lti_edit_types_form extends moodleform{
         $mform->addHelpButton('lti_launchcontainer', 'default_launch_container', 'lti');
         $mform->setType('lti_launchcontainer', PARAM_INT);
 
-        // Add privacy preferences fieldset where users choose whether to send their data
-        $mform->addElement('header', 'privacy', get_string('privacy', 'lti'));
+        $mform->addElement('advcheckbox', 'lti_contentitem', get_string('contentitem', 'lti'));
+        $mform->addHelpButton('lti_contentitem', 'contentitem', 'lti');
+        $mform->setAdvanced('lti_contentitem');
+        if ($istool) {
+            $mform->disabledIf('lti_contentitem', null);
+        }
 
-        $options=array();
-        $options[0] = get_string('never', 'lti');
-        $options[1] = get_string('always', 'lti');
-        $options[2] = get_string('delegate', 'lti');
+        $mform->addElement('text', 'lti_toolurl_ContentItemSelectionRequest',
+            get_string('toolurl_contentitemselectionrequest', 'lti'), array('size' => '64'));
+        $mform->setType('lti_toolurl_ContentItemSelectionRequest', PARAM_URL);
+        $mform->setAdvanced('lti_toolurl_ContentItemSelectionRequest');
+        $mform->addHelpButton('lti_toolurl_ContentItemSelectionRequest', 'toolurl_contentitemselectionrequest', 'lti');
+        $mform->disabledIf('lti_toolurl_ContentItemSelectionRequest', 'lti_contentitem', 'notchecked');
+        if ($istool) {
+            $mform->disabledIf('lti_toolurl__ContentItemSelectionRequest', null);
+        }
 
-        $mform->addElement('select', 'lti_sendname', get_string('share_name_admin', 'lti'), $options);
-        $mform->setType('lti_sendname', PARAM_INT);
-        $mform->setDefault('lti_sendname', '2');
-        $mform->addHelpButton('lti_sendname', 'share_name_admin', 'lti');
+        $mform->addElement('hidden', 'oldicon');
+        $mform->setType('oldicon', PARAM_URL);
 
-        $mform->addElement('select', 'lti_sendemailaddr', get_string('share_email_admin', 'lti'), $options);
-        $mform->setType('lti_sendemailaddr', PARAM_INT);
-        $mform->setDefault('lti_sendemailaddr', '2');
-        $mform->addHelpButton('lti_sendemailaddr', 'share_email_admin', 'lti');
+        $mform->addElement('text', 'lti_icon', get_string('icon_url', 'lti'), array('size' => '64'));
+        $mform->setType('lti_icon', PARAM_URL);
+        $mform->setAdvanced('lti_icon');
+        $mform->addHelpButton('lti_icon', 'icon_url', 'lti');
 
-        //-------------------------------------------------------------------------------
-        // LTI Extensions
+        $mform->addElement('text', 'lti_secureicon', get_string('secure_icon_url', 'lti'), array('size' => '64'));
+        $mform->setType('lti_secureicon', PARAM_URL);
+        $mform->setAdvanced('lti_secureicon');
+        $mform->addHelpButton('lti_secureicon', 'secure_icon_url', 'lti');
 
-        // Add grading preferences fieldset where the tool is allowed to return grades
-        $mform->addElement('select', 'lti_acceptgrades', get_string('accept_grades_admin', 'lti'), $options);
-        $mform->setType('lti_acceptgrades', PARAM_INT);
-        $mform->setDefault('lti_acceptgrades', '2');
-        $mform->addHelpButton('lti_acceptgrades', 'accept_grades_admin', 'lti');
+        if (!$istool) {
+            // Display the lti advantage services.
+            $this->get_lti_advantage_services($mform);
+        }
 
-        // Add grading preferences fieldset where the tool is allowed to retrieve rosters
-        //$mform->addElement('select', 'lti_allowroster', get_string('share_roster_admin', 'lti'), $options);
-        //$mform->setDefault('lti_allowroster', '2');
-        //$mform->addHelpButton('lti_allowroster', 'share_roster_admin', 'lti');
+        if (!$istool) {
+            // Add privacy preferences fieldset where users choose whether to send their data.
+            $mform->addElement('header', 'privacy', get_string('privacy', 'lti'));
 
-        $mform->addElement('checkbox', 'lti_forcessl', '&nbsp;', ' ' . get_string('force_ssl', 'lti'), $options);
-        $mform->setType('lti_forcessl', PARAM_BOOL);
-        $mform->setDefault('lti_forcessl', '0');
-        $mform->addHelpButton('lti_forcessl', 'force_ssl', 'lti');
+            $options = array();
+            $options[0] = get_string('never', 'lti');
+            $options[1] = get_string('always', 'lti');
+            $options[2] = get_string('delegate', 'lti');
 
-        if (!empty($this->_customdata->isadmin)) {
-            //-------------------------------------------------------------------------------
-            // Add setup parameters fieldset
-            $mform->addElement('header', 'setupoptions', get_string('miscellaneous', 'lti'));
+            $mform->addElement('select', 'lti_sendname', get_string('share_name_admin', 'lti'), $options);
+            $mform->setType('lti_sendname', PARAM_INT);
+            $mform->setDefault('lti_sendname', '2');
+            $mform->addHelpButton('lti_sendname', 'share_name_admin', 'lti');
 
-            // Adding option to change id that is placed in context_id
-            $idoptions = array();
-            $idoptions[0] = get_string('id', 'lti');
-            $idoptions[1] = get_string('courseid', 'lti');
+            $mform->addElement('select', 'lti_sendemailaddr', get_string('share_email_admin', 'lti'), $options);
+            $mform->setType('lti_sendemailaddr', PARAM_INT);
+            $mform->setDefault('lti_sendemailaddr', '2');
+            $mform->addHelpButton('lti_sendemailaddr', 'share_email_admin', 'lti');
 
-            $mform->addElement('text', 'lti_organizationid', get_string('organizationid', 'lti'));
-            $mform->setType('lti_organizationid', PARAM_TEXT);
-            $mform->addHelpButton('lti_organizationid', 'organizationid', 'lti');
+            // LTI Extensions.
 
-            $mform->addElement('text', 'lti_organizationurl', get_string('organizationurl', 'lti'));
-            $mform->setType('lti_organizationurl', PARAM_TEXT);
-            $mform->addHelpButton('lti_organizationurl', 'organizationurl', 'lti');
+            // Add grading preferences fieldset where the tool is allowed to return grades.
+            $mform->addElement('select', 'lti_acceptgrades', get_string('accept_grades_admin', 'lti'), $options);
+            $mform->setType('lti_acceptgrades', PARAM_INT);
+            $mform->setDefault('lti_acceptgrades', '2');
+            $mform->addHelpButton('lti_acceptgrades', 'accept_grades_admin', 'lti');
+
+            $mform->addElement('checkbox', 'lti_forcessl', '&nbsp;', ' ' . get_string('force_ssl', 'lti'), $options);
+            $mform->setType('lti_forcessl', PARAM_BOOL);
+            if (!empty($CFG->mod_lti_forcessl)) {
+                $mform->setDefault('lti_forcessl', '1');
+                $mform->freeze('lti_forcessl');
+            } else {
+                $mform->setDefault('lti_forcessl', '0');
+            }
+            $mform->addHelpButton('lti_forcessl', 'force_ssl', 'lti');
+
+            if (!empty($this->_customdata->isadmin)) {
+                // Add setup parameters fieldset.
+                $mform->addElement('header', 'setupoptions', get_string('miscellaneous', 'lti'));
+
+                // Adding option to change id that is placed in context_id.
+                $idoptions = array();
+                $idoptions[0] = get_string('id', 'lti');
+                $idoptions[1] = get_string('courseid', 'lti');
+
+                $mform->addElement('text', 'lti_organizationid', get_string('organizationid', 'lti'));
+                $mform->setType('lti_organizationid', PARAM_TEXT);
+                $mform->addHelpButton('lti_organizationid', 'organizationid', 'lti');
+
+                $mform->addElement('text', 'lti_organizationurl', get_string('organizationurl', 'lti'));
+                $mform->setType('lti_organizationurl', PARAM_URL);
+                $mform->addHelpButton('lti_organizationurl', 'organizationurl', 'lti');
+            }
         }
 
         /* Suppress this for now - Chuck
-        $mform->addElement('text', 'lti_organizationdescr', get_string('organizationdescr', 'lti'));
-        $mform->setType('lti_organizationdescr', PARAM_TEXT);
-        $mform->addHelpButton('lti_organizationdescr', 'organizationdescr', 'lti');
-        */
+         * mform->addElement('text', 'lti_organizationdescr', get_string('organizationdescr', 'lti'))
+         * mform->setType('lti_organizationdescr', PARAM_TEXT)
+         * mform->addHelpButton('lti_organizationdescr', 'organizationdescr', 'lti')
+         */
 
-        //-------------------------------------------------------------------------------
+        /*
         // Add a hidden element to signal a tool fixing operation after a problematic backup - restore process
         //$mform->addElement('hidden', 'lti_fix');
+        */
 
         $tab = optional_param('tab', '', PARAM_ALPHAEXT);
         $mform->addElement('hidden', 'tab', $tab);
@@ -178,9 +306,62 @@ class mod_lti_edit_types_form extends moodleform{
         $mform->addElement('hidden', 'course', $courseid);
         $mform->setType('course', PARAM_INT);
 
-        //-------------------------------------------------------------------------------
-        // Add standard buttons, common to all modules
+        // Add standard buttons, common to all modules.
         $this->add_action_buttons();
 
+    }
+
+    /**
+     * Retrieves the data of the submitted form.
+     *
+     * @return stdClass
+     */
+    public function get_data() {
+        $data = parent::get_data();
+        if ($data && !empty($this->_customdata->istool)) {
+            // Content item checkbox is disabled in tool settings, so this cannot be edited. Just unset it.
+            unset($data->lti_contentitem);
+        }
+        return $data;
+    }
+
+    /**
+     * Generates the lti advantage extra configuration adding it to the mform
+     *
+     * @param MoodleQuickForm $mform
+     */
+    public function get_lti_advantage_services(&$mform) {
+        // For each service add the label and get the array of configuration.
+        $services = lti_get_services();
+        $mform->addElement('header', 'services', get_string('services', 'lti'));
+        foreach ($services as $service) {
+            /** @var \mod_lti\local\ltiservice\service_base $service */
+            $service->get_configuration_options($mform);
+        }
+    }
+
+    /**
+     * Validate the form data before we allow them to save the tool type.
+     *
+     * @param array $data
+     * @param array $files
+     * @return array Error messages
+     */
+    public function validation($data, $files) {
+        global $CFG;
+
+        $errors = parent::validation($data, $files);
+
+        // LTI2 tools do not contain a ltiversion field.
+        if (isset($data['lti_ltiversion']) && $data['lti_ltiversion'] == LTI_VERSION_1P3) {
+            require_once($CFG->dirroot . '/mod/lti/upgradelib.php');
+
+            $warning = mod_lti_verify_private_key();
+            if (!empty($warning)) {
+                $errors['lti_ltiversion'] = $warning;
+                return $errors;
+            }
+        }
+        return $errors;
     }
 }

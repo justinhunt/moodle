@@ -39,6 +39,11 @@ if (! $entry = $DB->get_record("glossary_entries", array("id"=>$entry))) {
     print_error('invalidentry');
 }
 
+// Permission checks are based on the course module instance so make sure it is correct.
+if ($cm->instance != $entry->glossaryid) {
+    print_error('invalidentry');
+}
+
 require_login($course, false, $cm);
 $context = context_module::instance($cm->id);
 $manageentries = has_capability('mod/glossary:manageentries', $context);
@@ -63,6 +68,7 @@ if (!$ineditperiod and !$manageentries) {
 if ($confirm and confirm_sesskey()) { // the operation was confirmed.
     // if it is an imported entry, just delete the relation
 
+    $origentry = fullclone($entry);
     if ($entry->sourceglossaryid) {
         if (!$newcm = get_coursemodule_from_instance('glossary', $entry->sourceglossaryid)) {
             print_error('invalidcoursemodule');
@@ -113,12 +119,36 @@ if ($confirm and confirm_sesskey()) { // the operation was confirmed.
         $rm->delete_ratings($delopt);
     }
 
-    add_to_log($course->id, "glossary", "delete entry", "view.php?id=$cm->id&amp;mode=$prevmode&amp;hook=$hook", $entry->id,$cm->id);
+    // Delete cached RSS feeds.
+    if (!empty($CFG->enablerssfeeds)) {
+        require_once($CFG->dirroot.'/mod/glossary/rsslib.php');
+        glossary_rss_delete_file($glossary);
+    }
+
+    core_tag_tag::remove_all_item_tags('mod_glossary', 'glossary_entries', $origentry->id);
+
+    $event = \mod_glossary\event\entry_deleted::create(array(
+        'context' => $context,
+        'objectid' => $origentry->id,
+        'other' => array(
+            'mode' => $prevmode,
+            'hook' => $hook,
+            'concept' => $origentry->concept
+        )
+    ));
+    $event->add_record_snapshot('glossary_entries', $origentry);
+    $event->trigger();
+
+    // Reset caches.
+    if ($entry->usedynalink and $entry->approved) {
+        \mod_glossary\local\concept_cache::reset_glossary($glossary);
+    }
+
     redirect("view.php?id=$cm->id&amp;mode=$prevmode&amp;hook=$hook");
 
 } else {        // the operation has not been confirmed yet so ask the user to do so
     $PAGE->navbar->add(get_string('delete'));
-    $PAGE->set_title(format_string($glossary->name));
+    $PAGE->set_title($glossary->name);
     $PAGE->set_heading($course->fullname);
     echo $OUTPUT->header();
     $areyousure = "<b>".format_string($entry->concept)."</b><p>$strareyousuredelete</p>";

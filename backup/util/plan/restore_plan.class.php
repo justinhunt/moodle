@@ -49,8 +49,9 @@ class restore_plan extends base_plan implements loggable {
         if (! $controller instanceof restore_controller) {
             throw new restore_plan_exception('wrong_restore_controller_specified');
         }
+        $backuptempdir    = make_backup_temp_directory('');
         $this->controller = $controller;
-        $this->basepath   = $CFG->tempdir . '/backup/' . $controller->get_tempdir();
+        $this->basepath   = $backuptempdir . '/' . $controller->get_tempdir();
         $this->preloaded  = false;
         $this->decoder    = new restore_decode_processor($this->get_restoreid(), $this->get_info()->original_wwwroot, $CFG->wwwroot);
         $this->missingmodules = false;
@@ -92,6 +93,16 @@ class restore_plan extends base_plan implements loggable {
 
     public function get_logger() {
         return $this->controller->get_logger();
+    }
+
+    /**
+     * Gets the progress reporter, which can be used to report progress within
+     * the backup or restore process.
+     *
+     * @return \core\progress\base Progress reporting object
+     */
+    public function get_progress() {
+        return $this->controller->get_progress();
     }
 
     public function get_info() {
@@ -157,15 +168,32 @@ class restore_plan extends base_plan implements loggable {
         parent::execute();
         $this->controller->set_status(backup::STATUS_FINISHED_OK);
 
-        events_trigger('course_restored', (object) array(
-            'courseid'  => $this->get_courseid(), // The new course
-            'userid'    => $this->get_userid(), // User doing the restore
-            'type'      => $this->controller->get_type(), // backup::TYPE_* constant
-            'target'    => $this->controller->get_target(), // backup::TARGET_* constant
-            'mode'      => $this->controller->get_mode(), // backup::MODE_* constant
-            'operation' => $this->controller->get_operation(), // backup::OPERATION_* constant
-            'samesite'  => $this->controller->is_samesite(),
-        ));
+        // Check if we are restoring a course.
+        if ($this->controller->get_type() === backup::TYPE_1COURSE) {
+
+            // Check to see if we are on the same site to pass original course info.
+            $issamesite = $this->controller->is_samesite();
+
+            $otherarray = array('type' => $this->controller->get_type(),
+                                'target' => $this->controller->get_target(),
+                                'mode' => $this->controller->get_mode(),
+                                'operation' => $this->controller->get_operation(),
+                                'samesite' => $issamesite
+            );
+
+            if ($this->controller->is_samesite()) {
+                $otherarray['originalcourseid'] = $this->controller->get_info()->original_course_id;
+            }
+
+            // Trigger a course restored event.
+            $event = \core\event\course_restored::create(array(
+                'objectid' => $this->get_courseid(),
+                'userid' => $this->get_userid(),
+                'context' => context_course::instance($this->get_courseid()),
+                'other' => $otherarray
+            ));
+            $event->trigger();
+        }
     }
 
     /**

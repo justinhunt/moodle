@@ -79,6 +79,13 @@ interface cache_store_interface {
      * @return cache_store|false
      */
     public static function initialise_test_instance(cache_definition $definition);
+
+    /**
+     * Generates the appropriate configuration required for unit testing.
+     *
+     * @return array Array of unit test configuration data to be used by initialise().
+     */
+    public static function unit_test_configuration();
 }
 
 /**
@@ -87,7 +94,7 @@ interface cache_store_interface {
  * All cache store plugins must extend this base class.
  * It lays down the foundation for what is required of a cache store plugin.
  *
- * @since 2.4
+ * @since Moodle 2.4
  * @package    core
  * @category   cache
  * @copyright  2012 Sam Hemelryk
@@ -114,6 +121,14 @@ abstract class cache_store implements cache_store_interface {
      * The cache is searchable by key.
      */
     const IS_SEARCHABLE = 8;
+
+    /**
+     * The cache store dereferences objects.
+     *
+     * When set, loaders will assume that all data coming from this store has already had all references
+     * resolved.  So even for complex object structures it will not try to remove references again.
+     */
+    const DEREFERENCES_OBJECTS = 16;
 
     // Constants for the modes of a cache store
 
@@ -179,7 +194,9 @@ abstract class cache_store implements cache_store_interface {
      * Returns true if this cache store instance is ready to use.
      * @return bool
      */
-    abstract public function is_ready();
+    public function is_ready() {
+        return forward_static_call(array($this, 'are_requirements_met'));
+    }
 
     /**
      * Retrieves an item from the cache store given its key.
@@ -243,18 +260,18 @@ abstract class cache_store implements cache_store_interface {
     abstract public function purge();
 
     /**
-     * Performs any necessary clean up when the store instance is being deleted.
-     *
      * @deprecated since 2.5
+     * @see \cache_store::instance_deleted()
      */
     public function cleanup() {
-        debugging('This function has been renamed to instance_deleted. Please update your calls.', DEBUG_DEVELOPER);
+        throw new coding_exception('cache_store::cleanup() can not be used anymore.' .
+            ' Please use cache_store::instance_deleted() instead.');
     }
 
     /**
      * Performs any necessary operation when the store instance has been created.
      *
-     * @since 2.5
+     * @since Moodle 2.5
      */
     public function instance_created() {
         // By default, do nothing.
@@ -265,7 +282,7 @@ abstract class cache_store implements cache_store_interface {
      *
      * This method may be called before the store has been initialised.
      *
-     * @since 2.5
+     * @since Moodle 2.5
      * @see cleanup()
      */
     public function instance_deleted() {
@@ -322,6 +339,15 @@ abstract class cache_store implements cache_store_interface {
     }
 
     /**
+     * Returns true if the store automatically dereferences objects.
+     *
+     * @return bool
+     */
+    public function supports_dereferencing_objects() {
+        return $this::get_supported_features() & self::DEREFERENCES_OBJECTS;
+    }
+
+    /**
      * Creates a clone of this store instance ready to be initialised.
      *
      * This method is used so that a cache store needs only be constructed once.
@@ -337,5 +363,29 @@ abstract class cache_store implements cache_store_interface {
         // By default we just run clone.
         // Any stores that have an issue with this will need to override the create_clone method.
         return clone($this);
+    }
+
+    /**
+     * Can be overridden to return any warnings this store instance should make to the admin.
+     *
+     * This should be used to notify things like configuration conflicts etc.
+     * The warnings returned here will be displayed on the cache configuration screen.
+     *
+     * @return string[] An array of warning strings from the store instance.
+     */
+    public function get_warnings() {
+        return array();
+    }
+
+    /**
+     * Returns true if this cache store instance is both suitable for testing, and ready for testing.
+     *
+     * Cache stores that support being used as the default store for unit and acceptance testing should
+     * override this function and return true if there requirements have been met.
+     *
+     * @return bool
+     */
+    public static function ready_to_be_used_for_testing() {
+        return false;
     }
 }

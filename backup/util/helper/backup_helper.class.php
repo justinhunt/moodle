@@ -33,18 +33,24 @@ abstract class backup_helper {
      * Given one backupid, create all the needed dirs to have one backup temp dir available
      */
     static public function check_and_create_backup_dir($backupid) {
-        global $CFG;
-        if (!check_dir_exists($CFG->tempdir . '/backup/' . $backupid, true, true)) {
+        $backupiddir = make_backup_temp_directory($backupid, false);
+        if (empty($backupiddir)) {
             throw new backup_helper_exception('cannot_create_backup_temp_dir');
         }
     }
 
     /**
      * Given one backupid, ensure its temp dir is completely empty
+     *
+     * If supplied, progress object should be ready to receive indeterminate
+     * progress reports.
+     *
+     * @param string $backupid Backup id
+     * @param \core\progress\base $progress Optional progress reporting object
      */
-    static public function clear_backup_dir($backupid) {
-        global $CFG;
-        if (!self::delete_dir_contents($CFG->tempdir . '/backup/' . $backupid)) {
+    static public function clear_backup_dir($backupid, \core\progress\base $progress = null) {
+        $backupiddir = make_backup_temp_directory($backupid, false);
+        if (!self::delete_dir_contents($backupiddir, '', $progress)) {
             throw new backup_helper_exception('cannot_empty_backup_temp_dir');
         }
         return true;
@@ -52,20 +58,37 @@ abstract class backup_helper {
 
     /**
      * Given one backupid, delete completely its temp dir
+     *
+     * If supplied, progress object should be ready to receive indeterminate
+     * progress reports.
+     *
+     * @param string $backupid Backup id
+     * @param \core\progress\base $progress Optional progress reporting object
      */
-     static public function delete_backup_dir($backupid) {
-         global $CFG;
-         self::clear_backup_dir($backupid);
-         return rmdir($CFG->tempdir . '/backup/' . $backupid);
+     static public function delete_backup_dir($backupid, \core\progress\base $progress = null) {
+         $backupiddir = make_backup_temp_directory($backupid, false);
+         self::clear_backup_dir($backupid, $progress);
+         return rmdir($backupiddir);
      }
 
      /**
      * Given one fullpath to directory, delete its contents recursively
      * Copied originally from somewhere in the net.
      * TODO: Modernise this
+     *
+     * If supplied, progress object should be ready to receive indeterminate
+     * progress reports.
+     *
+     * @param string $dir Directory to delete
+     * @param string $excludedir Exclude this directory
+     * @param \core\progress\base $progress Optional progress reporting object
      */
-    static public function delete_dir_contents($dir, $excludeddir='') {
+    static public function delete_dir_contents($dir, $excludeddir='', \core\progress\base $progress = null) {
         global $CFG;
+
+        if ($progress) {
+            $progress->progress();
+        }
 
         if (!is_dir($dir)) {
             // if we've been given a directory that doesn't exist yet, return true.
@@ -108,7 +131,7 @@ abstract class backup_helper {
         // Empty sub directories and then remove the directory
         for ($i=0; $i<count($dir_subdirs); $i++) {
             chmod($dir_subdirs[$i], $CFG->directorypermissions);
-            if (self::delete_dir_contents($dir_subdirs[$i]) == false) {
+            if (self::delete_dir_contents($dir_subdirs[$i], '', $progress) == false) {
                 return false;
             } else {
                 if (remove_dir($dir_subdirs[$i]) == false) {
@@ -125,22 +148,27 @@ abstract class backup_helper {
     }
 
     /**
-     * Delete all the temp dirs older than the time specified
+     * Delete all the temp dirs older than the time specified.
+     *
+     * If supplied, progress object should be ready to receive indeterminate
+     * progress reports.
+     *
+     * @param int $deletefrom Time to delete from
+     * @param \core\progress\base $progress Optional progress reporting object
      */
-    static public function delete_old_backup_dirs($deletefrom) {
-        global $CFG;
-
+    static public function delete_old_backup_dirs($deletefrom, \core\progress\base $progress = null) {
         $status = true;
-        // Get files and directories in the temp backup dir witout descend
-        $list = get_directory_list($CFG->tempdir . '/backup', '', false, true, true);
+        // Get files and directories in the backup temp dir without descend.
+        $backuptempdir = make_backup_temp_directory('');
+        $list = get_directory_list($backuptempdir, '', false, true, true);
         foreach ($list as $file) {
-            $file_path = $CFG->tempdir . '/backup/' . $file;
+            $file_path = $backuptempdir . '/' . $file;
             $moddate = filemtime($file_path);
             if ($status && $moddate < $deletefrom) {
                 //If directory, recurse
                 if (is_dir($file_path)) {
                     // $file is really the backupid
-                    $status = self::delete_backup_dir($file);
+                    $status = self::delete_backup_dir($file, $progress);
                 //If file
                 } else {
                     unlink($file_path);
@@ -179,17 +207,22 @@ abstract class backup_helper {
      *
      * Note: the $filepath is deleted if the backup file is created successfully
      *
+     * If you specify the progress monitor, this will start a new progress section
+     * to track progress in processing (in case this task takes a long time).
+     *
      * @param int $backupid
      * @param string $filepath zip file containing the backup
+     * @param \core\progress\base $progress Optional progress monitor
      * @return stored_file if created, null otherwise
      *
      * @throws moodle_exception in case of any problems
      */
-    static public function store_backup_file($backupid, $filepath) {
+    static public function store_backup_file($backupid, $filepath, \core\progress\base $progress = null) {
         global $CFG;
 
         // First of all, get some information from the backup_controller to help us decide
-        list($dinfo, $cinfo, $sinfo) = backup_controller_dbops::get_moodle_backup_information($backupid);
+        list($dinfo, $cinfo, $sinfo) = backup_controller_dbops::get_moodle_backup_information(
+                $backupid, $progress);
 
         // Extract useful information to decide
         $hasusers  = (bool)$sinfo['users']->value;     // Backup has users
@@ -254,16 +287,29 @@ abstract class backup_helper {
             $config = get_config('backup');
             $dir = $config->backup_auto_destination;
             if ($config->backup_auto_storage == 1 and $dir and is_dir($dir) and is_writable($dir)) {
-                $filedest = $dir.'/'.backup_plan_dbops::get_default_backup_filename($format, $backuptype, $courseid, $hasusers, $isannon, !$config->backup_shortname);
+                $filedest = $dir.'/'
+                        .backup_plan_dbops::get_default_backup_filename(
+                                $format,
+                                $backuptype,
+                                $courseid,
+                                $hasusers,
+                                $isannon,
+                                !$config->backup_shortname,
+                                (bool)$config->backup_auto_files);
                 // first try to move the file, if it is not possible copy and delete instead
                 if (@rename($filepath, $filedest)) {
                     return null;
                 }
-                umask(0000);
+                umask($CFG->umaskpermissions);
                 if (copy($filepath, $filedest)) {
                     @chmod($filedest, $CFG->filepermissions); // may fail because the permissions may not make sense outside of dataroot
                     unlink($filepath);
                     return null;
+                } else {
+                    $bc = backup_controller::load_controller($backupid);
+                    $bc->log('Attempt to copy backup file to the specified directory using filesystem failed - ',
+                            backup::LOG_WARNING, $dir);
+                    $bc->destroy();
                 }
                 // bad luck, try to deal with the file the old way - keep backup in file area if we can not copy to ext system
             }

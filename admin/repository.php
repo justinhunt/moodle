@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
-require_once(dirname(dirname(__FILE__)) . '/config.php');
+require_once(__DIR__ . '/../config.php');
 require_once($CFG->dirroot . '/repository/lib.php');
 require_once($CFG->libdir . '/adminlib.php');
 
@@ -47,7 +47,6 @@ if ($action == 'newon') {
     $visible = false;
 }
 
-require_capability('moodle/site:config', context_system::instance());
 admin_externalpage_setup($pagename);
 
 $sesskeyurl = $CFG->wwwroot.'/'.$CFG->admin.'/repository.php?sesskey=' . sesskey();
@@ -60,9 +59,6 @@ $return = true;
 if (!empty($action)) {
     require_sesskey();
 }
-
-// Purge all caches related to repositories administration.
-cache::make('core', 'plugininfo_repository')->purge();
 
 /**
  * Helper function that generates a moodle_url object
@@ -143,12 +139,15 @@ if (($action == 'edit') || ($action == 'new')) {
             $success = $repositorytype->update_options($settings);
         } else {
             $type = new repository_type($plugin, (array)$fromform, $visible);
-            $type->create();
             $success = true;
+            if (!$repoid = $type->create()) {
+                $success = false;
+            }
             $data = data_submitted();
         }
         if ($success) {
             // configs saved
+            core_plugin_manager::reset_caches();
             redirect($baseurl);
         } else {
             print_error('instancenotsaved', 'repository', $baseurl);
@@ -189,6 +188,7 @@ if (($action == 'edit') || ($action == 'new')) {
         print_error('invalidplugin', 'repository', '', $repository);
     }
     $repositorytype->update_visibility(true);
+    core_plugin_manager::reset_caches();
     $return = true;
 } else if ($action == 'hide') {
     if (!confirm_sesskey()) {
@@ -199,6 +199,7 @@ if (($action == 'edit') || ($action == 'new')) {
         print_error('invalidplugin', 'repository', '', $repository);
     }
     $repositorytype->update_visibility(false);
+    core_plugin_manager::reset_caches();
     $return = true;
 } else if ($action == 'delete') {
     $repositorytype = repository::get_type_by_typename($repository);
@@ -209,6 +210,7 @@ if (($action == 'edit') || ($action == 'new')) {
         }
 
         if ($repositorytype->delete($downloadcontents)) {
+            core_plugin_manager::reset_caches();
             redirect($baseurl);
         } else {
             print_error('instancenotdeleted', 'repository', $baseurl);
@@ -261,6 +263,7 @@ if (($action == 'edit') || ($action == 'new')) {
     $strshow = get_string('on', 'repository');
     $strhide = get_string('off', 'repository');
     $strdelete = get_string('disabled', 'repository');
+    $struninstall = get_string('uninstallplugin', 'core_admin');
 
     $actionchoicesforexisting = array(
         'show' => $strshow,
@@ -283,18 +286,18 @@ if (($action == 'edit') || ($action == 'new')) {
 
     // Table to list plug-ins
     $table = new html_table();
-    $table->head = array(get_string('name'), get_string('isactive', 'repository'), get_string('order'), $settingsstr);
+    $table->head = array(get_string('name'), get_string('isactive', 'repository'), get_string('order'), $settingsstr, $struninstall);
 
-    $table->colclasses = array('leftalign', 'centeralign', 'centeralign', 'centeralign', 'centeralign');
+    $table->colclasses = array('leftalign', 'centeralign', 'centeralign', 'centeralign', 'centeralign', 'centeralign');
     $table->id = 'repositoriessetting';
     $table->data = array();
     $table->attributes['class'] = 'admintable generaltable';
 
     // Get list of used plug-ins
     $repositorytypes = repository::get_types();
+    // Array to store plugins being used
+    $alreadyplugins = array();
     if (!empty($repositorytypes)) {
-        // Array to store plugins being used
-        $alreadyplugins = array();
         $totalrepositorytypes = count($repositorytypes);
         $updowncount = 1;
         foreach ($repositorytypes as $i) {
@@ -366,14 +369,14 @@ if (($action == 'edit') || ($action == 'new')) {
 
             if ($updowncount > 1) {
                 $updown .= "<a href=\"$sesskeyurl&amp;action=moveup&amp;repos=".$typename."\">";
-                $updown .= "<img src=\"" . $OUTPUT->pix_url('t/up') . "\" alt=\"up\" /></a>&nbsp;";
+                $updown .= $OUTPUT->pix_icon('t/up', get_string('moveup')) . "</a>&nbsp;";
             }
             else {
                 $updown .= $spacer;
             }
             if ($updowncount < $totalrepositorytypes) {
                 $updown .= "<a href=\"$sesskeyurl&amp;action=movedown&amp;repos=".$typename."\">";
-                $updown .= "<img src=\"" . $OUTPUT->pix_url('t/down') . "\" alt=\"down\" /></a>";
+                $updown .= $OUTPUT->pix_icon('t/down', get_string('movedown')) . "</a>&nbsp;";
             }
             else {
                 $updown .= $spacer;
@@ -381,7 +384,12 @@ if (($action == 'edit') || ($action == 'new')) {
 
             $updowncount++;
 
-            $table->data[] = array($i->get_readablename(), $OUTPUT->render($select), $updown, $settings);
+            $uninstall = '';
+            if ($uninstallurl = core_plugin_manager::instance()->get_uninstall_url('repository_' . $typename, 'manage')) {
+                $uninstall = html_writer::link($uninstallurl, $struninstall);
+            }
+
+            $table->data[] = array($i->get_readablename(), $OUTPUT->render($select), $updown, $settings, $uninstall);
 
             if (!in_array($typename, $alreadyplugins)) {
                 $alreadyplugins[] = $typename;
@@ -390,14 +398,18 @@ if (($action == 'edit') || ($action == 'new')) {
     }
 
     // Get all the plugins that exist on disk
-    $plugins = get_plugin_list('repository');
+    $plugins = core_component::get_plugin_list('repository');
     if (!empty($plugins)) {
         foreach ($plugins as $plugin => $dir) {
             // Check that it has not already been listed
             if (!in_array($plugin, $alreadyplugins)) {
                 $select = new single_select(repository_action_url($plugin, 'repos'), 'action', $actionchoicesfornew, 'delete', null, 'applyto' . basename($plugin));
                 $select->set_label(get_string('action'), array('class' => 'accesshide'));
-                $table->data[] = array(get_string('pluginname', 'repository_'.$plugin), $OUTPUT->render($select), '', '');
+                $uninstall = '';
+                if ($uninstallurl = core_plugin_manager::instance()->get_uninstall_url('repository_' . $plugin, 'manage')) {
+                    $uninstall = html_writer::link($uninstallurl, $struninstall);
+                }
+                $table->data[] = array(get_string('pluginname', 'repository_'.$plugin), $OUTPUT->render($select), '', '', $uninstall);
             }
         }
     }

@@ -1,11 +1,30 @@
 This files describes API changes in /backup/*,
 information provided here is intended especially for developers.
 
+=== 3.1 ===
+
+* New close() method added to loggers so they can close any open resource. Previously
+  any backup and restore operation using the file logger may be leaving unclosed files.
+* New destroy() method added to loggers, normally called from backup and restore controllers
+  own destroy() method to ensure that all references in the chained loggers are deleted
+  and any open resource within them is closed properly.
+
+=== 3.0 ===
+
+* The backup_auto_keep setting, in automated backups configuration, is now
+  renamed to backup_auto_max_kept as part of a rationalise of naming (see MDL-50602)
+
 === 2.6 ===
 
 * The backup_controller_dbops::create_temptable_from_real_table()
   method is not available anymore. Temp tables must be created
   inline always.
+
+* Using the info field from backup_ids_temp or backup_files_temp
+  must now go via backup_controller_dbops::decode_backup_temp_info() and
+  backup_controller_dbops::encode_backup_temp_info(). The implementation
+  of the encoding has changed.  These new functions encapsulate any future
+  changes to the encoding.
 
 === 2.5 ===
 

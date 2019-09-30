@@ -18,8 +18,7 @@
 /**
  * This page lists all the instances of lesson in a particular course
  *
- * @package    mod
- * @subpackage lesson
+ * @package mod_lesson
  * @copyright 1999 onwards Martin Dougiamas  {@link http://moodle.com}
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  **/
@@ -39,8 +38,13 @@ if (!$course = $DB->get_record("course", array("id" => $id))) {
 require_login($course);
 $PAGE->set_pagelayout('incourse');
 
-add_to_log($course->id, "lesson", "view all", "index.php?id=$course->id", "");
-
+// Trigger instances list viewed event.
+$params = array(
+    'context' => context_course::instance($course->id)
+);
+$event = \mod_lesson\event\course_module_instance_list_viewed::create($params);
+$event->add_record_snapshot('course', $course);
+$event->trigger();
 
 /// Get all required strings
 
@@ -53,6 +57,7 @@ $PAGE->navbar->add($strlessons);
 $PAGE->set_title("$course->shortname: $strlessons");
 $PAGE->set_heading($course->fullname);
 echo $OUTPUT->header();
+echo $OUTPUT->heading($strlessons, 2);
 
 /// Get all the appropriate data
 
@@ -66,7 +71,6 @@ $usesections = course_format_uses_sections($course->format);
 /// Print the list of instances (your module will probably extend this)
 
 $timenow = time();
-$strsectionname  = get_string('sectionname', 'format_'.$course->format);
 $strname  = get_string("name");
 $strgrade  = get_string("grade");
 $strdeadline  = get_string("deadline", "lesson");
@@ -74,30 +78,29 @@ $strnodeadline = get_string("nodeadline", "lesson");
 $table = new html_table();
 
 if ($usesections) {
+    $strsectionname = get_string('sectionname', 'format_'.$course->format);
     $table->head  = array ($strsectionname, $strname, $strgrade, $strdeadline);
     $table->align = array ("center", "left", "center", "center");
 } else {
     $table->head  = array ($strname, $strgrade, $strdeadline);
     $table->align = array ("left", "center", "center");
 }
-
+// Get all deadlines.
+$deadlines = lesson_get_user_deadline($course->id);
 foreach ($lessons as $lesson) {
-    if (!$lesson->visible) {
-        //Show dimmed if the mod is hidden
-        $link = "<a class=\"dimmed\" href=\"view.php?id=$lesson->coursemodule\">".format_string($lesson->name,true)."</a>";
-    } else {
-        //Show normal if the mod is visible
-        $link = "<a href=\"view.php?id=$lesson->coursemodule\">".format_string($lesson->name,true)."</a>";
-    }
     $cm = get_coursemodule_from_instance('lesson', $lesson->id);
     $context = context_module::instance($cm->id);
 
-    if ($lesson->deadline == 0) {
+    $class = $lesson->visible ? null : array('class' => 'dimmed'); // Hidden modules are dimmed.
+    $link = html_writer::link(new moodle_url('view.php', array('id' => $cm->id)), format_string($lesson->name, true), $class);
+
+    $deadline = $deadlines[$lesson->id]->userdeadline;
+    if ($deadline == 0) {
         $due = $strnodeadline;
-    } else if ($lesson->deadline > $timenow) {
-        $due = userdate($lesson->deadline);
+    } else if ($deadline > $timenow) {
+        $due = userdate($deadline);
     } else {
-        $due = "<font color=\"red\">".userdate($lesson->deadline)."</font>";
+        $due = html_writer::tag('span', userdate($deadline), array('class' => 'text-danger'));
     }
 
     if ($usesections) {

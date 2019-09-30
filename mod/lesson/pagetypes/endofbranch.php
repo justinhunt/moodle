@@ -18,8 +18,7 @@
 /**
  * End of branch table
  *
- * @package    mod
- * @subpackage lesson
+ * @package mod_lesson
  * @copyright  2009 Sam Hemelryk
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  **/
@@ -52,14 +51,14 @@ class lesson_page_type_endofbranch extends lesson_page {
     public function get_idstring() {
         return $this->typeidstring;
     }
-    public function callback_on_view($canmanage) {
-        $this->redirect_to_first_answer($canmanage);
-        exit;
+    public function callback_on_view($canmanage, $redirect = true) {
+        return (int) $this->redirect_to_first_answer($canmanage, $redirect);
     }
 
-    public function redirect_to_first_answer($canmanage) {
+    public function redirect_to_first_answer($canmanage, $redirect) {
         global $USER, $PAGE;
-        $answer = array_shift($this->get_answers());
+        $answers = $this->get_answers();
+        $answer = array_shift($answers);
         $jumpto = $answer->jumpto;
         if ($jumpto == LESSON_RANDOMBRANCH) {
 
@@ -94,48 +93,17 @@ class lesson_page_type_endofbranch extends lesson_page {
             $jumpto = $this->properties->prevpageid;
 
         }
-        redirect(new moodle_url('/mod/lesson/view.php', array('id'=>$PAGE->cm->id,'pageid'=>$jumpto)));
+
+        if ($redirect) {
+            redirect(new moodle_url('/mod/lesson/view.php', array('id' => $PAGE->cm->id, 'pageid' => $jumpto)));
+            die;
+        }
+        return $jumpto;
     }
     public function get_grayout() {
         return 1;
     }
-    public function update($properties, $context = null, $maxbytes = null) {
-        global $DB, $PAGE;
 
-        $properties->id = $this->properties->id;
-        $properties->lessonid = $this->lesson->id;
-        if (empty($properties->qoption)) {
-            $properties->qoption = '0';
-        }
-        $properties = file_postupdate_standard_editor($properties, 'contents', array('noclean'=>true, 'maxfiles'=>EDITOR_UNLIMITED_FILES, 'maxbytes'=>$PAGE->course->maxbytes), context_module::instance($PAGE->cm->id), 'mod_lesson', 'page_contents', $properties->id);
-        $DB->update_record("lesson_pages", $properties);
-
-        $answers  = $this->get_answers();
-        if (count($answers)>1) {
-            $answer = array_shift($answers);
-            foreach ($answers as $a) {
-                $DB->delete_record('lesson_answers', array('id'=>$a->id));
-            }
-        } else if (count($answers)==1) {
-            $answer = array_shift($answers);
-        } else {
-            $answer = new stdClass;
-        }
-
-        $answer->timemodified = time();
-        if (isset($properties->jumpto[0])) {
-            $answer->jumpto = $properties->jumpto[0];
-        }
-        if (isset($properties->score[0])) {
-            $answer->score = $properties->score[0];
-        }
-        if (!empty($answer->id)) {
-            $DB->update_record("lesson_answers", $answer->properties());
-        } else {
-            $DB->insert_record("lesson_answers", $answer);
-        }
-        return true;
-    }
     public function add_page_link($previd) {
         global $PAGE, $CFG;
         if ($previd != 0) {
@@ -156,7 +124,7 @@ class lesson_add_page_form_endofbranch extends lesson_add_page_form_base {
     protected $standard = false;
 
     public function custom_definition() {
-        global $PAGE;
+        global $PAGE, $CFG;
 
         $mform = $this->_form;
         $lesson = $this->_customdata['lesson'];
@@ -169,7 +137,11 @@ class lesson_add_page_form_endofbranch extends lesson_add_page_form_base {
         $mform->setType('qtype', PARAM_TEXT);
 
         $mform->addElement('text', 'title', get_string("pagetitle", "lesson"), array('size'=>70));
-        $mform->setType('title', PARAM_TEXT);
+        if (!empty($CFG->formatstringstriptags)) {
+            $mform->setType('title', PARAM_TEXT);
+        } else {
+            $mform->setType('title', PARAM_CLEANHTML);
+        }
 
         $this->editoroptions = array('noclean'=>true, 'maxfiles'=>EDITOR_UNLIMITED_FILES, 'maxbytes'=>$PAGE->course->maxbytes);
         $mform->addElement('editor', 'contents_editor', get_string("pagecontents", "lesson"), null, $this->editoroptions);

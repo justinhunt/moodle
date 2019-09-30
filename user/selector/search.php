@@ -1,5 +1,4 @@
 <?php
-
 // This file is part of Moodle - http://moodle.org/
 //
 // Moodle is free software: you can redistribute it and/or modify
@@ -18,14 +17,14 @@
 /**
  * Code to search for users in response to an ajax call from a user selector.
  *
+ * @package core_user
  * @copyright 1999 Martin Dougiamas  http://dougiamas.com
  * @license http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
- * @package user
  */
 
 define('AJAX_SCRIPT', true);
 
-require_once(dirname(__FILE__) . '/../../config.php');
+require_once(__DIR__ . '/../../config.php');
 require_once($CFG->dirroot . '/user/selector/lib.php');
 
 $PAGE->set_context(context_system::instance());
@@ -62,7 +61,7 @@ $userselector = new $classname($name, $options);
 
 // Do the search and output the results.
 $results = $userselector->find_users($search);
-$json = array();
+$jsonresults = array();
 foreach ($results as $groupname => $users) {
     $groupdata = array('name' => $groupname, 'users' => array());
     foreach ($users as $user) {
@@ -77,7 +76,14 @@ foreach ($results as $groupname => $users) {
         }
         $groupdata['users'][] = $output;
     }
-    $json[] = $groupdata;
+    $jsonresults[] = $groupdata;
 }
 
-echo json_encode(array('results' => $json));
+$json = array('results' => $jsonresults);
+
+// Also add users' group membership summaries, if possible.
+if (is_callable(array($userselector, 'get_user_summaries')) && isset($options['courseid'])) {
+    $json['userSummaries'] = $userselector->get_user_summaries($options['courseid']);
+}
+
+echo json_encode($json);

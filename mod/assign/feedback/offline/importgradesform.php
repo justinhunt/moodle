@@ -67,9 +67,8 @@ class assignfeedback_offline_import_grades_form extends moodleform implements re
 
         $scaleoptions = null;
         if ($assignment->get_instance()->grade < 0) {
-            $scale = $DB->get_record('scale', array('id'=>-($assignment->get_instance()->grade)));
-            if ($scale) {
-                $scaleoptions = explode(',', $scale->scale);
+            if ($scale = $DB->get_record('scale', array('id'=>-($assignment->get_instance()->grade)))) {
+                $scaleoptions = make_menu_from_list($scale->scale);
             }
         }
         if (!$gradeimporter->init()) {
@@ -104,7 +103,7 @@ class assignfeedback_offline_import_grades_form extends moodleform implements re
                 // This is a scale - we need to convert any grades to indexes in the scale.
                 $scaleindex = array_search($grade, $scaleoptions);
                 if ($scaleindex !== false) {
-                    $grade = $scaleindex + 1;
+                    $grade = $scaleindex;
                 } else {
                     $grade = '';
                 }
@@ -132,8 +131,14 @@ class assignfeedback_offline_import_grades_form extends moodleform implements re
 
             if (!$skip) {
                 $update = true;
+                if (!empty($scaleoptions)) {
+                    $formattedgrade = $scaleoptions[$grade];
+                } else {
+                    $gradeitem = $assignment->get_grade_item();
+                    $formattedgrade = format_float($grade, $gradeitem->get_decimals());
+                }
                 $updates[] = get_string('gradeupdate', 'assignfeedback_offline',
-                                            array('grade'=>format_float($grade, 2), 'student'=>$userdesc));
+                                            array('grade'=>$formattedgrade, 'student'=>$userdesc));
             }
 
             if ($ignoremodified || !$stalemodificationdate) {
@@ -177,6 +182,12 @@ class assignfeedback_offline_import_grades_form extends moodleform implements re
         $mform->setType('pluginaction', PARAM_ALPHA);
         $mform->addElement('hidden', 'importid', $gradeimporter->importid);
         $mform->setType('importid', PARAM_INT);
+
+        $mform->addElement('hidden', 'encoding', $gradeimporter->get_encoding());
+        $mform->setType('encoding', PARAM_ALPHAEXT);
+        $mform->addElement('hidden', 'separator', $gradeimporter->get_separator());
+        $mform->setType('separator', PARAM_ALPHA);
+
         $mform->addElement('hidden', 'ignoremodified', $ignoremodified);
         $mform->setType('ignoremodified', PARAM_BOOL);
         $mform->addElement('hidden', 'draftid', $draftid);

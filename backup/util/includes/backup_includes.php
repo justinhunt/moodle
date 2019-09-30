@@ -54,6 +54,7 @@ require_once($CFG->dirroot . '/backup/util/structure/backup_nested_element.class
 require_once($CFG->dirroot . '/backup/util/structure/backup_optigroup.class.php');
 require_once($CFG->dirroot . '/backup/util/structure/backup_optigroup_element.class.php');
 require_once($CFG->dirroot . '/backup/util/structure/backup_structure_processor.class.php');
+require_once($CFG->dirroot . '/backup/util/helper/async_helper.class.php');
 require_once($CFG->dirroot . '/backup/util/helper/backup_helper.class.php');
 require_once($CFG->dirroot . '/backup/util/helper/backup_general_helper.class.php');
 require_once($CFG->dirroot . '/backup/util/helper/backup_null_iterator.class.php');
@@ -69,6 +70,7 @@ require_once($CFG->dirroot . '/backup/util/xml/parser/progressive_parser.class.p
 require_once($CFG->dirroot . '/backup/util/loggers/base_logger.class.php');
 require_once($CFG->dirroot . '/backup/util/loggers/error_log_logger.class.php');
 require_once($CFG->dirroot . '/backup/util/loggers/file_logger.class.php');
+require_once($CFG->dirroot . '/backup/util/loggers/core_backup_html_logger.class.php');
 require_once($CFG->dirroot . '/backup/util/loggers/database_logger.class.php');
 require_once($CFG->dirroot . '/backup/util/loggers/output_indented_logger.class.php');
 require_once($CFG->dirroot . '/backup/util/settings/setting_dependency.class.php');
@@ -86,6 +88,7 @@ require_once($CFG->dirroot . '/backup/util/plan/base_step.class.php');
 require_once($CFG->dirroot . '/backup/util/plan/backup_step.class.php');
 require_once($CFG->dirroot . '/backup/util/plan/backup_structure_step.class.php');
 require_once($CFG->dirroot . '/backup/util/plan/backup_execution_step.class.php');
+require_once($CFG->dirroot . '/backup/controller/base_controller.class.php');
 require_once($CFG->dirroot . '/backup/controller/backup_controller.class.php');
 require_once($CFG->dirroot . '/backup/util/ui/base_moodleform.class.php');
 require_once($CFG->dirroot . '/backup/util/ui/base_ui.class.php');

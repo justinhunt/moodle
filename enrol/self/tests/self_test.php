@@ -452,36 +452,51 @@ class enrol_self_testcase extends advanced_testcase {
         $selfplugin = enrol_get_plugin('self');
 
         $user1 = $this->getDataGenerator()->create_user();
+        $user2 = $this->getDataGenerator()->create_user();
+
+        $studentrole = $DB->get_record('role', array('shortname'=>'student'));
+        $this->assertNotEmpty($studentrole);
 
         $course1 = $this->getDataGenerator()->create_course();
         $course2 = $this->getDataGenerator()->create_course();
         $course3 = $this->getDataGenerator()->create_course();
         $course4 = $this->getDataGenerator()->create_course();
         $course5 = $this->getDataGenerator()->create_course();
+        $course6 = $this->getDataGenerator()->create_course();
+        $course7 = $this->getDataGenerator()->create_course();
+        $course8 = $this->getDataGenerator()->create_course();
+        $course9 = $this->getDataGenerator()->create_course();
+        $course10 = $this->getDataGenerator()->create_course();
+        $course11 = $this->getDataGenerator()->create_course();
 
         $cohort1 = $this->getDataGenerator()->create_cohort();
         $cohort2 = $this->getDataGenerator()->create_cohort();
 
+        // New enrolments are allowed and enrolment instance is enabled.
         $instance1 = $DB->get_record('enrol', array('courseid'=>$course1->id, 'enrol'=>'self'), '*', MUST_EXIST);
         $instance1->customint6 = 1;
         $DB->update_record('enrol', $instance1);
         $selfplugin->update_status($instance1, ENROL_INSTANCE_ENABLED);
 
+        // New enrolments are not allowed, but enrolment instance is enabled.
         $instance2 = $DB->get_record('enrol', array('courseid'=>$course2->id, 'enrol'=>'self'), '*', MUST_EXIST);
         $instance2->customint6 = 0;
         $DB->update_record('enrol', $instance2);
         $selfplugin->update_status($instance2, ENROL_INSTANCE_ENABLED);
 
+        // New enrolments are allowed , but enrolment instance is disabled.
         $instance3 = $DB->get_record('enrol', array('courseid'=>$course3->id, 'enrol'=>'self'), '*', MUST_EXIST);
         $instance3->customint6 = 1;
         $DB->update_record('enrol', $instance3);
         $selfplugin->update_status($instance3, ENROL_INSTANCE_DISABLED);
 
+        // New enrolments are not allowed and enrolment instance is disabled.
         $instance4 = $DB->get_record('enrol', array('courseid'=>$course4->id, 'enrol'=>'self'), '*', MUST_EXIST);
         $instance4->customint6 = 0;
         $DB->update_record('enrol', $instance4);
         $selfplugin->update_status($instance4, ENROL_INSTANCE_DISABLED);
 
+        // Cohort member test.
         $instance5 = $DB->get_record('enrol', array('courseid'=>$course5->id, 'enrol'=>'self'), '*', MUST_EXIST);
         $instance5->customint6 = 1;
         $instance5->customint5 = $cohort1->id;
@@ -495,16 +510,267 @@ class enrol_self_testcase extends advanced_testcase {
         $DB->update_record('enrol', $instance1);
         $selfplugin->update_status($instance6, ENROL_INSTANCE_ENABLED);
 
+        // Enrol start date is in future.
+        $instance7 = $DB->get_record('enrol', array('courseid'=>$course6->id, 'enrol'=>'self'), '*', MUST_EXIST);
+        $instance7->customint6 = 1;
+        $instance7->enrolstartdate = time() + 60;
+        $DB->update_record('enrol', $instance7);
+        $selfplugin->update_status($instance7, ENROL_INSTANCE_ENABLED);
+
+        // Enrol start date is in past.
+        $instance8 = $DB->get_record('enrol', array('courseid'=>$course7->id, 'enrol'=>'self'), '*', MUST_EXIST);
+        $instance8->customint6 = 1;
+        $instance8->enrolstartdate = time() - 60;
+        $DB->update_record('enrol', $instance8);
+        $selfplugin->update_status($instance8, ENROL_INSTANCE_ENABLED);
+
+        // Enrol end date is in future.
+        $instance9 = $DB->get_record('enrol', array('courseid'=>$course8->id, 'enrol'=>'self'), '*', MUST_EXIST);
+        $instance9->customint6 = 1;
+        $instance9->enrolenddate = time() + 60;
+        $DB->update_record('enrol', $instance9);
+        $selfplugin->update_status($instance9, ENROL_INSTANCE_ENABLED);
+
+        // Enrol end date is in past.
+        $instance10 = $DB->get_record('enrol', array('courseid'=>$course9->id, 'enrol'=>'self'), '*', MUST_EXIST);
+        $instance10->customint6 = 1;
+        $instance10->enrolenddate = time() - 60;
+        $DB->update_record('enrol', $instance10);
+        $selfplugin->update_status($instance10, ENROL_INSTANCE_ENABLED);
+
+        // Maximum enrolments reached.
+        $instance11 = $DB->get_record('enrol', array('courseid'=>$course10->id, 'enrol'=>'self'), '*', MUST_EXIST);
+        $instance11->customint6 = 1;
+        $instance11->customint3 = 1;
+        $DB->update_record('enrol', $instance11);
+        $selfplugin->update_status($instance11, ENROL_INSTANCE_ENABLED);
+        $selfplugin->enrol_user($instance11, $user2->id, $studentrole->id);
+
+        // Maximum enrolments not reached.
+        $instance12 = $DB->get_record('enrol', array('courseid'=>$course11->id, 'enrol'=>'self'), '*', MUST_EXIST);
+        $instance12->customint6 = 1;
+        $instance12->customint3 = 1;
+        $DB->update_record('enrol', $instance12);
+        $selfplugin->update_status($instance12, ENROL_INSTANCE_ENABLED);
+
         $this->setUser($user1);
         $this->assertTrue($selfplugin->show_enrolme_link($instance1));
         $this->assertFalse($selfplugin->show_enrolme_link($instance2));
         $this->assertFalse($selfplugin->show_enrolme_link($instance3));
         $this->assertFalse($selfplugin->show_enrolme_link($instance4));
+        $this->assertFalse($selfplugin->show_enrolme_link($instance7));
+        $this->assertTrue($selfplugin->show_enrolme_link($instance8));
+        $this->assertTrue($selfplugin->show_enrolme_link($instance9));
+        $this->assertFalse($selfplugin->show_enrolme_link($instance10));
+        $this->assertFalse($selfplugin->show_enrolme_link($instance11));
+        $this->assertTrue($selfplugin->show_enrolme_link($instance12));
 
         require_once("$CFG->dirroot/cohort/lib.php");
         cohort_add_member($cohort1->id, $user1->id);
 
         $this->assertTrue($selfplugin->show_enrolme_link($instance5));
         $this->assertFalse($selfplugin->show_enrolme_link($instance6));
+    }
+
+    /**
+     * This will check user enrolment only, rest has been tested in test_show_enrolme_link.
+     */
+    public function test_can_self_enrol() {
+        global $DB, $CFG, $OUTPUT;
+        $this->resetAfterTest();
+        $this->preventResetByRollback();
+
+        $selfplugin = enrol_get_plugin('self');
+
+        $expectederrorstring = get_string('canntenrol', 'enrol_self');
+
+        $user1 = $this->getDataGenerator()->create_user();
+        $user2 = $this->getDataGenerator()->create_user();
+        $guest = $DB->get_record('user', array('id' => $CFG->siteguest));
+
+        $studentrole = $DB->get_record('role', array('shortname'=>'student'));
+        $this->assertNotEmpty($studentrole);
+        $editingteacherrole = $DB->get_record('role', array('shortname'=>'editingteacher'));
+        $this->assertNotEmpty($editingteacherrole);
+
+        $course1 = $this->getDataGenerator()->create_course();
+
+        $instance1 = $DB->get_record('enrol', array('courseid'=>$course1->id, 'enrol'=>'self'), '*', MUST_EXIST);
+        $instance1->customint6 = 1;
+        $DB->update_record('enrol', $instance1);
+        $selfplugin->update_status($instance1, ENROL_INSTANCE_ENABLED);
+        $selfplugin->enrol_user($instance1, $user2->id, $editingteacherrole->id);
+
+        $this->setUser($guest);
+        $this->assertContains(get_string('noguestaccess', 'enrol'),
+                $selfplugin->can_self_enrol($instance1, true));
+
+        $this->setUser($user1);
+        $this->assertTrue($selfplugin->can_self_enrol($instance1, true));
+
+        // Active enroled user.
+        $this->setUser($user2);
+        $selfplugin->enrol_user($instance1, $user1->id, $studentrole->id);
+        $this->setUser($user1);
+        $this->assertSame($expectederrorstring, $selfplugin->can_self_enrol($instance1, true));
+    }
+
+    /**
+     * Test enrol_self_check_group_enrolment_key
+     */
+    public function test_enrol_self_check_group_enrolment_key() {
+        global $DB;
+        self::resetAfterTest(true);
+
+        // Test in course with groups.
+        $course = self::getDataGenerator()->create_course(array('groupmode' => SEPARATEGROUPS, 'groupmodeforce' => 1));
+
+        $group1 = $this->getDataGenerator()->create_group(array('courseid' => $course->id));
+        $group2 = $this->getDataGenerator()->create_group(array('courseid' => $course->id, 'enrolmentkey' => 'thepassword'));
+
+        $result = enrol_self_check_group_enrolment_key($course->id, 'invalidpassword');
+        $this->assertFalse($result);
+
+        $result = enrol_self_check_group_enrolment_key($course->id, 'thepassword');
+        $this->assertTrue($result);
+
+        // Test disabling group options.
+        $course->groupmode = NOGROUPS;
+        $course->groupmodeforce = 0;
+        $DB->update_record('course', $course);
+
+        $result = enrol_self_check_group_enrolment_key($course->id, 'invalidpassword');
+        $this->assertFalse($result);
+
+        $result = enrol_self_check_group_enrolment_key($course->id, 'thepassword');
+        $this->assertTrue($result);
+
+        // Test without groups.
+        $othercourse = self::getDataGenerator()->create_course();
+        $result = enrol_self_check_group_enrolment_key($othercourse->id, 'thepassword');
+        $this->assertFalse($result);
+
+    }
+
+    /**
+     * Test get_welcome_email_contact().
+     */
+    public function test_get_welcome_email_contact() {
+        global $DB;
+        self::resetAfterTest(true);
+
+        $user1 = $this->getDataGenerator()->create_user(['lastname' => 'Marsh']);
+        $user2 = $this->getDataGenerator()->create_user(['lastname' => 'Victoria']);
+        $user3 = $this->getDataGenerator()->create_user(['lastname' => 'Burch']);
+        $user4 = $this->getDataGenerator()->create_user(['lastname' => 'Cartman']);
+        $noreplyuser = core_user::get_noreply_user();
+
+        $course1 = $this->getDataGenerator()->create_course();
+        $context = context_course::instance($course1->id);
+
+        // Get editing teacher role.
+        $editingteacherrole = $DB->get_record('role', ['shortname' => 'editingteacher']);
+        $this->assertNotEmpty($editingteacherrole);
+
+        // Enable self enrolment plugin and set to send email from course contact.
+        $selfplugin = enrol_get_plugin('self');
+        $instance1 = $DB->get_record('enrol', ['courseid' => $course1->id, 'enrol' => 'self'], '*', MUST_EXIST);
+        $instance1->customint6 = 1;
+        $instance1->customint4 = ENROL_SEND_EMAIL_FROM_COURSE_CONTACT;
+        $DB->update_record('enrol', $instance1);
+        $selfplugin->update_status($instance1, ENROL_INSTANCE_ENABLED);
+
+        // We do not have a teacher enrolled at this point, so it should send as no reply user.
+        $contact = $selfplugin->get_welcome_email_contact(ENROL_SEND_EMAIL_FROM_COURSE_CONTACT, $context);
+        $this->assertEquals($noreplyuser, $contact);
+
+        // By default, course contact is assigned to teacher role.
+        // Enrol a teacher, now it should send emails from teacher email's address.
+        $selfplugin->enrol_user($instance1, $user1->id, $editingteacherrole->id);
+
+        // We should get the teacher email.
+        $contact = $selfplugin->get_welcome_email_contact(ENROL_SEND_EMAIL_FROM_COURSE_CONTACT, $context);
+        $this->assertEquals($user1->username, $contact->username);
+        $this->assertEquals($user1->email, $contact->email);
+
+        // Now let's enrol another teacher.
+        $selfplugin->enrol_user($instance1, $user2->id, $editingteacherrole->id);
+        $contact = $selfplugin->get_welcome_email_contact(ENROL_SEND_EMAIL_FROM_COURSE_CONTACT, $context);
+        $this->assertEquals($user1->username, $contact->username);
+        $this->assertEquals($user1->email, $contact->email);
+
+        // Get manager role, and enrol user as manager.
+        $managerrole = $DB->get_record('role', ['shortname' => 'manager']);
+        $this->assertNotEmpty($managerrole);
+        $instance1->customint4 = ENROL_SEND_EMAIL_FROM_KEY_HOLDER;
+        $DB->update_record('enrol', $instance1);
+        $selfplugin->enrol_user($instance1, $user3->id, $managerrole->id);
+
+        // Give manager role holdkey capability.
+        assign_capability('enrol/self:holdkey', CAP_ALLOW, $managerrole->id, $context);
+
+        // We should get the manager email contact.
+        $contact = $selfplugin->get_welcome_email_contact(ENROL_SEND_EMAIL_FROM_KEY_HOLDER, $context);
+        $this->assertEquals($user3->username, $contact->username);
+        $this->assertEquals($user3->email, $contact->email);
+
+        // Now let's enrol another manager.
+        $selfplugin->enrol_user($instance1, $user4->id, $managerrole->id);
+        $contact = $selfplugin->get_welcome_email_contact(ENROL_SEND_EMAIL_FROM_KEY_HOLDER, $context);
+        $this->assertEquals($user3->username, $contact->username);
+        $this->assertEquals($user3->email, $contact->email);
+
+        $instance1->customint4 = ENROL_SEND_EMAIL_FROM_NOREPLY;
+        $DB->update_record('enrol', $instance1);
+
+        $contact = $selfplugin->get_welcome_email_contact(ENROL_SEND_EMAIL_FROM_NOREPLY, $context);
+        $this->assertEquals($noreplyuser, $contact);
+    }
+
+    /**
+     * Test for getting user enrolment actions.
+     */
+    public function test_get_user_enrolment_actions() {
+        global $CFG, $DB, $PAGE;
+        $this->resetAfterTest();
+
+        // Set page URL to prevent debugging messages.
+        $PAGE->set_url('/enrol/editinstance.php');
+
+        $pluginname = 'self';
+
+        // Only enable the self enrol plugin.
+        $CFG->enrol_plugins_enabled = $pluginname;
+
+        $generator = $this->getDataGenerator();
+
+        // Get the enrol plugin.
+        $plugin = enrol_get_plugin($pluginname);
+
+        // Create a course.
+        $course = $generator->create_course();
+
+        // Create a teacher.
+        $teacher = $generator->create_user();
+        // Enrol the teacher to the course.
+        $enrolresult = $generator->enrol_user($teacher->id, $course->id, 'editingteacher', $pluginname);
+        $this->assertTrue($enrolresult);
+        // Create a student.
+        $student = $generator->create_user();
+        // Enrol the student to the course.
+        $enrolresult = $generator->enrol_user($student->id, $course->id, 'student', $pluginname);
+        $this->assertTrue($enrolresult);
+
+        // Login as the teacher.
+        $this->setUser($teacher);
+        require_once($CFG->dirroot . '/enrol/locallib.php');
+        $manager = new course_enrolment_manager($PAGE, $course);
+        $userenrolments = $manager->get_user_enrolments($student->id);
+        $this->assertCount(1, $userenrolments);
+
+        $ue = reset($userenrolments);
+        $actions = $plugin->get_user_enrolment_actions($manager, $ue);
+        // Self enrol has 2 enrol actions -- edit and unenrol.
+        $this->assertCount(2, $actions);
     }
 }

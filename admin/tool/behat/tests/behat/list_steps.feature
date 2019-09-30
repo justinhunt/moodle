@@ -7,25 +7,22 @@ Feature: List the system steps definitions
   Background:
     Given I am on homepage
     And I log in as "admin"
-    And I expand "Site administration" node
-    And I expand "Development" node
-    And  I follow "Acceptance testing"
+    And I navigate to "Development > Acceptance testing" in site administration
 
   @javascript
   Scenario: Accessing the list
-    Then I should see "Steps definitions"
+    Then I should see "Step definitions"
     And I should not see "There aren't steps definitions matching this filter"
 
   @javascript
   Scenario: Filtering by type
-    Given I select "Then. Checkings to ensure the outcomes are the expected ones" from "Type"
+    Given I set the field "Type" to "Then. Checkings to ensure the outcomes are the expected ones"
     When I press "Filter"
     Then I should see "Checks, that page contains specified text."
     And I should not see "Opens Moodle homepage."
 
   @javascript
   Scenario: Filtering by keyword
-    Given I fill in "Contains" with "homepage"
+    Given I set the field "Contains" to "homepage"
     When I press "Filter"
     Then I should see "Opens Moodle homepage."
-

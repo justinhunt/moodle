@@ -87,13 +87,15 @@ class sqlite3_pdo_moodle_database extends pdo_moodle_database {
      * @return bool success
      */
     public function create_database($dbhost, $dbuser, $dbpass, $dbname, array $dboptions=null) {
+        global $CFG;
+
         $this->dbhost = $dbhost;
         $this->dbuser = $dbuser;
         $this->dbpass = $dbpass;
         $this->dbname = $dbname;
         $filepath = $this->get_dbfilepath();
         $dirpath = dirname($filepath);
-        @mkdir($dirpath);
+        @mkdir($dirpath, $CFG->directorypermissions, true);
         return touch($filepath);
     }
 
@@ -148,7 +150,7 @@ class sqlite3_pdo_moodle_database extends pdo_moodle_database {
         foreach ($rstables as $table) {
             $table = $table['name'];
             $table = strtolower($table);
-            if ($this->prefix !== '') {
+            if ($this->prefix !== false && $this->prefix !== '') {
                 if (strpos($table, $this->prefix) !== 0) {
                     continue;
                 }
@@ -199,10 +201,14 @@ class sqlite3_pdo_moodle_database extends pdo_moodle_database {
     public function get_columns($table, $usecache=true) {
 
         if ($usecache) {
-            $properties = array('dbfamily' => $this->get_dbfamily(), 'settings' => $this->get_settings_hash());
-            $cache = cache::make('core', 'databasemeta', $properties);
-            if ($data = $cache->get($table)) {
-                return $data;
+            if ($this->temptables->is_temptable($table)) {
+                if ($data = $this->get_temp_tables_cache()->get($table)) {
+                    return $data;
+                }
+            } else {
+                if ($data = $this->get_metacache()->get($table)) {
+                    return $data;
+                }
             }
         }
 
@@ -298,7 +304,11 @@ class sqlite3_pdo_moodle_database extends pdo_moodle_database {
         }
 
         if ($usecache) {
-            $result = $cache->set($table, $structure);
+            if ($this->temptables->is_temptable($table)) {
+                $this->get_temp_tables_cache()->set($table, $structure);
+            } else {
+                $this->get_metacache()->set($table, $structure);
+            }
         }
 
         return $structure;

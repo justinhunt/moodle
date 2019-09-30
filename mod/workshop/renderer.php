@@ -18,8 +18,7 @@
 /**
  * Workshop module renderering methods are defined here
  *
- * @package    mod
- * @subpackage workshop
+ * @package    mod_workshop
  * @copyright  2009 David Mudrak <david.mudrak@gmail.com>
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
@@ -102,13 +101,9 @@ class mod_workshop_renderer extends plugin_renderer_base {
         $o .= $this->output->heading($title, 3, 'title');
 
         if (!$anonymous) {
-            $author             = new stdclass();
-            $author->id         = $submission->authorid;
-            $author->firstname  = $submission->authorfirstname;
-            $author->lastname   = $submission->authorlastname;
-            $author->picture    = $submission->authorpicture;
-            $author->imagealt   = $submission->authorimagealt;
-            $author->email      = $submission->authoremail;
+            $author = new stdclass();
+            $additionalfields = explode(',', user_picture::fields());
+            $author = username_load_fields_from_object($author, $submission, 'author', $additionalfields);
             $userpic            = $this->output->user_picture($author, array('courseid' => $this->page->course->id, 'size' => 64));
             $userurl            = new moodle_url('/user/view.php',
                                             array('id' => $author->id, 'course' => $this->page->course->id));
@@ -185,12 +180,8 @@ class mod_workshop_renderer extends plugin_renderer_base {
 
         if (!$anonymous) {
             $author             = new stdClass();
-            $author->id         = $summary->authorid;
-            $author->firstname  = $summary->authorfirstname;
-            $author->lastname   = $summary->authorlastname;
-            $author->picture    = $summary->authorpicture;
-            $author->imagealt   = $summary->authorimagealt;
-            $author->email      = $summary->authoremail;
+            $additionalfields = explode(',', user_picture::fields());
+            $author = username_load_fields_from_object($author, $summary, 'author', $additionalfields);
             $userpic            = $this->output->user_picture($author, array('courseid' => $this->page->course->id, 'size' => 35));
             $userurl            = new moodle_url('/user/view.php',
                                             array('id' => $author->id, 'course' => $this->page->course->id));
@@ -229,7 +220,7 @@ class mod_workshop_renderer extends plugin_renderer_base {
         $classes = 'submission-full example';
         $o .= $this->output->container_start($classes);
         $o .= $this->output->container_start('header');
-        $o .= $this->output->heading(format_string($example->title), 3, 'title');
+        $o .= $this->output->container(format_string($example->title), array('class' => 'title'));
         $o .= $this->output->container_end(); // end of header
 
         $content = file_rewrite_pluginfile_urls($example->content, 'pluginfile.php', $this->page->context->id,
@@ -290,46 +281,61 @@ class mod_workshop_renderer extends plugin_renderer_base {
      * @return string html code to be displayed
      */
     protected function render_workshop_user_plan(workshop_user_plan $plan) {
-        $table = new html_table();
-        $table->attributes['class'] = 'userplan';
-        $table->head = array();
-        $table->colclasses = array();
-        $row = new html_table_row();
-        $row->attributes['class'] = 'phasetasks';
+        $o  = '';    // Output HTML code.
+        $numberofphases = count($plan->phases);
+        $o .= html_writer::start_tag('div', array(
+            'class' => 'userplan',
+            'aria-labelledby' => 'mod_workshop-userplanheading',
+            'aria-describedby' => 'mod_workshop-userplanaccessibilitytitle',
+        ));
+        $o .= html_writer::span(get_string('userplanaccessibilitytitle', 'workshop', $numberofphases),
+            'accesshide', array('id' => 'mod_workshop-userplanaccessibilitytitle'));
+        $o .= html_writer::link('#mod_workshop-userplancurrenttasks', get_string('userplanaccessibilityskip', 'workshop'),
+            array('class' => 'accesshide'));
         foreach ($plan->phases as $phasecode => $phase) {
-            $title = html_writer::tag('span', $phase->title);
+            $o .= html_writer::start_tag('dl', array('class' => 'phase'));
             $actions = '';
-            foreach ($phase->actions as $action) {
-                switch ($action->type) {
-                case 'switchphase':
-                    $icon = 'i/marker';
-                    if ($phasecode == workshop::PHASE_ASSESSMENT
-                            and $plan->workshop->phase == workshop::PHASE_SUBMISSION
-                            and $plan->workshop->phaseswitchassessment) {
-                        $icon = 'i/scheduled';
+
+            if ($phase->active) {
+                // Mark the section as the current one.
+                $icon = $this->output->pix_icon('i/marked', '', 'moodle', ['role' => 'presentation']);
+                $actions .= get_string('userplancurrentphase', 'workshop').' '.$icon;
+
+            } else {
+                // Display a control widget to switch to the given phase or mark the phase as the current one.
+                foreach ($phase->actions as $action) {
+                    if ($action->type === 'switchphase') {
+                        if ($phasecode == workshop::PHASE_ASSESSMENT && $plan->workshop->phase == workshop::PHASE_SUBMISSION
+                                && $plan->workshop->phaseswitchassessment) {
+                            $icon = new pix_icon('i/scheduled', get_string('switchphaseauto', 'mod_workshop'));
+                        } else {
+                            $icon = new pix_icon('i/marker', get_string('switchphase'.$phasecode, 'mod_workshop'));
+                        }
+                        $actions .= $this->output->action_icon($action->url, $icon, null, null, true);
                     }
-                    $actions .= $this->output->action_icon($action->url, new pix_icon($icon, get_string('switchphase', 'workshop')));
-                    break;
                 }
             }
+
             if (!empty($actions)) {
                 $actions = $this->output->container($actions, 'actions');
             }
-            $table->head[] = $this->output->container($title . $actions);
             $classes = 'phase' . $phasecode;
             if ($phase->active) {
+                $title = html_writer::span($phase->title, 'phasetitle', ['id' => 'mod_workshop-userplancurrenttasks']);
                 $classes .= ' active';
             } else {
+                $title = html_writer::span($phase->title, 'phasetitle');
                 $classes .= ' nonactive';
             }
-            $table->colclasses[] = $classes;
-            $cell = new html_table_cell();
-            $cell->text = $this->helper_user_plan_tasks($phase->tasks);
-            $row->cells[] = $cell;
+            $o .= html_writer::start_tag('dt', array('class' => $classes));
+            $o .= $this->output->container($title . $actions);
+            $o .= html_writer::start_tag('dd', array('class' => $classes. ' phasetasks'));
+            $o .= $this->helper_user_plan_tasks($phase->tasks);
+            $o .= html_writer::end_tag('dd');
+            $o .= html_writer::end_tag('dl');
         }
-        $table->data = array($row);
-
-        return html_writer::table($table);
+        $o .= html_writer::end_tag('div');
+        return $o;
     }
 
     /**
@@ -339,6 +345,7 @@ class mod_workshop_renderer extends plugin_renderer_base {
      * @return string HTML to be echoed
      */
     protected function render_workshop_allocation_result(workshop_allocation_result $result) {
+        global $CFG;
 
         $status = $result->get_status();
 
@@ -384,7 +391,7 @@ class mod_workshop_renderer extends plugin_renderer_base {
         if (is_array($logs) and !empty($logs)) {
             $o .= html_writer::start_tag('ul', array('class' => 'allocation-init-results'));
             foreach ($logs as $log) {
-                if ($log->type == 'debug' and !debugging('', DEBUG_DEVELOPER)) {
+                if ($log->type == 'debug' and !$CFG->debugdeveloper) {
                     // display allocation debugging messages for developers only
                     continue;
                 }
@@ -428,21 +435,29 @@ class mod_workshop_renderer extends plugin_renderer_base {
             $sortbyname = $sortbyfirstname . ' / ' . $sortbylastname;
         }
 
+        $sortbysubmisstiontitle = $this->helper_sortable_heading(get_string('submission', 'workshop'), 'submissiontitle',
+                $options->sortby, $options->sorthow);
+        $sortbysubmisstionlastmodified = $this->helper_sortable_heading(get_string('submissionlastmodified', 'workshop'),
+                'submissionmodified', $options->sortby, $options->sorthow);
+        $sortbysubmisstion = $sortbysubmisstiontitle . ' / ' . $sortbysubmisstionlastmodified;
+
         $table->head = array();
         $table->head[] = $sortbyname;
-        $table->head[] = $this->helper_sortable_heading(get_string('submission', 'workshop'), 'submissiontitle',
-                $options->sortby, $options->sorthow);
-        $table->head[] = $this->helper_sortable_heading(get_string('receivedgrades', 'workshop'));
-        if ($options->showsubmissiongrade) {
-            $table->head[] = $this->helper_sortable_heading(get_string('submissiongradeof', 'workshop', $data->maxgrade),
-                    'submissiongrade', $options->sortby, $options->sorthow);
-        }
-        $table->head[] = $this->helper_sortable_heading(get_string('givengrades', 'workshop'));
-        if ($options->showgradinggrade) {
-            $table->head[] = $this->helper_sortable_heading(get_string('gradinggradeof', 'workshop', $data->maxgradinggrade),
-                    'gradinggrade', $options->sortby, $options->sorthow);
-        }
+        $table->head[] = $sortbysubmisstion;
 
+        // If we are in submission phase ignore the following headers (columns).
+        if ($options->workshopphase != workshop::PHASE_SUBMISSION) {
+            $table->head[] = $this->helper_sortable_heading(get_string('receivedgrades', 'workshop'));
+            if ($options->showsubmissiongrade) {
+                $table->head[] = $this->helper_sortable_heading(get_string('submissiongradeof', 'workshop', $data->maxgrade),
+                        'submissiongrade', $options->sortby, $options->sorthow);
+            }
+            $table->head[] = $this->helper_sortable_heading(get_string('givengrades', 'workshop'));
+            if ($options->showgradinggrade) {
+                $table->head[] = $this->helper_sortable_heading(get_string('gradinggradeof', 'workshop', $data->maxgradinggrade),
+                        'gradinggrade', $options->sortby, $options->sorthow);
+            }
+        }
         $table->rowclasses  = array();
         $table->colclasses  = array();
         $table->data        = array();
@@ -492,6 +507,13 @@ class mod_workshop_renderer extends plugin_renderer_base {
                     $cell->attributes['class'] = 'submission';
                     $row->cells[] = $cell;
                 }
+
+                // If we are in submission phase ignore the following columns.
+                if ($options->workshopphase == workshop::PHASE_SUBMISSION) {
+                    $table->data[] = $row;
+                    continue;
+                }
+
                 // column #3 - received grades
                 if ($tr % $spanreceived == 0) {
                     $idx = intval($tr / $spanreceived);
@@ -870,7 +892,7 @@ class mod_workshop_renderer extends plugin_renderer_base {
             $type       = $file->get_mimetype();
             $image      = $this->output->pix_icon(file_file_icon($file), get_mimetype_description($file), 'moodle', array('class' => 'icon'));
 
-            $linkhtml   = html_writer::link($fileurl, $image) . substr($filepath, 1) . html_writer::link($fileurl, $filename);
+            $linkhtml   = html_writer::link($fileurl, $image . substr($filepath, 1) . $filename);
             $linktxt    = "$filename [$fileurl]";
 
             if ($format == 'html') {
@@ -922,18 +944,26 @@ class mod_workshop_renderer extends plugin_renderer_base {
         $out = '';
         foreach ($tasks as $taskcode => $task) {
             $classes = '';
+            $accessibilitytext = '';
             $icon = null;
             if ($task->completed === true) {
                 $classes .= ' completed';
-            } elseif ($task->completed === false) {
+                $accessibilitytext .= get_string('taskdone', 'workshop') . ' ';
+            } else if ($task->completed === false) {
                 $classes .= ' fail';
-            } elseif ($task->completed === 'info') {
+                $accessibilitytext .= get_string('taskfail', 'workshop') . ' ';
+            } else if ($task->completed === 'info') {
                 $classes .= ' info';
+                $accessibilitytext .= get_string('taskinfo', 'workshop') . ' ';
+            } else {
+                $accessibilitytext .= get_string('tasktodo', 'workshop') . ' ';
             }
             if (is_null($task->link)) {
-                $title = $task->title;
+                $title = html_writer::tag('span', $accessibilitytext, array('class' => 'accesshide'));
+                $title .= $task->title;
             } else {
-                $title = html_writer::link($task->link, $task->title);
+                $title = html_writer::tag('span', $accessibilitytext, array('class' => 'accesshide'));
+                $title .= html_writer::link($task->link, $task->title);
             }
             $title = $this->output->container($title, 'title');
             $details = $this->output->container($task->details, 'details');
@@ -1005,6 +1035,9 @@ class mod_workshop_renderer extends plugin_renderer_base {
             $url = new moodle_url('/mod/workshop/submission.php',
                                   array('cmid' => $this->page->context->instanceid, 'id' => $participant->submissionid));
             $out = html_writer::link($url, format_string($participant->submissiontitle), array('class'=>'title'));
+
+            $lastmodified = get_string('userdatemodified', 'workshop', userdate($participant->submissionmodified));
+            $out .= html_writer::tag('div', $lastmodified, array('class' => 'lastmodified'));
         }
 
         return $out;

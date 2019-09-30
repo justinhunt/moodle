@@ -25,7 +25,7 @@
  *
  * @copyright 2005 Martin Dougiamas  http://dougiamas.com
  * @license http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
- * @package mod-data
+ * @package mod_data
  */
 
 require_once('../../config.php');
@@ -51,6 +51,7 @@ require_capability('mod/data:managetemplates', $context);
 $PAGE->set_url(new moodle_url('/mod/data/preset.php', array('d'=>$data->id)));
 $PAGE->set_title(get_string('course') . ': ' . $course->fullname);
 $PAGE->set_heading($course->fullname);
+$PAGE->force_settings_menu(true);
 
 // fill in missing properties needed for updating of instance
 $data->course     = $cm->course;
@@ -61,20 +62,21 @@ $presets = data_get_available_presets($context);
 $strdelete = get_string('deleted', 'data');
 foreach ($presets as &$preset) {
     if (!empty($preset->userid)) {
-        $presetuser = $DB->get_record('user', array('id'=>$preset->userid), 'id,firstname,lastname', MUST_EXIST);
+        $namefields = get_all_user_name_fields(true);
+        $presetuser = $DB->get_record('user', array('id' => $preset->userid), 'id, ' . $namefields, MUST_EXIST);
         $preset->description = $preset->name.' ('.fullname($presetuser, true).')';
     } else {
         $preset->userid = 0;
         $preset->description = $preset->name;
         if (data_user_can_delete_preset($context, $preset) && $preset->name != 'Image gallery') {
             $delurl = new moodle_url('/mod/data/preset.php', array('d'=> $data->id, 'action'=>'confirmdelete', 'fullname'=>$preset->userid.'/'.$preset->shortname, 'sesskey'=>sesskey()));
-            $delicon = html_writer::empty_tag('img', array('src'=>$OUTPUT->pix_url('t/delete'), 'class'=>'iconsmall', 'alt'=>$strdelete.' '.$preset->description));
+            $delicon = $OUTPUT->pix_icon('t/delete', $strdelete . ' ' . $preset->description);
             $preset->description .= html_writer::link($delurl, $delicon);
         }
     }
     if ($preset->userid > 0 && data_user_can_delete_preset($context, $preset)) {
         $delurl = new moodle_url('/mod/data/preset.php', array('d'=> $data->id, 'action'=>'confirmdelete', 'fullname'=>$preset->userid.'/'.$preset->shortname, 'sesskey'=>sesskey()));
-        $delicon = html_writer::empty_tag('img', array('src'=>$OUTPUT->pix_url('t/delete'), 'class'=>'iconsmall', 'alt'=>$strdelete.' '.$preset->description));
+        $delicon = $OUTPUT->pix_icon('t/delete', $strdelete . ' ' . $preset->description);
         $preset->description .= html_writer::link($delurl, $delicon);
     }
 }
@@ -97,7 +99,7 @@ $form_save->set_data(array('d' => $data->id, 'name'=>$data->name));
 /* Output */
 if (!$form_export->is_submitted()) {
     echo $OUTPUT->header();
-    echo $OUTPUT->heading(format_string($data->name));
+    echo $OUTPUT->heading(format_string($data->name), 2);
 
     // Needed for tabs.php
     $currenttab = 'presets';
@@ -243,12 +245,12 @@ if (optional_param('sesskey', false, PARAM_BOOL) && confirm_sesskey()) {
 }
 
 // Export forms
-echo $OUTPUT->heading(get_string('export', 'data'));
+echo $OUTPUT->heading(get_string('export', 'data'), 3);
 $form_export->display();
 $form_save->display();
 
 // Import forms
-echo $OUTPUT->heading(get_string('import'));
+echo $OUTPUT->heading(get_string('import'), 3);
 $form_importzip->display();
 $form_importexisting->display();
 

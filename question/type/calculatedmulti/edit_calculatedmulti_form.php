@@ -54,13 +54,15 @@ class qtype_calculatedmulti_edit_form extends question_edit_form {
             if (isset($this->question->id)) {
                 // Remove prefix #{..}# if exists.
                 $this->initialname = $question->name;
-                $regs= array();
-                if (preg_match('~#\{([^[:space:]]*)#~', $question->name , $regs)) {
-                    $question->name = str_replace($regs[0], '', $question->name);
-                };
+                $question->name = question_bank::get_qtype('calculated')
+                        ->clean_technical_prefix_from_question_name($question->name);
             }
         }
         parent::__construct($submiturl, $question, $category, $contexts, $formeditable);
+    }
+
+    protected function can_preview() {
+        return false; // Generally not possible for calculated multi-choice questions on this page.
     }
 
     public function get_per_answer_fields($mform, $label, $gradeoptions,
@@ -124,7 +126,7 @@ class qtype_calculatedmulti_edit_form extends question_edit_form {
         if (isset($this->question->id)) {
             $mform->insertElementBefore($mform->createElement('static', 'initialname',
                     get_string('questionstoredname', 'qtype_calculated'),
-                    $this->initialname), 'name');
+                    format_string($this->initialname)), 'name');
         };
         $addfieldsname = 'updatecategory';
         $addstring = get_string('updatecategory', 'qtype_calculated');
@@ -163,12 +165,12 @@ class qtype_calculatedmulti_edit_form extends question_edit_form {
         $mform->setType('nounits', PARAM_INT);
         $mform->setConstants(array('nounits'=>$nounits));
         for ($i = 0; $i < $nounits; $i++) {
-            $mform->addElement('hidden', 'unit'."[$i]",
-                    optional_param("unit[$i]", '', PARAM_NOTAGS));
-            $mform->setType('unit'."[$i]", PARAM_NOTAGS);
-            $mform->addElement('hidden', 'multiplier'."[$i]",
-                    optional_param("multiplier[$i]", '', PARAM_FLOAT));
-            $mform->setType("multiplier[$i]", PARAM_FLOAT);
+            $mform->addElement('hidden', 'unit'."[{$i}]",
+                    optional_param("unit[{$i}]", '', PARAM_NOTAGS));
+            $mform->setType('unit'."[{$i}]", PARAM_NOTAGS);
+            $mform->addElement('hidden', 'multiplier'."[{$i}]",
+                    optional_param("multiplier[{$i}]", '', PARAM_FLOAT));
+            $mform->setType("multiplier[{$i}]", PARAM_FLOAT);
         }
 
         $this->add_combined_feedback_fields(true);
@@ -213,10 +215,10 @@ class qtype_calculatedmulti_edit_form extends question_edit_form {
         $key = 0;
         foreach ($question->options->answers as $answer) {
             // See comment in the parent method about this hack.
-            unset($this->_form->_defaultValues["tolerance[$key]"]);
-            unset($this->_form->_defaultValues["tolerancetype[$key]"]);
-            unset($this->_form->_defaultValues["correctanswerlength[$key]"]);
-            unset($this->_form->_defaultValues["correctanswerformat[$key]"]);
+            unset($this->_form->_defaultValues["tolerance[{$key}]"]);
+            unset($this->_form->_defaultValues["tolerancetype[{$key}]"]);
+            unset($this->_form->_defaultValues["correctanswerlength[{$key}]"]);
+            unset($this->_form->_defaultValues["correctanswerformat[{$key}]"]);
 
             $question->tolerance[$key]           = $answer->tolerance;
             $question->tolerancetype[$key]       = $answer->tolerancetype;
@@ -228,30 +230,31 @@ class qtype_calculatedmulti_edit_form extends question_edit_form {
         return $question;
     }
 
+    /**
+     * Validate the equations in the some question content.
+     * @param array $errors where errors are being accumulated.
+     * @param string $field the field being validated.
+     * @param string $text the content of that field.
+     * @return array the updated $errors array.
+     */
+    protected function validate_text($errors, $field, $text) {
+        $problems = qtype_calculated_find_formula_errors_in_text($text);
+        if ($problems) {
+            $errors[$field] = $problems;
+        }
+        return $errors;
+    }
+
     public function validation($data, $files) {
         $errors = parent::validation($data, $files);
 
         // Verifying for errors in {=...} in question text.
-        $qtext = '';
-        $qtextremaining = $data['questiontext']['text'];
-        $possibledatasets = $this->qtypeobj->find_dataset_names($data['questiontext']['text']);
-        foreach ($possibledatasets as $name => $value) {
-            $qtextremaining = str_replace('{'.$name.'}', '1', $qtextremaining);
-        }
+        $errors = $this->validate_text($errors, 'questiontext', $data['questiontext']['text']);
+        $errors = $this->validate_text($errors, 'generalfeedback', $data['generalfeedback']['text']);
+        $errors = $this->validate_text($errors, 'correctfeedback', $data['correctfeedback']['text']);
+        $errors = $this->validate_text($errors, 'partiallycorrectfeedback', $data['partiallycorrectfeedback']['text']);
+        $errors = $this->validate_text($errors, 'incorrectfeedback', $data['incorrectfeedback']['text']);
 
-        while (preg_match('~\{=([^[:space:]}]*)}~', $qtextremaining, $regs1)) {
-            $qtextsplits = explode($regs1[0], $qtextremaining, 2);
-            $qtext = $qtext.$qtextsplits[0];
-            $qtextremaining = $qtextsplits[1];
-            if (!empty($regs1[1]) && $formulaerrors =
-                    qtype_calculated_find_formula_errors($regs1[1])) {
-                if (!isset($errors['questiontext'])) {
-                    $errors['questiontext'] = $formulaerrors.':'.$regs1[1];
-                } else {
-                    $errors['questiontext'] .= '<br/>'.$formulaerrors.':'.$regs1[1];
-                }
-            }
-        }
         $answers = $data['answer'];
         $answercount = 0;
         $maxgrade = false;
@@ -266,6 +269,7 @@ class qtype_calculatedmulti_edit_form extends question_edit_form {
                         get_string('atleastonewildcard', 'qtype_calculated');
             }
         }
+
         $totalfraction = 0;
         $maxfraction = -1;
         foreach ($answers as $key => $answer) {
@@ -279,27 +283,11 @@ class qtype_calculatedmulti_edit_form extends question_edit_form {
             }
             if ($trimmedanswer != '' || $answercount == 0) {
                 // Verifying for errors in {=...} in answer text.
-                $qanswer = '';
-                $qanswerremaining =  $trimmedanswer;
-                $possibledatasets = $this->qtypeobj->find_dataset_names($trimmedanswer);
-                foreach ($possibledatasets as $name => $value) {
-                    $qanswerremaining = str_replace('{'.$name.'}', '1', $qanswerremaining);
-                }
-
-                while (preg_match('~\{=([^[:space:]}]*)}~', $qanswerremaining, $regs1)) {
-                    $qanswersplits = explode($regs1[0], $qanswerremaining, 2);
-                    $qanswer = $qanswer . $qanswersplits[0];
-                    $qanswerremaining = $qanswersplits[1];
-                    if (!empty($regs1[1]) && $formulaerrors =
-                            qtype_calculated_find_formula_errors($regs1[1])) {
-                        if (!isset($errors['answeroptions['.$key.']'])) {
-                            $errors['answeroptions['.$key.']'] = $formulaerrors.':'.$regs1[1];
-                        } else {
-                            $errors['answeroptions['.$key.']'] .= '<br/>'.$formulaerrors.':'.$regs1[1];
-                        }
-                    }
-                }
+                $errors = $this->validate_text($errors, 'answeroptions[' . $key . ']', $answer);
+                $errors = $this->validate_text($errors, 'feedback[' . $key . ']',
+                        $data['feedback'][$key]['text']);
             }
+
             if ($trimmedanswer != '') {
                 if ('2' == $data['correctanswerformat'][$key] &&
                         '0' == $data['correctanswerlength'][$key]) {

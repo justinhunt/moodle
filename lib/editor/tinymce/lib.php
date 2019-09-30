@@ -27,33 +27,15 @@ defined('MOODLE_INTERNAL') || die();
 
 class tinymce_texteditor extends texteditor {
     /** @var string active version - this is the directory name where to find tinymce code */
-    public $version = '3.5.8';
+    public $version = '3.5.11';
 
     /**
      * Is the current browser supported by this editor?
      * @return bool
      */
     public function supported_by_browser() {
-        if (check_browser_version('MSIE', 6)) {
-            return true;
-        }
-        if (check_browser_version('Gecko', 20030516)) {
-            return true;
-        }
-        if (check_browser_version('Safari', 412)) {
-            return true;
-        }
-        if (check_browser_version('Chrome', 6)) {
-            return true;
-        }
-        if (check_browser_version('Opera', 9)) {
-            return true;
-        }
-        if (check_browser_version('Safari iOS', 534)) {
-            return true;
-        }
-
-        return false;
+        // We don't support any browsers which it doesn't support.
+        return true;
     }
 
     /**
@@ -97,16 +79,15 @@ class tinymce_texteditor extends texteditor {
     public function use_editor($elementid, array $options=null, $fpoptions=null) {
         global $PAGE, $CFG;
         // Note: use full moodle_url instance to prevent standard JS loader, make sure we are using https on profile page if required.
-        if (debugging('', DEBUG_DEVELOPER)) {
-            $PAGE->requires->js(new moodle_url($CFG->httpswwwroot.'/lib/editor/tinymce/tiny_mce/'.$this->version.'/tiny_mce_src.js'));
+        if ($CFG->debugdeveloper) {
+            $PAGE->requires->js(new moodle_url('/lib/editor/tinymce/tiny_mce/'.$this->version.'/tiny_mce_src.js'));
         } else {
-            $PAGE->requires->js(new moodle_url($CFG->httpswwwroot.'/lib/editor/tinymce/tiny_mce/'.$this->version.'/tiny_mce.js'));
+            $PAGE->requires->js(new moodle_url('/lib/editor/tinymce/tiny_mce/'.$this->version.'/tiny_mce.js'));
         }
         $PAGE->requires->js_init_call('M.editor_tinymce.init_editor', array($elementid, $this->get_init_params($elementid, $options)), true);
         if ($fpoptions) {
             $PAGE->requires->js_init_call('M.editor_tinymce.init_filepicker', array($elementid, $fpoptions), true);
         }
-        $this->initialise_collapse_js();
     }
 
     protected function get_init_params($elementid, array $options=null) {
@@ -127,6 +108,13 @@ class tinymce_texteditor extends texteditor {
             $config->disabledsubplugins = '';
         }
 
+        // Remove the manage files button if requested.
+        if (isset($options['enable_filemanagement']) && !$options['enable_filemanagement']) {
+            if (!strpos($config->disabledsubplugins, 'managefiles')) {
+                $config->disabledsubplugins .= ',managefiles';
+            }
+        }
+
         $fontselectlist = empty($config->fontselectlist) ? '' : $config->fontselectlist;
 
         $langrev = -1;
@@ -139,16 +127,15 @@ class tinymce_texteditor extends texteditor {
             'mode' => "exact",
             'elements' => $elementid,
             'relative_urls' => false,
-            'document_base_url' => $CFG->httpswwwroot,
-            'moodle_plugin_base' => "$CFG->httpswwwroot/lib/editor/tinymce/plugins/",
+            'document_base_url' => $CFG->wwwroot,
+            'moodle_plugin_base' => "$CFG->wwwroot/lib/editor/tinymce/plugins/",
             'content_css' => $contentcss,
             'language' => $lang,
             'directionality' => $directionality,
             'plugin_insertdate_dateFormat ' => $strdate,
             'plugin_insertdate_timeFormat ' => $strtime,
             'theme' => "advanced",
-            'skin' => "o2k7",
-            'skin_variant' => "silver",
+            'skin' => "moodle",
             'apply_source_formatting' => true,
             'remove_script_host' => false,
             'entity_encoding' => "raw",
@@ -270,25 +257,7 @@ class tinymce_texteditor extends texteditor {
      */
     public function get_tinymce_base_url() {
         global $CFG;
-        return new moodle_url("$CFG->httpswwwroot/lib/editor/tinymce/tiny_mce/$this->version/");
+        return new moodle_url("/lib/editor/tinymce/tiny_mce/$this->version/");
     }
 
-    /**
-     * Initialise javascript form elements
-     * @return void
-     */
-    public function initialise_collapse_js() {
-        global $PAGE;
-        // This method is called for every editor instance. Ensure it's only run once.
-        // Static is a clunky solution but the best we could find to keep everything simple and encapsulated.
-        static $isinitialised;
-        if ($isinitialised) {
-            return;
-        }
-
-        // Initialise language strings.
-        $PAGE->requires->strings_for_js(array('hideeditortoolbar', 'showeditortoolbar'), 'form');
-        $PAGE->requires->yui_module('moodle-editor_tinymce-collapse', 'M.editor_collapse.init');
-        $isinitialised = true;
-    }
 }

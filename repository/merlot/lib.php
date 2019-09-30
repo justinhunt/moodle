@@ -17,7 +17,7 @@
 /**
  * This plugin is used to access merlot files
  *
- * @since 2.0
+ * @since Moodle 2.0
  * @package    repository_merlot
  * @copyright  2010 Dongsheng Cai {@link http://dongsheng.org}
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
@@ -27,7 +27,7 @@ require_once($CFG->dirroot . '/repository/lib.php');
 /**
  * repository_merlot is used to search merlot.org in moodle
  *
- * @since 2.0
+ * @since Moodle 2.0
  * @package    repository_merlot
  * @copyright  2009 Dongsheng Cai {@link http://dongsheng.org}
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
@@ -85,14 +85,14 @@ class repository_merlot extends repository {
     private function _get_collection($keyword) {
         global $OUTPUT;
         $list = array();
-        $this->api = 'http://www.merlot.org/merlot/materials.rest?keywords=' . urlencode($keyword) . '&licenseKey='.$this->licensekey;
+        $this->api = 'https://www.merlot.org/merlot/materials.rest?keywords=' . urlencode($keyword) . '&licenseKey='.$this->licensekey;
         $c = new curl(array('cache'=>true, 'module_cache'=>'repository'));
         $content = $c->get($this->api);
         $xml = simplexml_load_string($content);
         foreach ($xml->results->material as $entry) {
             $list[] = array(
                 'title'=>(string)$entry->title,
-                'thumbnail'=>$OUTPUT->pix_url(file_extension_icon($entry->title, 90))->out(false),
+                'thumbnail'=>$OUTPUT->image_url(file_extension_icon($entry->title, 90))->out(false),
                 'date'=>userdate((int)$entry->creationDate),
                 'size'=>'',
                 'source'=>(string)$entry->URL

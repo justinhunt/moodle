@@ -99,7 +99,8 @@ class enrol_users_addmember_form extends moodleform {
 
         $mform->addElement('header','general', fullname($user));
 
-        $mform->addElement('select', 'groupid', get_string('addgroup', 'group'), $options);
+        $mform->addElement('select', 'groupids', get_string('addgroup', 'group'), $options, array('multiple' => 'multiple'));
+        $mform->addRule('groupids', null, 'required');
 
         $mform->addElement('hidden', 'id');
         $mform->setType('id', PARAM_INT);
@@ -155,13 +156,30 @@ class enrol_users_filter_form extends moodleform {
         // names if applied. The reason for not restricting to roles that can
         // be assigned at course level is that upper-level roles display in the
         // enrolments table so it makes sense to let users filter by them.
-        $allroles = $manager->get_all_roles();
+        $visibleroles = $manager->get_viewable_roles();
         $rolenames = array();
-        foreach ($allroles as $id => $role) {
-            $rolenames[$id] = $role->localname;
+        foreach ($visibleroles as $id => $role) {
+            $rolenames[$id] = $role;
         }
         $mform->addElement('select', 'role', get_string('role'),
                 array(0 => get_string('all')) + $rolenames);
+
+        // Filter by group.
+        $allgroups = $manager->get_all_groups();
+        $groupsmenu[0] = get_string('allparticipants');
+        $groupsmenu[-1] = get_string('nogroup', 'enrol');
+        foreach($allgroups as $gid => $unused) {
+            $groupsmenu[$gid] = $allgroups[$gid]->name;
+        }
+        if (count($groupsmenu) > 1) {
+            $mform->addElement('select', 'filtergroup', get_string('group'), $groupsmenu);
+        }
+
+        // Status active/inactive.
+        $mform->addElement('select', 'status', get_string('status'),
+                array(-1 => get_string('all'),
+                    ENROL_USER_ACTIVE => get_string('active'),
+                    ENROL_USER_SUSPENDED => get_string('inactive')));
 
         // Submit button does not use add_action_buttons because that adds
         // another fieldset which causes the CSS style to break in an unfixable
@@ -174,5 +192,7 @@ class enrol_users_filter_form extends moodleform {
         // Add hidden fields required by page.
         $mform->addElement('hidden', 'id', $this->_customdata['id']);
         $mform->setType('id', PARAM_INT);
+        $mform->addElement('hidden', 'newcourse', $this->_customdata['newcourse']);
+        $mform->setType('newcourse', PARAM_BOOL);
     }
 }

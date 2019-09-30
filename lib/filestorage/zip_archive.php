@@ -170,7 +170,7 @@ class zip_archive extends file_archive {
             $name = $localname;
             // This should not happen.
             if (!empty($this->encoding) and $this->encoding !== 'utf-8') {
-                $name = @textlib::convert($name, $this->encoding, 'utf-8');
+                $name = @core_text::convert($name, $this->encoding, 'utf-8');
             }
             $name = str_replace('\\', '/', $name);   // no MS \ separators
             $name = clean_param($name, PARAM_PATH);  // only safe chars
@@ -191,7 +191,7 @@ class zip_archive extends file_archive {
         }
 
         if ($this->emptyziphack) {
-            $this->za->close();
+            @$this->za->close();
             $this->za = null;
             $this->mode = null;
             $this->namelookup = null;
@@ -202,11 +202,17 @@ class zip_archive extends file_archive {
 
         } else if ($this->za->numFiles == 0) {
             // PHP can not create empty archives, so let's fake it.
-            $this->za->close();
+            @$this->za->close();
             $this->za = null;
             $this->mode = null;
             $this->namelookup = null;
             $this->modified = false;
+            // If the existing archive is already empty, we didn't change it.  Don't bother completing a save.
+            // This is important when we are inspecting archives that we might not have write permission to.
+            if (@filesize($this->archivepathname) == 22 &&
+                    @file_get_contents($this->archivepathname) === base64_decode(self::$emptyzipcontent)) {
+                return true;
+            }
             @unlink($this->archivepathname);
             $data = base64_decode(self::$emptyzipcontent);
             if (!file_put_contents($this->archivepathname, $data)) {
@@ -263,7 +269,9 @@ class zip_archive extends file_archive {
             return false;
         }
 
-        $result = $this->za->statIndex($index);
+        // PHP 5.6 introduced encoding guessing logic, we need to fall back
+        // to raw ZIP_FL_ENC_RAW (== 64) to get consistent results as in PHP 5.5.
+        $result = $this->za->statIndex($index, 64);
 
         if ($result === false) {
             return false;
@@ -318,10 +326,9 @@ class zip_archive extends file_archive {
         }
         if (substr($fileinfo->pathname, -9) === 'Thumbs.db') {
             $stream = $this->za->getStream($fileinfo->pathname);
-            $info = unpack('Nsiga/Nsigb', fread($stream, 8));
-            $signature = fread($stream, 8);
+            $info = base64_encode(fread($stream, 8));
             fclose($stream);
-            if ($info['siga'] === 0xd0cf11e0 && $info['sigb'] === 0xa1b11ae1) {
+            if ($info === '0M8R4KGxGuE=') {
                 // It's an OLE Compound File - so it's almost certainly a Windows thumbnail cache.
                 return true;
             }
@@ -340,6 +347,20 @@ class zip_archive extends file_archive {
         }
 
         return count($this->list_files());
+    }
+
+    /**
+     * Returns approximate number of files in archive. This may be a slight
+     * overestimate.
+     *
+     * @return int|bool Estimated number of files, or false if not opened
+     */
+    public function estimated_count() {
+        if (!isset($this->za)) {
+            return false;
+        }
+
+        return $this->za->numFiles;
     }
 
     /**
@@ -597,8 +618,8 @@ class zip_archive extends file_archive {
                 }
                 if (!$found and !empty($this->encoding) and $this->encoding !== 'utf-8') {
                     // Try the encoding from open().
-                    $newname = @textlib::convert($name, $this->encoding, 'utf-8');
-                    $original  = textlib::convert($newname, 'utf-8', $this->encoding);
+                    $newname = @core_text::convert($name, $this->encoding, 'utf-8');
+                    $original  = core_text::convert($newname, 'utf-8', $this->encoding);
                     if ($original === $name) {
                         $found = true;
                         $name = $newname;
@@ -641,6 +662,8 @@ class zip_archive extends file_archive {
                             case 'ISO-8859-6': $encoding = 'CP720'; break;
                             case 'ISO-8859-7': $encoding = 'CP737'; break;
                             case 'ISO-8859-8': $encoding = 'CP862'; break;
+                            case 'WINDOWS-1251': $encoding = 'CP866'; break;
+                            case 'EUC-JP':
                             case 'UTF-8':
                                 if ($winchar = get_string('localewincharset', 'langconfig')) {
                                     // Most probably works only for zh_cn,
@@ -650,8 +673,8 @@ class zip_archive extends file_archive {
                                 break;
                         }
                     }
-                    $newname = @textlib::convert($name, $encoding, 'utf-8');
-                    $original  = textlib::convert($newname, 'utf-8', $encoding);
+                    $newname = @core_text::convert($name, $encoding, 'utf-8');
+                    $original  = core_text::convert($newname, 'utf-8', $encoding);
 
                     if ($original === $name) {
                         $name = $newname;

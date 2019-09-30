@@ -36,6 +36,12 @@ if (isset($_SERVER['REMOTE_ADDR'])) {
     exit(1);
 }
 
+// Force OPcache reset if used, we do not want any stale caches
+// when preparing test environment.
+if (function_exists('opcache_reset')) {
+    opcache_reset();
+}
+
 $help =
 "Advanced command line Moodle database installer.
 Please note you must execute this script with the same uid as apache.
@@ -46,6 +52,7 @@ Options:
 --lang=CODE           Installation and default site language. Default is en.
 --adminuser=USERNAME  Username for the moodle admin account. Default is admin.
 --adminpass=PASSWORD  Password for the moodle admin account.
+--adminemail=STRING   Email address for the moodle admin account.
 --agree-license       Indicates agreement with software license.
 --fullname=STRING     Name of the site
 --shortname=STRING    Name of the site
@@ -55,17 +62,12 @@ Example:
 \$sudo -u www-data /usr/bin/php admin/cli/install_database.php --lang=cs --adminpass=soMePass123 --agree-license
 ";
 
-// Check that PHP is of a sufficient version
-if (version_compare(phpversion(), "5.3.3") < 0) {
-    $phpversion = phpversion();
-    // do NOT localise - lang strings would not work here and we CAN NOT move it after installib
-    fwrite(STDERR, "Moodle 2.5 or later requires at least PHP 5.3.3 (currently using version $phpversion).\n");
-    fwrite(STDERR, "Please upgrade your server software or install older Moodle version.\n");
-    exit(1);
-}
+// Check that PHP is of a sufficient version as soon as possible.
+require_once(__DIR__.'/../../lib/phpminimumversionlib.php');
+moodle_require_minimum_php_version();
 
 // Nothing to do if config.php does not exist
-$configfile = dirname(dirname(dirname(__FILE__))).'/config.php';
+$configfile = __DIR__.'/../../config.php';
 if (!file_exists($configfile)) {
     fwrite(STDERR, 'config.php does not exist, can not continue'); // do not localize
     fwrite(STDERR, "\n");
@@ -80,11 +82,6 @@ require_once($CFG->libdir.'/installlib.php');
 require_once($CFG->libdir.'/adminlib.php');
 require_once($CFG->libdir.'/componentlib.class.php');
 
-// make sure no tables are installed yet
-if ($DB->get_tables() ) {
-    cli_error(get_string('clitablesexist', 'install'));
-}
-
 $CFG->early_install_lang = true;
 get_string_manager(true);
 
@@ -96,6 +93,7 @@ list($options, $unrecognized) = cli_get_params(
         'lang'              => 'en',
         'adminuser'         => 'admin',
         'adminpass'         => '',
+        'adminemail'        => '',
         'fullname'          => '',
         'shortname'         => '',
         'agree-license'     => false,
@@ -106,10 +104,15 @@ list($options, $unrecognized) = cli_get_params(
     )
 );
 
-
+// We show help text even if tables are installed.
 if ($options['help']) {
     echo $help;
     die;
+}
+
+// Make sure no tables are installed yet.
+if ($DB->get_tables() ) {
+    cli_error(get_string('clitablesexist', 'install'));
 }
 
 if (!$options['agree-license']) {
@@ -118,6 +121,12 @@ if (!$options['agree-license']) {
 
 if ($options['adminpass'] === true or $options['adminpass'] === '') {
     cli_error('You have to specify admin password. --help prints out the help'); // TODO: localize
+}
+
+// Validate that the address provided was an e-mail address.
+if (!empty($options['adminemail']) && !validate_email($options['adminemail'])) {
+    $a = (object) array('option' => 'adminemail', 'value' => $options['adminemail']);
+    cli_error(get_string('cliincorrectvalueerror', 'admin', $a));
 }
 
 $options['lang'] = clean_param($options['lang'], PARAM_SAFEDIR);
@@ -161,14 +170,20 @@ if (!$envstatus) {
 }
 
 // Test plugin dependencies.
-require_once($CFG->libdir . '/pluginlib.php');
 $failed = array();
-if (!plugin_manager::instance()->all_plugins_ok($version, $failed)) {
+if (!core_plugin_manager::instance()->all_plugins_ok($version, $failed)) {
     cli_problem(get_string('pluginscheckfailed', 'admin', array('pluginslist' => implode(', ', array_unique($failed)))));
     cli_error(get_string('pluginschecktodo', 'admin'));
 }
 
 install_cli_database($options, true);
+
+// This needs to happen at the end to ensure it occurs after all caches
+// have been purged for the last time.
+// This will build a cached version of the current theme for the user
+// to immediately start browsing the site.
+require_once($CFG->libdir.'/upgradelib.php');
+upgrade_themes();
 
 echo get_string('cliinstallfinished', 'install')."\n";
 exit(0); // 0 means success

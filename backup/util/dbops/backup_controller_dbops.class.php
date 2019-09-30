@@ -33,6 +33,16 @@
 abstract class backup_controller_dbops extends backup_dbops {
 
     /**
+     * @var string Backup id for cached backup_includes_files result.
+     */
+    protected static $includesfilescachebackupid;
+
+    /**
+     * @var int Cached backup_includes_files result
+     */
+    protected static $includesfilescache;
+
+    /**
      * Send one backup controller to DB
      *
      * @param backup_controller $controller controller to send to DB
@@ -95,6 +105,12 @@ abstract class backup_controller_dbops extends backup_dbops {
             throw new backup_dbops_exception('backup_controller_dbops_nonexisting');
         }
         $controller = unserialize(base64_decode($controllerrec->controller));
+        if (!is_object($controller)) {
+            // The controller field of the table did not contain a serialized object.
+            // It is made empty after it has been used successfully, it is likely that
+            // the user has pressed the browser back button at some point.
+            throw new backup_dbops_exception('backup_controller_dbops_loading_invalid_controller');
+        }
         // Check checksum is ok. Sounds silly but it isn't ;-)
         if (!$controller->is_checksum_correct($controllerrec->checksum)) {
             throw new backup_dbops_exception('backup_controller_dbops_loading_checksum_mismatch');
@@ -150,8 +166,40 @@ abstract class backup_controller_dbops extends backup_dbops {
         $dbman = $DB->get_manager(); // We are going to use database_manager services
 
         $targettablename = 'backup_ids_temp';
-        $table = new xmldb_table($targettablename);
-        $dbman->drop_table($table); // And drop it
+        if ($dbman->table_exists($targettablename)) {
+            $table = new xmldb_table($targettablename);
+            $dbman->drop_table($table); // And drop it
+        }
+    }
+
+    /**
+     * Decode the info field from backup_ids_temp or backup_files_temp.
+     *
+     * @param mixed $info The info field data to decode, may be an object or a simple integer.
+     * @return mixed The decoded information.  For simple types it returns, for complex ones we decode.
+     */
+    public static function decode_backup_temp_info($info) {
+        // We encode all data except null.
+        if ($info != null) {
+            return unserialize(gzuncompress(base64_decode($info)));
+        }
+        return $info;
+    }
+
+    /**
+     * Encode the info field for backup_ids_temp or backup_files_temp.
+     *
+     * @param mixed $info string The info field data to encode.
+     * @return string An encoded string of data or null if the input is null.
+     */
+    public static function encode_backup_temp_info($info) {
+        // We encode if there is any information to keep the translations simpler.
+        if ($info != null) {
+            // We compress if possible. It reduces db, network and memory storage. The saving is greater than CPU compression cost.
+            // Compression level 1 is chosen has it produces good compression with the smallest possible overhead, see MDL-40618.
+            return base64_encode(gzcompress(serialize($info), 1));
+        }
+        return $info;
     }
 
     /**
@@ -302,14 +350,31 @@ abstract class backup_controller_dbops extends backup_dbops {
 
     /**
      * Get details information for main moodle_backup.xml file, extracting it from
-     * the specified controller
+     * the specified controller.
+     *
+     * If you specify the progress monitor, this will start a new progress section
+     * to track progress in processing (in case this task takes a long time).
+     *
+     * @param string $backupid Backup ID
+     * @param \core\progress\base $progress Optional progress monitor
      */
-    public static function get_moodle_backup_information($backupid) {
+    public static function get_moodle_backup_information($backupid,
+            \core\progress\base $progress = null) {
+
+        // Start tracking progress if required (for load_controller).
+        if ($progress) {
+            $progress->start_progress('get_moodle_backup_information', 2);
+        }
 
         $detailsinfo = array(); // Information details
         $contentsinfo= array(); // Information about backup contents
         $settingsinfo= array(); // Information about backup settings
         $bc = self::load_controller($backupid); // Load controller
+
+        // Note that we have loaded controller.
+        if ($progress) {
+            $progress->progress(1);
+        }
 
         // Details info
         $detailsinfo['id'] = $bc->get_id();
@@ -329,8 +394,15 @@ abstract class backup_controller_dbops extends backup_dbops {
         $contentsinfo['sections']   = array();
         $contentsinfo['course']     = array();
 
+        // Get tasks and start nested progress.
+        $tasks = $bc->get_plan()->get_tasks();
+        if ($progress) {
+            $progress->start_progress('get_moodle_backup_information', count($tasks));
+            $done = 1;
+        }
+
         // Contents info (extract information from tasks)
-        foreach ($bc->get_plan()->get_tasks() as $task) {
+        foreach ($tasks as $task) {
 
             if ($task instanceof backup_activity_task) { // Activity task
 
@@ -359,9 +431,20 @@ abstract class backup_controller_dbops extends backup_dbops {
                 list($contentinfo, $settings) = self::get_root_backup_information($task);
                 $settingsinfo = array_merge($settingsinfo, $settings);
             }
+
+            // Report task handled.
+            if ($progress) {
+                $progress->progress($done++);
+            }
         }
 
         $bc->destroy(); // Always need to destroy controller to handle circular references
+
+        // Finish progress reporting.
+        if ($progress) {
+            $progress->end_progress();
+            $progress->end_progress();
+        }
 
         return array(array((object)$detailsinfo), $contentsinfo, $settingsinfo);
     }
@@ -403,9 +486,20 @@ abstract class backup_controller_dbops extends backup_dbops {
      * @return int Indicates whether files should be included in backups.
      */
     public static function backup_includes_files($backupid) {
-        // Load controller
+        // This function is called repeatedly in a backup with many files.
+        // Loading the controller is a nontrivial operation (in a large test
+        // backup it took 0.3 seconds), so we do a temporary cache of it within
+        // this request.
+        if (self::$includesfilescachebackupid === $backupid) {
+            return self::$includesfilescache;
+        }
+
+        // Load controller, get value, then destroy controller and return result.
+        self::$includesfilescachebackupid = $backupid;
         $bc = self::load_controller($backupid);
-        return $bc->get_include_files();
+        self::$includesfilescache = $bc->get_include_files();
+        $bc->destroy();
+        return self::$includesfilescache;
     }
 
     /**
@@ -436,15 +530,14 @@ abstract class backup_controller_dbops extends backup_dbops {
      */
     public static function backup_get_original_course_info($courseid) {
         global $DB;
-        return $DB->get_record('course', array('id' => $courseid), 'fullname, shortname, startdate');
+        return $DB->get_record('course', array('id' => $courseid), 'fullname, shortname, startdate, enddate, format');
     }
 
     /**
      * Sets the default values for the settings in a backup operation
      *
-     * Based on the mode of the backup it will delegate the process to
-     * other methods like {@link apply_general_config_defaults} ...
-     * to get proper defaults loaded
+     * Based on the mode of the backup it will load proper defaults
+     * using {@link apply_admin_config_defaults}.
      *
      * @param backup_controller $controller
      */
@@ -456,49 +549,158 @@ abstract class backup_controller_dbops extends backup_dbops {
         switch ($mode) {
             case backup::MODE_GENERAL:
                 // Load the general defaults
-                self::apply_general_config_defaults($controller);
+                $settings = array(
+                        'backup_general_users'              => 'users',
+                        'backup_general_anonymize'          => 'anonymize',
+                        'backup_general_role_assignments'   => 'role_assignments',
+                        'backup_general_activities'         => 'activities',
+                        'backup_general_blocks'             => 'blocks',
+                        'backup_general_filters'            => 'filters',
+                        'backup_general_comments'           => 'comments',
+                        'backup_general_badges'             => 'badges',
+                        'backup_general_calendarevents'     => 'calendarevents',
+                        'backup_general_userscompletion'    => 'userscompletion',
+                        'backup_general_logs'               => 'logs',
+                        'backup_general_histories'          => 'grade_histories',
+                        'backup_general_questionbank'       => 'questionbank',
+                        'backup_general_groups'             => 'groups',
+                        'backup_general_competencies'       => 'competencies'
+                );
+                self::apply_admin_config_defaults($controller, $settings, true);
+                break;
+            case backup::MODE_IMPORT:
+                // Load the import defaults.
+                $settings = array(
+                        'backup_import_activities'         => 'activities',
+                        'backup_import_blocks'             => 'blocks',
+                        'backup_import_filters'            => 'filters',
+                        'backup_import_calendarevents'     => 'calendarevents',
+                        'backup_import_questionbank'       => 'questionbank',
+                        'backup_import_groups'             => 'groups',
+                        'backup_import_competencies'       => 'competencies'
+                );
+                self::apply_admin_config_defaults($controller, $settings, true);
+                if ((!$controller->get_interactive()) &&
+                        $controller->get_type() == backup::TYPE_1ACTIVITY) {
+                    // This is duplicate - there is no concept of defaults - these settings must be on.
+                    $settings = array(
+                         'activities',
+                         'blocks',
+                         'filters',
+                         'questionbank'
+                    );
+                    self::force_enable_settings($controller, $settings);
+                }
                 break;
             case backup::MODE_AUTOMATED:
-                // TODO: Move the loading from automatic stuff to here
+                // Load the automated defaults.
+                $settings = array(
+                        'backup_auto_users'              => 'users',
+                        'backup_auto_role_assignments'   => 'role_assignments',
+                        'backup_auto_activities'         => 'activities',
+                        'backup_auto_blocks'             => 'blocks',
+                        'backup_auto_filters'            => 'filters',
+                        'backup_auto_comments'           => 'comments',
+                        'backup_auto_badges'             => 'badges',
+                        'backup_auto_calendarevents'     => 'calendarevents',
+                        'backup_auto_userscompletion'    => 'userscompletion',
+                        'backup_auto_logs'               => 'logs',
+                        'backup_auto_histories'          => 'grade_histories',
+                        'backup_auto_questionbank'       => 'questionbank',
+                        'backup_auto_groups'             => 'groups',
+                        'backup_auto_competencies'       => 'competencies'
+                );
+                self::apply_admin_config_defaults($controller, $settings, false);
                 break;
             default:
-                // Nothing to do for other modes (IMPORT/HUB...). Some day we
+                // Nothing to do for other modes (HUB...). Some day we
                 // can define defaults (admin UI...) for them if we want to
         }
     }
 
     /**
-     * Sets the controller settings default values from the backup config.
+     * Turn these settings on. No defaults from admin settings.
      *
      * @param backup_controller $controller
+     * @param array $settings a map from admin config names to setting names (Config name => Setting name)
      */
-    private static function apply_general_config_defaults(backup_controller $controller) {
-        $settings = array(
-            // Config name                      => Setting name
-            'backup_general_users'              => 'users',
-            'backup_general_anonymize'          => 'anonymize',
-            'backup_general_role_assignments'   => 'role_assignments',
-            'backup_general_activities'         => 'activities',
-            'backup_general_blocks'             => 'blocks',
-            'backup_general_filters'            => 'filters',
-            'backup_general_comments'           => 'comments',
-            'backup_general_userscompletion'    => 'userscompletion',
-            'backup_general_logs'               => 'logs',
-            'backup_general_histories'          => 'grade_histories'
-        );
+    private static function force_enable_settings(backup_controller $controller, array $settings) {
+        $plan = $controller->get_plan();
+        foreach ($settings as $config => $settingname) {
+            $value = true;
+            if ($plan->setting_exists($settingname)) {
+                $setting = $plan->get_setting($settingname);
+                // We do not allow this setting to be locked for a duplicate function.
+                if ($setting->get_status() !== base_setting::NOT_LOCKED) {
+                    $setting->set_status(base_setting::NOT_LOCKED);
+                }
+                $setting->set_value($value);
+                $setting->set_status(base_setting::LOCKED_BY_CONFIG);
+            } else {
+                $controller->log('Unknown setting: ' . $setting, BACKUP::LOG_DEBUG);
+            }
+        }
+    }
+
+    /**
+     * Sets the controller settings default values from the admin config.
+     *
+     * @param backup_controller $controller
+     * @param array $settings a map from admin config names to setting names (Config name => Setting name)
+     * @param boolean $uselocks whether "locked" admin settings should be honoured
+     */
+    private static function apply_admin_config_defaults(backup_controller $controller, array $settings, $uselocks) {
         $plan = $controller->get_plan();
         foreach ($settings as $config=>$settingname) {
             $value = get_config('backup', $config);
-            $locked = (get_config('backup', $config.'_locked') == true);
+            if ($value === false) {
+                // Ignore this because the config has not been set. get_config
+                // returns false if a setting doesn't exist, '0' is returned when
+                // the configuration is set to false.
+                $controller->log('Could not find a value for the config ' . $config, BACKUP::LOG_DEBUG);
+                continue;
+            }
+            $locked = $uselocks && (get_config('backup', $config.'_locked') == true);
             if ($plan->setting_exists($settingname)) {
                 $setting = $plan->get_setting($settingname);
-                if ($setting->get_value() != $value || 1==1) {
+                // We can only update the setting if it isn't already locked by config or permission.
+                if ($setting->get_status() !== base_setting::LOCKED_BY_CONFIG
+                        && $setting->get_status() !== base_setting::LOCKED_BY_PERMISSION) {
                     $setting->set_value($value);
                     if ($locked) {
                         $setting->set_status(base_setting::LOCKED_BY_CONFIG);
                     }
                 }
+            } else {
+                $controller->log('Unknown setting: ' . $setting, BACKUP::LOG_DEBUG);
             }
         }
+    }
+
+    /**
+     * Get the progress details of a backup operation.
+     * Get backup records directly from database, if the backup has successfully completed
+     * there will be no controller object to load.
+     *
+     * @param string $backupid The backup id to query.
+     * @return array $progress The backup progress details.
+     */
+    public static function get_progress($backupid) {
+        global $DB;
+
+        $progress = array();
+        $backuprecord = $DB->get_record(
+            'backup_controllers',
+            array('backupid' => $backupid),
+            'status, progress, operation',
+            MUST_EXIST);
+
+        $status = $backuprecord->status;
+        $progress = $backuprecord->progress;
+        $operation = $backuprecord->operation;
+
+        $progress = array('status' => $status, 'progress' => $progress, 'backupid' => $backupid, 'operation' => $operation);
+
+        return $progress;
     }
 }

@@ -1,5 +1,4 @@
 <?php
-
 // This file is part of Moodle - http://moodle.org/
 //
 // Moodle is free software: you can redistribute it and/or modify
@@ -24,3 +23,8 @@
  */
 
 $string['pluginname'] = 'Checkbox';
+$string['privacy:metadata:profilefield_checkbox:userid'] = 'The ID of the user whose data is stored by the Checkbox user profile field';
+$string['privacy:metadata:profilefield_checkbox:fieldid'] = 'The ID of the profile field';
+$string['privacy:metadata:profilefield_checkbox:data'] = 'The checkbox user profile field user data';
+$string['privacy:metadata:profilefield_checkbox:dataformat'] = 'The format of Checkbox user profile field user data';
+$string['privacy:metadata:profilefield_checkbox:tableexplanation'] = 'Additional profile data';

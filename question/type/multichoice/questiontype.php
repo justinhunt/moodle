@@ -39,9 +39,49 @@ require_once($CFG->libdir . '/questionlib.php');
 class qtype_multichoice extends question_type {
     public function get_question_options($question) {
         global $DB, $OUTPUT;
-        $question->options = $DB->get_record('question_multichoice',
-                array('question' => $question->id), '*', MUST_EXIST);
+
+        $question->options = $DB->get_record('qtype_multichoice_options', ['questionid' => $question->id]);
+
+        if ($question->options === false) {
+            // If this has happened, then we have a problem.
+            // For the user to be able to edit or delete this question, we need options.
+            debugging("Question ID {$question->id} was missing an options record. Using default.", DEBUG_DEVELOPER);
+
+            $question->options = $this->create_default_options($question);
+        }
+
         parent::get_question_options($question);
+    }
+
+    /**
+     * Create a default options object for the provided question.
+     *
+     * @param object $question The queston we are working with.
+     * @return object The options object.
+     */
+    protected function create_default_options($question) {
+        // Create a default question options record.
+        $options = new stdClass();
+        $options->questionid = $question->id;
+
+        // Get the default strings and just set the format.
+        $options->correctfeedback = get_string('correctfeedbackdefault', 'question');
+        $options->correctfeedbackformat = FORMAT_HTML;
+        $options->partiallycorrectfeedback = get_string('partiallycorrectfeedbackdefault', 'question');;
+        $options->partiallycorrectfeedbackformat = FORMAT_HTML;
+        $options->incorrectfeedback = get_string('incorrectfeedbackdefault', 'question');
+        $options->incorrectfeedbackformat = FORMAT_HTML;
+
+        $config = get_config('qtype_multichoice');
+        $options->single = $config->answerhowmany;
+        if (isset($question->layout)) {
+            $options->layout = $question->layout;
+        }
+        $options->answernumbering = $config->answernumbering;
+        $options->shuffleanswers = $config->shuffleanswers;
+        $options->shownumcorrect = 1;
+
+        return $options;
     }
 
     public function save_question_options($question) {
@@ -60,14 +100,13 @@ class qtype_multichoice extends question_type {
             }
         }
         if ($answercount < 2) { // Check there are at lest 2 answers for multiple choice.
-            $result->notice = get_string('notenoughanswers', 'qtype_multichoice', '2');
+            $result->error = get_string('notenoughanswers', 'qtype_multichoice', '2');
             return $result;
         }
 
         // Insert all the new answers.
         $totalfraction = 0;
         $maxfraction = -1;
-        $answers = array();
         foreach ($question->answer as $key => $answerdata) {
             if (trim($answerdata['text']) == '') {
                 continue;
@@ -93,7 +132,6 @@ class qtype_multichoice extends question_type {
             $answer->feedbackformat = $question->feedback[$key]['format'];
 
             $DB->update_record('question_answers', $answer);
-            $answers[] = $answer->id;
 
             if ($question->fraction[$key] > 0) {
                 $totalfraction += $question->fraction[$key];
@@ -110,17 +148,16 @@ class qtype_multichoice extends question_type {
             $DB->delete_records('question_answers', array('id' => $oldanswer->id));
         }
 
-        $options = $DB->get_record('question_multichoice', array('question' => $question->id));
+        $options = $DB->get_record('qtype_multichoice_options', array('questionid' => $question->id));
         if (!$options) {
             $options = new stdClass();
-            $options->question = $question->id;
+            $options->questionid = $question->id;
             $options->correctfeedback = '';
             $options->partiallycorrectfeedback = '';
             $options->incorrectfeedback = '';
-            $options->id = $DB->insert_record('question_multichoice', $options);
+            $options->id = $DB->insert_record('qtype_multichoice_options', $options);
         }
 
-        $options->answers = implode(',', $answers);
         $options->single = $question->single;
         if (isset($question->layout)) {
             $options->layout = $question->layout;
@@ -128,7 +165,7 @@ class qtype_multichoice extends question_type {
         $options->answernumbering = $question->answernumbering;
         $options->shuffleanswers = $question->shuffleanswers;
         $options = $this->save_combined_feedback_helper($options, $question, $context, true);
-        $DB->update_record('question_multichoice', $options);
+        $DB->update_record('qtype_multichoice_options', $options);
 
         $this->save_hints($question, true);
 
@@ -177,9 +214,14 @@ class qtype_multichoice extends question_type {
         $this->initialise_question_answers($question, $questiondata, false);
     }
 
+    public function make_answer($answer) {
+        // Overridden just so we can make it public for use by question.php.
+        return parent::make_answer($answer);
+    }
+
     public function delete_question($questionid, $contextid) {
         global $DB;
-        $DB->delete_records('question_multichoice', array('question' => $questionid));
+        $DB->delete_records('qtype_multichoice_options', array('questionid' => $questionid));
 
         parent::delete_question($questionid, $contextid);
     }
@@ -203,9 +245,9 @@ class qtype_multichoice extends question_type {
             $responses = array();
 
             foreach ($questiondata->options->answers as $aid => $answer) {
-                $responses[$aid] = new question_possible_response(html_to_text(format_text(
-                        $answer->answer, $answer->answerformat, array('noclean' => true)),
-                        0, false), $answer->fraction);
+                $responses[$aid] = new question_possible_response(
+                        question_utils::to_plain_text($answer->answer, $answer->answerformat),
+                        $answer->fraction);
             }
 
             $responses[null] = question_possible_response::no_response();
@@ -214,10 +256,9 @@ class qtype_multichoice extends question_type {
             $parts = array();
 
             foreach ($questiondata->options->answers as $aid => $answer) {
-                $parts[$aid] = array($aid =>
-                        new question_possible_response(html_to_text(format_text(
-                        $answer->answer, $answer->answerformat, array('noclean' => true)),
-                        0, false), $answer->fraction));
+                $parts[$aid] = array($aid => new question_possible_response(
+                        question_utils::to_plain_text($answer->answer, $answer->answerformat),
+                        $answer->fraction));
             }
 
             return $parts;

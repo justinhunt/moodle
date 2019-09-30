@@ -1,5 +1,4 @@
 <?php
-
 // This file is part of Moodle - http://moodle.org/
 //
 // Moodle is free software: you can redistribute it and/or modify
@@ -19,11 +18,13 @@
  * Library of functions for chat outside of the core api
  */
 
+defined('MOODLE_INTERNAL') || die();
+
 require_once($CFG->dirroot . '/mod/chat/lib.php');
 require_once($CFG->libdir . '/portfolio/caller.php');
 
 /**
- * @package   mod-chat
+ * @package   mod_chat
  * @copyright 1999 onwards Martin Dougiamas  {@link http://moodle.com}
  * @license   http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
@@ -115,14 +116,13 @@ class chat_portfolio_caller extends portfolio_module_caller_base {
     public function prepare_package() {
         $content = '';
         $lasttime = 0;
-        $sessiongap = 5 * 60;    // 5 minutes silence means a new session
         foreach ($this->messages as $message) {  // We are walking FORWARDS through messages
             $m = clone $message; // grrrrrr - this causes the sha1 to change as chat_format_message changes what it's passed.
             $formatmessage = chat_format_message($m, $this->cm->course, $this->user);
             if (!isset($formatmessage->html)) {
                 continue;
             }
-            if (empty($lasttime) || (($message->timestamp - $lasttime) > $sessiongap)) {
+            if (empty($lasttime) || (($message->timestamp - $lasttime) > CHAT_SESSION_GAP)) {
                 $content .= '<hr />';
                 $content .= userdate($message->timestamp);
             }
@@ -149,9 +149,7 @@ class chat_portfolio_caller extends portfolio_module_caller_base {
         global $CFG;
 
         return $CFG->wwwroot . '/mod/chat/report.php?id='
-            . $this->cm->id . ((isset($this->start))
-                ? '&start=' . $this->start . '&end=' . $this->end
-                : '');
+            . $this->cm->id . ((isset($this->start)) ? '&start=' . $this->start . '&end=' . $this->end : '');
     }
 }
 
@@ -187,7 +185,7 @@ class event_message implements renderable {
      * @param string $time Ready to display event time
      * @param string $theme The chat theme name
      */
-    function __construct($senderprofile, $sendername, $time, $event, $theme) {
+    public function __construct($senderprofile, $sendername, $time, $event, $theme) {
 
         $this->senderprofile = $senderprofile;
         $this->sendername = $sendername;
@@ -238,8 +236,9 @@ class user_message implements renderable {
      * @param string $message The message
      * @param string $theme The name of the chat theme to use
      */
-    function __construct($senderprofile, $sendername, $avatar, $mymessageclass, $time, $message, $theme) {
+    public function __construct($senderprofile, $sendername, $avatar, $mymessageclass, $time, $message, $theme) {
 
+        $this->senderprofile = $senderprofile;
         $this->sendername = $sendername;
         $this->avatar = $avatar;
         $this->mymessageclass = $mymessageclass;

@@ -61,17 +61,22 @@ abstract class quiz_attempts_report_table extends table_sql {
     /** @var object mod_quiz_attempts_report_options the options affecting this report. */
     protected $options;
 
-    /** @var object the ids of the students in the currently selected group, if applicable. */
-    protected $groupstudents;
+    /** @var \core\dml\sql_join Contains joins, wheres, params to find students
+     * in the currently selected group, if applicable.
+     */
+    protected $groupstudentsjoins;
 
-    /** @var object the ids of the students in the course. */
-    protected $students;
+    /** @var \core\dml\sql_join Contains joins, wheres, params to find the students in the course. */
+    protected $studentsjoins;
 
     /** @var object the questions that comprise this quiz.. */
     protected $questions;
 
     /** @var bool whether to include the column with checkboxes to select each attempt. */
     protected $includecheckboxes;
+
+    /** @var string The toggle group name for the checkboxes in the checkbox column. */
+    protected $togglegroup = 'quiz-attempts';
 
     /**
      * Constructor
@@ -80,20 +85,20 @@ abstract class quiz_attempts_report_table extends table_sql {
      * @param context $context
      * @param string $qmsubselect
      * @param mod_quiz_attempts_report_options $options
-     * @param array $groupstudents
-     * @param array $students
+     * @param \core\dml\sql_join $groupstudentsjoins Contains joins, wheres, params
+     * @param \core\dml\sql_join $studentsjoins Contains joins, wheres, params
      * @param array $questions
      * @param moodle_url $reporturl
      */
     public function __construct($uniqueid, $quiz, $context, $qmsubselect,
-            mod_quiz_attempts_report_options $options, $groupstudents, $students,
+            mod_quiz_attempts_report_options $options, \core\dml\sql_join $groupstudentsjoins, \core\dml\sql_join $studentsjoins,
             $questions, $reporturl) {
         parent::__construct($uniqueid);
         $this->quiz = $quiz;
         $this->context = $context;
         $this->qmsubselect = $qmsubselect;
-        $this->groupstudents = $groupstudents;
-        $this->students = $students;
+        $this->groupstudentsjoins = $groupstudentsjoins;
+        $this->studentsjoins = $studentsjoins;
         $this->questions = $questions;
         $this->includecheckboxes = $options->checkboxcolumn;
         $this->reporturl = $reporturl;
@@ -106,8 +111,17 @@ abstract class quiz_attempts_report_table extends table_sql {
      * @return string HTML content to go inside the td.
      */
     public function col_checkbox($attempt) {
+        global $OUTPUT;
+
         if ($attempt->attempt) {
-            return '<input type="checkbox" name="attemptid[]" value="'.$attempt->attempt.'" />';
+            $checkbox = new \core\output\checkbox_toggleall($this->togglegroup, false, [
+                'id' => "attemptid_{$attempt->attempt}",
+                'name' => 'attemptid[]',
+                'value' => $attempt->attempt,
+                'label' => get_string('selectattempt', 'quiz'),
+                'labelclasses' => 'accesshide',
+            ]);
+            return $OUTPUT->render($checkbox);
         } else {
             return '';
         }
@@ -121,12 +135,9 @@ abstract class quiz_attempts_report_table extends table_sql {
     public function col_picture($attempt) {
         global $OUTPUT;
         $user = new stdClass();
+        $additionalfields = explode(',', user_picture::fields());
+        $user = username_load_fields_from_object($user, $attempt, null, $additionalfields);
         $user->id = $attempt->userid;
-        $user->lastname = $attempt->lastname;
-        $user->firstname = $attempt->firstname;
-        $user->imagealt = $attempt->imagealt;
-        $user->picture = $attempt->picture;
-        $user->email = $attempt->email;
         return $OUTPUT->user_picture($user);
     }
 
@@ -137,7 +148,7 @@ abstract class quiz_attempts_report_table extends table_sql {
      */
     public function col_fullname($attempt) {
         $html = parent::col_fullname($attempt);
-        if ($this->is_downloading()) {
+        if ($this->is_downloading() || empty($attempt->attempt)) {
             return $html;
         }
 
@@ -237,31 +248,63 @@ abstract class quiz_attempts_report_table extends table_sql {
     public function make_review_link($data, $attempt, $slot) {
         global $OUTPUT;
 
-        $stepdata = $this->lateststeps[$attempt->usageid][$slot];
-        $state = question_state::get($stepdata->state);
-
         $flag = '';
-        if ($stepdata->flagged) {
+        if ($this->is_flagged($attempt->usageid, $slot)) {
             $flag = $OUTPUT->pix_icon('i/flagged', get_string('flagged', 'question'),
                     'moodle', array('class' => 'questionflag'));
         }
 
         $feedbackimg = '';
+        $state = $this->slot_state($attempt, $slot);
         if ($state->is_finished() && $state != question_state::$needsgrading) {
-            $feedbackimg = $this->icon_for_fraction($stepdata->fraction);
+            $feedbackimg = $this->icon_for_fraction($this->slot_fraction($attempt, $slot));
         }
 
         $output = html_writer::tag('span', $feedbackimg . html_writer::tag('span',
                 $data, array('class' => $state->get_state_class(true))) . $flag, array('class' => 'que'));
 
-        $url = new moodle_url('/mod/quiz/reviewquestion.php',
-                array('attempt' => $attempt->attempt, 'slot' => $slot));
+        $reviewparams = array('attempt' => $attempt->attempt, 'slot' => $slot);
+        if (isset($attempt->try)) {
+            $reviewparams['step'] = $this->step_no_for_try($attempt->usageid, $slot, $attempt->try);
+        }
+        $url = new moodle_url('/mod/quiz/reviewquestion.php', $reviewparams);
         $output = $OUTPUT->action_link($url, $output,
                 new popup_action('click', $url, 'reviewquestion',
                         array('height' => 450, 'width' => 650)),
                 array('title' => get_string('reviewresponse', 'quiz')));
 
         return $output;
+    }
+
+    /**
+     * @param object $attempt the row data
+     * @param int $slot
+     * @return question_state
+     */
+    protected function slot_state($attempt, $slot) {
+        $stepdata = $this->lateststeps[$attempt->usageid][$slot];
+        return question_state::get($stepdata->state);
+    }
+
+    /**
+     * @param int $questionusageid
+     * @param int $slot
+     * @return bool
+     */
+    protected function is_flagged($questionusageid, $slot) {
+        $stepdata = $this->lateststeps[$questionusageid][$slot];
+        return $stepdata->flagged;
+    }
+
+
+    /**
+     * @param object $attempt the row data
+     * @param int $slot
+     * @return float
+     */
+    protected function slot_fraction($attempt, $slot) {
+        $stepdata = $this->lateststeps[$attempt->usageid][$slot];
+        return $stepdata->fraction;
     }
 
     /**
@@ -278,15 +321,27 @@ abstract class quiz_attempts_report_table extends table_sql {
     }
 
     /**
+     * Load any extra data after main query. At this point you can call {@link get_qubaids_condition} to get the condition that
+     * limits the query to just the question usages shown in this report page or alternatively for all attempts if downloading a
+     * full report.
+     */
+    protected function load_extra_data() {
+        $this->lateststeps = $this->load_question_latest_steps();
+    }
+
+    /**
      * Load information about the latest state of selected questions in selected attempts.
      *
      * The results are returned as an two dimensional array $qubaid => $slot => $dataobject
      *
-     * @param qubaid_condition $qubaids used to restrict which usages are included
+     * @param qubaid_condition|null $qubaids used to restrict which usages are included
      * in the query. See {@link qubaid_condition}.
      * @return array of records. See the SQL in this function to see the fields available.
      */
-    protected function load_question_latest_steps(qubaid_condition $qubaids) {
+    protected function load_question_latest_steps(qubaid_condition $qubaids = null) {
+        if ($qubaids === null) {
+            $qubaids = $this->get_qubaids_condition();
+        }
         $dm = new question_engine_data_mapper();
         $latesstepdata = $dm->load_questions_usages_latest_steps(
                 $qubaids, array_keys($this->questions));
@@ -300,9 +355,19 @@ abstract class quiz_attempts_report_table extends table_sql {
     }
 
     /**
+     * Does this report require loading any more data after the main query. After the main query then
+     * you can use $this->get
+     *
+     * @return bool should {@link query_db()} call {@link load_extra_data}?
+     */
+    protected function requires_extra_data() {
+        return $this->requires_latest_steps_loaded();
+    }
+
+    /**
      * Does this report require the detailed information for each question from the
      * question_attempts_steps table?
-     * @return bool should {@link query_db()} call {@link load_question_latest_steps}?
+     * @return bool should {@link load_extra_data} call {@link load_question_latest_steps}?
      */
     protected function requires_latest_steps_loaded() {
         return false;
@@ -329,14 +394,15 @@ abstract class quiz_attempts_report_table extends table_sql {
 
     /**
      * Contruct all the parts of the main database query.
-     * @param array $reportstudents list if userids of users to include in the report.
+     * @param \core\dml\sql_join $allowedstudentsjoins (joins, wheres, params) defines allowed users for the report.
      * @return array with 4 elements ($fields, $from, $where, $params) that can be used to
-     *      build the actual database query.
+     *     build the actual database query.
      */
-    public function base_sql($reportstudents) {
+    public function base_sql(\core\dml\sql_join $allowedstudentsjoins) {
         global $DB;
 
-        $fields = $DB->sql_concat('u.id', "'#'", 'COALESCE(quiza.attempt, 0)') . ' AS uniqueid,';
+        // Please note this uniqueid column is not the same as quiza.uniqueid.
+        $fields = 'DISTINCT ' . $DB->sql_concat('u.id', "'#'", 'COALESCE(quiza.attempt, 0)') . ' AS uniqueid,';
 
         if ($this->qmsubselect) {
             $fields .= "\n(CASE WHEN $this->qmsubselect THEN 1 ELSE 0 END) AS gradedattempt,";
@@ -345,13 +411,12 @@ abstract class quiz_attempts_report_table extends table_sql {
         $extrafields = get_extra_user_fields_sql($this->context, 'u', '',
                 array('id', 'idnumber', 'firstname', 'lastname', 'picture',
                 'imagealt', 'institution', 'department', 'email'));
+        $allnames = get_all_user_name_fields(true, 'u');
         $fields .= '
                 quiza.uniqueid AS usageid,
                 quiza.id AS attempt,
                 u.id AS userid,
-                u.idnumber,
-                u.firstname,
-                u.lastname,
+                u.idnumber, ' . $allnames . ',
                 u.picture,
                 u.imagealt,
                 u.institution,
@@ -369,13 +434,14 @@ abstract class quiz_attempts_report_table extends table_sql {
             // badly synchronised clocks, and a student does a really quick attempt.
 
         // This part is the same for all cases. Join the users and quiz_attempts tables.
-        $from = "\n{user} u";
+        $from = " {user} u";
         $from .= "\nLEFT JOIN {quiz_attempts} quiza ON
                                     quiza.userid = u.id AND quiza.quiz = :quizid";
         $params = array('quizid' => $this->quiz->id);
 
         if ($this->qmsubselect && $this->options->onlygraded) {
-            $from .= " AND $this->qmsubselect";
+            $from .= " AND (quiza.state <> :finishedstate OR $this->qmsubselect)";
+            $params['finishedstate'] = quiz_attempt::FINISHED;
         }
 
         switch ($this->options->attempts) {
@@ -385,24 +451,21 @@ abstract class quiz_attempts_report_table extends table_sql {
                 break;
             case quiz_attempts_report::ENROLLED_WITH:
                 // Show only students with attempts.
-                list($usql, $uparams) = $DB->get_in_or_equal(
-                        $reportstudents, SQL_PARAMS_NAMED, 'u');
-                $params += $uparams;
-                $where = "u.id $usql AND quiza.preview = 0 AND quiza.id IS NOT NULL";
+                $from .= "\n" . $allowedstudentsjoins->joins;
+                $where = "quiza.preview = 0 AND quiza.id IS NOT NULL AND " . $allowedstudentsjoins->wheres;
+                $params = array_merge($params, $allowedstudentsjoins->params);
                 break;
             case quiz_attempts_report::ENROLLED_WITHOUT:
                 // Show only students without attempts.
-                list($usql, $uparams) = $DB->get_in_or_equal(
-                        $reportstudents, SQL_PARAMS_NAMED, 'u');
-                $params += $uparams;
-                $where = "u.id $usql AND quiza.id IS NULL";
+                $from .= "\n" . $allowedstudentsjoins->joins;
+                $where = "quiza.id IS NULL AND " . $allowedstudentsjoins->wheres;
+                $params = array_merge($params, $allowedstudentsjoins->params);
                 break;
             case quiz_attempts_report::ENROLLED_ALL:
                 // Show all students with or without attempts.
-                list($usql, $uparams) = $DB->get_in_or_equal(
-                        $reportstudents, SQL_PARAMS_NAMED, 'u');
-                $params += $uparams;
-                $where = "u.id $usql AND (quiza.preview = 0 OR quiza.preview IS NULL)";
+                $from .= "\n" . $allowedstudentsjoins->joins;
+                $where = "(quiza.preview = 0 OR quiza.preview IS NULL) AND " . $allowedstudentsjoins->wheres;
+                $params = array_merge($params, $allowedstudentsjoins->params);
                 break;
         }
 
@@ -414,6 +477,35 @@ abstract class quiz_attempts_report_table extends table_sql {
         }
 
         return array($fields, $from, $where, $params);
+    }
+
+    /**
+     * A chance for subclasses to modify the SQL after the count query has been generated,
+     * and before the full query is constructed.
+     * @param string $fields SELECT list.
+     * @param string $from JOINs part of the SQL.
+     * @param string $where WHERE clauses.
+     * @param array $params Query params.
+     * @return array with 4 elements ($fields, $from, $where, $params) as from base_sql.
+     */
+    protected function update_sql_after_count($fields, $from, $where, $params) {
+        return [$fields, $from, $where, $params];
+    }
+
+    /**
+     * Set up the SQL queries (count rows, and get data).
+     *
+     * @param \core\dml\sql_join $allowedjoins (joins, wheres, params) defines allowed users for the report.
+     */
+    public function setup_sql_queries($allowedjoins) {
+        list($fields, $from, $where, $params) = $this->base_sql($allowedjoins);
+
+        // The WHERE clause is vital here, because some parts of tablelib.php will expect to
+        // add bits like ' AND x = 1' on the end, and that needs to leave to valid SQL.
+        $this->set_count_sql("SELECT COUNT(1) FROM (SELECT $fields FROM $from WHERE $where) temp WHERE 1 = 1", $params);
+
+        list($fields, $from, $where, $params) = $this->update_sql_after_count($fields, $from, $where, $params);
+        $this->set_sql($fields, $from, $where, $params);
     }
 
     /**
@@ -464,8 +556,12 @@ abstract class quiz_attempts_report_table extends table_sql {
 
         if ($this->is_downloading()) {
             // We want usages for all attempts.
-            return new qubaid_join($this->sql->from, 'quiza.uniqueid',
-                    $this->sql->where, $this->sql->params);
+            return new qubaid_join("(
+                SELECT DISTINCT quiza.uniqueid
+                  FROM " . $this->sql->from . "
+                 WHERE " . $this->sql->where . "
+                    ) quizasubquery", 'quizasubquery.uniqueid',
+                    "1 = 1", $this->sql->params);
         }
 
         $qubaids = array();
@@ -490,9 +586,8 @@ abstract class quiz_attempts_report_table extends table_sql {
 
         parent::query_db($pagesize, $useinitialsbar);
 
-        if ($this->requires_latest_steps_loaded()) {
-            $qubaids = $this->get_qubaids_condition();
-            $this->lateststeps = $this->load_question_latest_steps($qubaids);
+        if ($this->requires_extra_data()) {
+            $this->load_extra_data();
         }
     }
 
@@ -520,16 +615,12 @@ abstract class quiz_attempts_report_table extends table_sql {
     }
 
     public function wrap_html_finish() {
+        global $PAGE;
         if ($this->is_downloading() || !$this->includecheckboxes) {
             return;
         }
 
         echo '<div id="commands">';
-        echo '<a href="javascript:select_all_in(\'DIV\', null, \'tablecontainer\');">' .
-                get_string('selectall', 'quiz') . '</a> / ';
-        echo '<a href="javascript:deselect_all_in(\'DIV\', null, \'tablecontainer\');">' .
-                get_string('selectnone', 'quiz') . '</a> ';
-        echo '&nbsp;&nbsp;';
         $this->submit_buttons();
         echo '</div>';
 
@@ -544,10 +635,47 @@ abstract class quiz_attempts_report_table extends table_sql {
     protected function submit_buttons() {
         global $PAGE;
         if (has_capability('mod/quiz:deleteattempts', $this->context)) {
-            echo '<input type="submit" id="deleteattemptsbutton" name="delete" value="' .
-                    get_string('deleteselected', 'quiz_overview') . '"/>';
+            $deletebuttonparams = [
+                'type'  => 'submit',
+                'class' => 'btn btn-secondary mr-1',
+                'id'    => 'deleteattemptsbutton',
+                'name'  => 'delete',
+                'value' => get_string('deleteselected', 'quiz_overview'),
+                'data-action' => 'toggle',
+                'data-togglegroup' => $this->togglegroup,
+                'data-toggle' => 'action',
+                'disabled' => true
+            ];
+            echo html_writer::empty_tag('input', $deletebuttonparams);
             $PAGE->requires->event_handler('#deleteattemptsbutton', 'click', 'M.util.show_confirm_dialog',
                     array('message' => get_string('deleteattemptcheck', 'quiz')));
         }
+    }
+
+    /**
+     * Generates the contents for the checkbox column header.
+     *
+     * It returns the HTML for a master \core\output\checkbox_toggleall component that selects/deselects all quiz attempts.
+     *
+     * @return string
+     */
+    public function checkbox_col_header() {
+        global $OUTPUT;
+
+        // Build the select/deselect all control.
+        $selectallid = $this->uniqueid . '-selectall-attempts';
+        $selectalltext = get_string('selectall', 'quiz');
+        $deselectalltext = get_string('selectnone', 'quiz');
+        $mastercheckbox = new \core\output\checkbox_toggleall($this->togglegroup, true, [
+            'id' => $selectallid,
+            'name' => $selectallid,
+            'value' => 1,
+            'label' => $selectalltext,
+            'labelclasses' => 'accesshide',
+            'selectall' => $selectalltext,
+            'deselectall' => $deselectalltext,
+        ]);
+
+        return $OUTPUT->render($mastercheckbox);
     }
 }

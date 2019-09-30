@@ -30,8 +30,7 @@ require_once($CFG->libdir.'/tablelib.php');
 $PAGE->set_url('/' . $CFG->admin . '/webservice/protocols.php');
 //TODO: disable the blocks here or better make the page layout default to no blocks!
 
-require_login();
-require_capability('moodle/site:config', context_system::instance());
+require_admin();
 
 $returnurl = $CFG->wwwroot . "/" . $CFG->admin . "/settings.php?section=webserviceprotocols";
 
@@ -40,7 +39,7 @@ $webservice = optional_param('webservice', '', PARAM_SAFEDIR);
 $confirm    = optional_param('confirm', 0, PARAM_BOOL);
 
 // get currently installed and enabled auth plugins
-$available_webservices = get_plugin_list('webservice');
+$available_webservices = core_component::get_plugin_list('webservice');
 if (!empty($webservice) and empty($available_webservices[$webservice])) {
     redirect($returnurl);
 }

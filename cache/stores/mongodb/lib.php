@@ -26,13 +26,15 @@
 
 defined('MOODLE_INTERNAL') || die();
 
+require_once('MongoDB/functions.php');
+
 /**
  * The MongoDB Cache store.
  *
- * This cache store uses the MongoDB Native Driver.
+ * This cache store uses the MongoDB Native Driver and the MongoDB PHP Library.
  * For installation instructions have a look at the following two links:
- *  - {@link http://www.php.net/manual/en/mongo.installation.php}
- *  - {@link http://www.mongodb.org/display/DOCS/PHP+Language+Center}
+ *  - {@link http://php.net/manual/en/set.mongodb.php}
+ *  - {@link https://docs.mongodb.com/ecosystem/drivers/php/}
  *
  * @copyright  2012 Sam Hemelryk
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
@@ -65,19 +67,19 @@ class cachestore_mongodb extends cache_store implements cache_is_configurable {
 
     /**
      * The Connection object
-     * @var Mongo
+     * @var MongoDB/Client
      */
     protected $connection = false;
 
     /**
      * The Database Object
-     * @var MongoDB
+     * @var MongoDB/Database
      */
     protected $database;
 
     /**
      * The Collection object
-     * @var MongoCollection
+     * @var MongoDB/Collection
      */
     protected $collection;
 
@@ -85,7 +87,7 @@ class cachestore_mongodb extends cache_store implements cache_is_configurable {
      * Determines if and what safe setting is to be used.
      * @var bool|int
      */
-    protected $usesafe = false;
+    protected $usesafe = true;
 
     /**
      * If set to true then multiple identifiers will be requested and used.
@@ -141,10 +143,13 @@ class cachestore_mongodb extends cache_store implements cache_is_configurable {
         }
 
         try {
-            $this->connection = new Mongo($this->server, $this->options);
+            $this->connection = new MongoDB\Client($this->server, $this->options);
+            // Required because MongoDB\Client does not try to connect to the server
+            $rp = new MongoDB\Driver\ReadPreference(MongoDB\Driver\ReadPreference::RP_PRIMARY);
+            $this->connection->getManager()->selectServer($rp);
             $this->isready = true;
-        } catch (MongoConnectionException $e) {
-            // We only want to catch MongoConnectionExceptions here.
+        } catch (MongoDB\Driver\Exception\RuntimeException $e) {
+            // We only want to catch RuntimeException here.
         }
     }
 
@@ -153,7 +158,7 @@ class cachestore_mongodb extends cache_store implements cache_is_configurable {
      * @return bool
      */
     public static function are_requirements_met() {
-        return class_exists('Mongo');
+        return version_compare(phpversion('mongodb'), '1.5', 'ge');
     }
 
     /**
@@ -162,7 +167,7 @@ class cachestore_mongodb extends cache_store implements cache_is_configurable {
      * @return int
      */
     public static function get_supported_features(array $configuration = array()) {
-        $supports = self::SUPPORTS_DATA_GUARANTEE;
+        $supports = self::SUPPORTS_DATA_GUARANTEE + self::DEREFERENCES_OBJECTS;
         if (array_key_exists('extendedmode', $configuration) && $configuration['extendedmode']) {
             $supports += self::SUPPORTS_MULTIPLE_IDENTIFIERS;
         }
@@ -175,7 +180,7 @@ class cachestore_mongodb extends cache_store implements cache_is_configurable {
      * @return int
      */
     public static function get_supported_modes(array $configuration = array()) {
-        return self::MODE_APPLICATION + self::MODE_SESSION;
+        return self::MODE_APPLICATION;
     }
 
     /**
@@ -190,13 +195,18 @@ class cachestore_mongodb extends cache_store implements cache_is_configurable {
         if ($this->is_initialised()) {
             throw new coding_exception('This mongodb instance has already been initialised.');
         }
-        $this->database = $this->connection->selectDB($this->databasename);
-        $this->definitionhash = $definition->generate_definition_hash();
+        $this->database = $this->connection->selectDatabase($this->databasename);
+        $this->definitionhash = 'm'.$definition->generate_definition_hash();
         $this->collection = $this->database->selectCollection($this->definitionhash);
-        $this->collection->ensureIndex(array('key' => 1), array(
-            'safe' => $this->usesafe,
-            'name' => 'idx_key'
-        ));
+
+        $options = array('name' => 'idx_key');
+
+        $w = $this->usesafe ? 1 : 0;
+        $wc = new MongoDB\Driver\WriteConcern($w);
+
+        $options['writeConcern'] = $wc;
+
+        $this->collection->createIndex(array('key' => 1), $options);
     }
 
     /**
@@ -204,7 +214,7 @@ class cachestore_mongodb extends cache_store implements cache_is_configurable {
      * @return bool
      */
     public function is_initialised() {
-        return ($this->database instanceof MongoDB);
+        return ($this->database instanceof MongoDB\Database);
     }
 
     /**
@@ -301,24 +311,21 @@ class cachestore_mongodb extends cache_store implements cache_is_configurable {
             $record = $key;
         }
         $record['data'] = serialize($data);
-        $options = array(
-            'upsert' => true,
-            'safe' => $this->usesafe,
-            'w' => $this->usesafe ? 1 : 0
-        );
+        $options = array('upsert' => true);
+
+        $w = $this->usesafe ? 1 : 0;
+        $wc = new MongoDB\Driver\WriteConcern($w);
+
+        $options['writeConcern'] = $wc;
+
         $this->delete($key);
-        $result = $this->collection->insert($record, $options);
-        if ($result === true) {
-            // Safe mode is off.
-            return true;
-        } else if (is_array($result)) {
-            if (empty($result['ok']) || isset($result['err'])) {
-                return false;
-            }
-            return true;
+        try {
+            $this->collection->insertOne($record, $options);
+        } catch (MongoDB\Exception\Exception $e) {
+            return false;
         }
-        // Who knows?
-        return false;
+
+        return true;
     }
 
     /**
@@ -354,27 +361,24 @@ class cachestore_mongodb extends cache_store implements cache_is_configurable {
         } else {
             $criteria = $key;
         }
-        $options = array(
-            'justOne' => false,
-            'safe' => $this->usesafe,
-            'w' => $this->usesafe ? 1 : 0
-        );
-        $result = $this->collection->remove($criteria, $options);
+        $options = array('justOne' => false);
 
-        if ($result === true) {
-            // Safe mode.
-            return true;
-        } else if (is_array($result)) {
-            if (empty($result['ok']) || isset($result['err'])) {
-                return false;
-            } else if (empty($result['n'])) {
-                // Nothing was removed.
-                return false;
-            }
-            return true;
+        $w = $this->usesafe ? 1 : 0;
+        $wc = new MongoDB\Driver\WriteConcern($w);
+
+        $options['writeConcern'] = $wc;
+
+        try {
+            $result = $this->collection->deleteOne($criteria, $options);
+        } catch (\MongoDB\Exception $e) {
+            return false;
         }
-        // Who knows?
-        return false;
+
+        if (empty($result->getDeletedCount())) {
+            return false;
+        }
+
+        return true;
     }
 
     /**
@@ -479,18 +483,10 @@ class cachestore_mongodb extends cache_store implements cache_is_configurable {
     public function instance_deleted() {
         // We can't use purge here that acts upon a collection.
         // Instead we must drop the named database.
-        if ($this->connection) {
-            $connection = $this->connection;
-        } else {
-            try {
-               $connection = new Mongo($this->server, $this->options);
-            } catch (MongoConnectionException $e) {
-                // We only want to catch MongoConnectionExceptions here.
-                // If the server cannot be connected to we cannot clean it.
-                return;
-            }
+        if (!$this->is_ready()) {
+            return;
         }
-        $database = $connection->selectDB($this->databasename);
+        $database = $this->connection->selectDatabase($this->databasename);
         $database->drop();
         $connection = null;
         $database = null;
@@ -535,9 +531,30 @@ class cachestore_mongodb extends cache_store implements cache_is_configurable {
         }
 
         $store = new cachestore_mongodb('Test mongodb', $configuration);
+        if (!$store->is_ready()) {
+            return false;
+        }
         $store->initialise($definition);
 
         return $store;
+    }
+
+    /**
+     * Generates an instance of the cache store that can be used for testing.
+     *
+     * @param cache_definition $definition
+     * @return false
+     */
+    public static function unit_test_configuration() {
+        $configuration = array();
+        $configuration['usesafe'] = 1;
+
+        // If the configuration is not defined correctly, return only the configuration know about.
+        if (defined('TEST_CACHESTORE_MONGODB_TESTSERVER')) {
+            $configuration['server'] = TEST_CACHESTORE_MONGODB_TESTSERVER;
+        }
+
+        return $configuration;
     }
 
     /**
@@ -546,5 +563,17 @@ class cachestore_mongodb extends cache_store implements cache_is_configurable {
      */
     public function my_name() {
         return $this->name;
+    }
+
+    /**
+     * Returns true if this cache store instance is both suitable for testing, and ready for testing.
+     *
+     * Cache stores that support being used as the default store for unit and acceptance testing should
+     * override this function and return true if there requirements have been met.
+     *
+     * @return bool
+     */
+    public static function ready_to_be_used_for_testing() {
+        return defined('TEST_CACHESTORE_MONGODB_TESTSERVER');
     }
 }

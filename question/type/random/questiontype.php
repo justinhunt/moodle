@@ -86,7 +86,7 @@ class qtype_random extends question_type {
         list($qcsql, $qcparams) = $DB->get_in_or_equal($categorylist);
         // TODO use in_or_equal for $otherquestionsinuse and $this->manualqtypes.
         return $DB->record_exists_select('question',
-                "category $qcsql
+                "category {$qcsql}
                      AND parent = 0
                      AND hidden = 0
                      AND id NOT IN ($otherquestionsinuse)
@@ -115,13 +115,6 @@ class qtype_random extends question_type {
         $this->manualqtypes = implode(',', $manualqtypes);
     }
 
-    public function display_question_editing_page($mform, $question, $wizardnow) {
-        global $OUTPUT;
-        $heading = $this->get_heading(empty($question->id));
-        echo $OUTPUT->heading_with_help($heading, 'pluginname', $this->plugin_name());
-        $mform->display();
-    }
-
     public function get_question_options($question) {
         return true;
     }
@@ -129,17 +122,59 @@ class qtype_random extends question_type {
     /**
      * Random questions always get a question name that is Random (cateogryname).
      * This function is a centralised place to calculate that, given the category.
-     * @param object $category the category this question picks from. (Only ->name is used.)
+     * @param stdClass $category the category this question picks from. (Only ->name is used.)
      * @param bool $includesubcategories whether this question also picks from subcategories.
+     * @param string[] $tagnames Name of tags this question picks from.
      * @return string the name this question should have.
      */
-    public function question_name($category, $includesubcategories) {
-        if ($includesubcategories) {
-            $string = 'randomqplusname';
+    public function question_name($category, $includesubcategories, $tagnames = []) {
+        $categoryname = '';
+        if ($category->parent && $includesubcategories) {
+            $stringid = 'randomqplusname';
+            $categoryname = shorten_text($category->name, 100);
+        } else if ($category->parent) {
+            $stringid = 'randomqname';
+            $categoryname = shorten_text($category->name, 100);
+        } else if ($includesubcategories) {
+            $context = context::instance_by_id($category->contextid);
+
+            switch ($context->contextlevel) {
+                case CONTEXT_MODULE:
+                    $stringid = 'randomqplusnamemodule';
+                    break;
+                case CONTEXT_COURSE:
+                    $stringid = 'randomqplusnamecourse';
+                    break;
+                case CONTEXT_COURSECAT:
+                    $stringid = 'randomqplusnamecoursecat';
+                    $categoryname = shorten_text($context->get_context_name(false), 100);
+                    break;
+                case CONTEXT_SYSTEM:
+                    $stringid = 'randomqplusnamesystem';
+                    break;
+                default: // Impossible.
+            }
         } else {
-            $string = 'randomqname';
+            // No question will ever be selected. So, let's warn the teacher.
+            $stringid = 'randomqnamefromtop';
         }
-        return get_string($string, 'qtype_random', shorten_text($category->name, 100));
+
+        if ($tagnames) {
+            $stringid .= 'tags';
+            $a = new stdClass();
+            if ($categoryname) {
+                $a->category = $categoryname;
+            }
+            $a->tags = implode(',', array_map(function($tagname) {
+                return explode(',', $tagname)[1];
+            }, $tagnames));
+        } else {
+            $a = $categoryname ? : null;
+        }
+
+        $name = get_string($stringid, 'qtype_random', $a);
+
+        return shorten_text($name, 255);
     }
 
     protected function set_selected_question_name($question, $randomname) {
@@ -150,9 +185,28 @@ class qtype_random extends question_type {
     }
 
     public function save_question($question, $form) {
+        global $DB;
+
         $form->name = '';
-        $form->questiontextformat = FORMAT_MOODLE;
+        list($category) = explode(',', $form->category);
+
+        if (!$form->includesubcategories) {
+            if ($DB->record_exists('question_categories', ['id' => $category, 'parent' => 0])) {
+                // The chosen category is a top category.
+                $form->includesubcategories = true;
+            }
+        }
+
         $form->tags = array();
+
+        if (empty($form->fromtags)) {
+            $form->fromtags = array();
+        }
+
+        $form->questiontext = array(
+            'text'   => $form->includesubcategories ? '1' : '0',
+            'format' => 0
+        );
 
         // Name is not a required field for random questions, but
         // parent::save_question Assumes that it is.
@@ -172,8 +226,17 @@ class qtype_random extends question_type {
         // We also force the question name to be 'Random (categoryname)'.
         $category = $DB->get_record('question_categories',
                 array('id' => $question->category), '*', MUST_EXIST);
-        $updateobject->name = $this->question_name($category, !empty($question->questiontext));
+        $updateobject->name = $this->question_name($category, $question->includesubcategories, $question->fromtags);
         return $DB->update_record('question', $updateobject);
+    }
+
+    /**
+     * During unit tests we need to be able to reset all caches so that each new test starts in a known state.
+     * Intended for use only for testing. This is a stop gap until we start using the MUC caching api here.
+     * You need to call this before every test that loads one or more random questions.
+     */
+    public function clear_caches_before_testing() {
+        $this->availablequestionsbycategory = array();
     }
 
     /**
@@ -209,18 +272,28 @@ class qtype_random extends question_type {
 
     /**
      * Load the definition of another question picked randomly by this question.
-     * @param object $questiondata the data defining a random question.
-     * @param array $excludedquestions of question ids. We will no pick any
-     *      question whose id is in this list.
-     * @param bool $allowshuffle if false, then any shuffle option on the
-     *      selected quetsion is disabled.
+     * @param object       $questiondata the data defining a random question.
+     * @param array        $excludedquestions of question ids. We will no pick any question whose id is in this list.
+     * @param bool         $allowshuffle      if false, then any shuffle option on the selected quetsion is disabled.
+     * @param null|integer $forcequestionid   if not null then force the picking of question with id $forcequestionid.
+     * @throws coding_exception
      * @return question_definition|null the definition of the question that was
      *      selected, or null if no suitable question could be found.
      */
-    public function choose_other_question($questiondata, $excludedquestions, $allowshuffle = true) {
+    public function choose_other_question($questiondata, $excludedquestions, $allowshuffle = true, $forcequestionid = null) {
         $available = $this->get_available_questions_from_category($questiondata->category,
                 !empty($questiondata->questiontext));
         shuffle($available);
+
+        if ($forcequestionid !== null) {
+            $forcedquestionkey = array_search($forcequestionid, $available);
+            if ($forcedquestionkey !== false) {
+                unset($available[$forcedquestionkey]);
+                array_unshift($available, $forcequestionid);
+            } else {
+                throw new coding_exception('thisquestionidisnotavailable', $forcequestionid);
+            }
+        }
 
         foreach ($available as $questionid) {
             if (in_array($questionid, $excludedquestions)) {

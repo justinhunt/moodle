@@ -18,8 +18,7 @@
 /**
  * Multichoice
  *
- * @package    mod
- * @subpackage lesson
+ * @package mod_lesson
  * @copyright  2009 Sam Hemelryk
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  **/
@@ -78,6 +77,8 @@ class lesson_page_type_multichoice extends lesson_page {
         foreach ($answers as $key=>$answer) {
             if ($answer->answer === '') {
                 unset($answers[$key]);
+            } else {
+                $answers[$key] = parent::rewrite_answers_urls($answer);
             }
         }
         return $answers;
@@ -98,6 +99,18 @@ class lesson_page_type_multichoice extends lesson_page {
         $data->id = $PAGE->cm->id;
         $data->pageid = $this->properties->id;
         $mform->set_data($data);
+
+        // Trigger an event question viewed.
+        $eventparams = array(
+            'context' => context_module::instance($PAGE->cm->id),
+            'objectid' => $this->properties->id,
+            'other' => array(
+                    'pagetype' => $this->get_typestring()
+                )
+            );
+
+        $event = \mod_lesson\event\question_viewed::create($eventparams);
+        $event->trigger();
         return $mform->display();
     }
 
@@ -122,7 +135,9 @@ class lesson_page_type_multichoice extends lesson_page {
         require_sesskey();
 
         if (!$data) {
-            redirect(new moodle_url('/mod/lesson/view.php', array('id'=>$PAGE->cm->id, 'pageid'=>$this->properties->id)));
+            $result->inmediatejump = true;
+            $result->newpageid = $this->properties->id;
+            return $result;
         }
 
         if ($this->properties->qoption) {
@@ -150,90 +165,68 @@ class lesson_page_type_multichoice extends lesson_page {
             $wronganswerid = 0;
             // store student's answers for displaying on feedback page
             $result->studentanswer = '';
+            $result->studentanswerformat = FORMAT_HTML;
             foreach ($answers as $answer) {
                 foreach ($studentanswers as $answerid) {
                     if ($answerid == $answer->id) {
-                        $result->studentanswer .= '<br />'.format_text($answer->answer, $answer->answerformat, $formattextdefoptions);
-                        if (trim(strip_tags($answer->response))) {
-                            $responses[$answerid] = format_text($answer->response, $answer->responseformat, $formattextdefoptions);
-                        }
+                        $studentanswerarray[] = format_text($answer->answer, $answer->answerformat, $formattextdefoptions);
+                        $responses[$answerid] = format_text($answer->response, $answer->responseformat, $formattextdefoptions);
                     }
                 }
             }
+            $result->studentanswer = implode(self::MULTIANSWER_DELIMITER, $studentanswerarray);
             $correctpageid = null;
             $wrongpageid = null;
-            // this is for custom scores.  If score on answer is positive, it is correct
-            if ($this->lesson->custom) {
-                $ncorrect = 0;
-                $nhits = 0;
-                foreach ($answers as $answer) {
-                    if ($answer->score > 0) {
-                        $ncorrect++;
 
-                        foreach ($studentanswers as $answerid) {
-                            if ($answerid == $answer->id) {
-                               $nhits++;
+            // Iterate over all the possible answers.
+            foreach ($answers as $answer) {
+                if ($this->lesson->custom) {
+                    $iscorrectanswer = $answer->score > 0;
+                } else {
+                    $iscorrectanswer = $this->lesson->jumpto_is_correct($this->properties->id, $answer->jumpto);
+                }
+
+                // Iterate over all the student answers to check if he selected the current possible answer.
+                foreach ($studentanswers as $answerid) {
+                    if ($answerid == $answer->id) {
+                        if ($iscorrectanswer) {
+                            $nhits++;
+                        } else {
+                            // Always jump to the page related to the student's first wrong answer.
+                            if (!isset($wrongpageid)) {
+                                // Leave in its "raw" state - will be converted into a proper page id later.
+                                $wrongpageid = $answer->jumpto;
                             }
-                        }
-                        // save the first jumpto page id, may be needed!...
-                        if (!isset($correctpageid)) {
-                            // leave in its "raw" state - will converted into a proper page id later
-                            $correctpageid = $answer->jumpto;
-                        }
-                        // save the answer id for scoring
-                        if ($correctanswerid == 0) {
-                            $correctanswerid = $answer->id;
-                        }
-                    } else {
-                        // save the first jumpto page id, may be needed!...
-                        if (!isset($wrongpageid)) {
-                            // leave in its "raw" state - will converted into a proper page id later
-                            $wrongpageid = $answer->jumpto;
-                        }
-                        // save the answer id for scoring
-                        if ($wronganswerid == 0) {
-                            $wronganswerid = $answer->id;
+                            // Save the answer id for scoring.
+                            if ($wronganswerid == 0) {
+                                $wronganswerid = $answer->id;
+                            }
                         }
                     }
                 }
-            } else {
-                foreach ($answers as $answer) {
-                    if ($this->lesson->jumpto_is_correct($this->properties->id, $answer->jumpto)) {
-                        $ncorrect++;
-                        foreach ($studentanswers as $answerid) {
-                            if ($answerid == $answer->id) {
-                                $nhits++;
-                            }
-                        }
-                        // save the first jumpto page id, may be needed!...
-                        if (!isset($correctpageid)) {
-                            // leave in its "raw" state - will converted into a proper page id later
-                            $correctpageid = $answer->jumpto;
-                        }
-                        // save the answer id for scoring
-                        if ($correctanswerid == 0) {
-                            $correctanswerid = $answer->id;
-                        }
-                    } else {
-                        // save the first jumpto page id, may be needed!...
-                        if (!isset($wrongpageid)) {
-                            // leave in its "raw" state - will converted into a proper page id later
-                            $wrongpageid = $answer->jumpto;
-                        }
-                        // save the answer id for scoring
-                        if ($wronganswerid == 0) {
-                            $wronganswerid = $answer->id;
-                        }
+
+                if ($iscorrectanswer) {
+                    $ncorrect++;
+
+                    // Save the first jumpto page id, may be needed!
+                    if (!isset($correctpageid)) {
+                        // Leave in its "raw" state - will be converted into a proper page id later.
+                        $correctpageid = $answer->jumpto;
+                    }
+                    // Save the answer id for scoring.
+                    if ($correctanswerid == 0) {
+                        $correctanswerid = $answer->id;
                     }
                 }
             }
+
             if ((count($studentanswers) == $ncorrect) and ($nhits == $ncorrect)) {
                 $result->correctanswer = true;
-                $result->response  = implode('<br />', $responses);
+                $result->response  = implode(self::MULTIANSWER_DELIMITER, $responses);
                 $result->newpageid = $correctpageid;
                 $result->answerid  = $correctanswerid;
             } else {
-                $result->response  = implode('<br />', $responses);
+                $result->response  = implode(self::MULTIANSWER_DELIMITER, $responses);
                 $result->newpageid = $wrongpageid;
                 $result->answerid  = $wronganswerid;
             }
@@ -247,6 +240,7 @@ class lesson_page_type_multichoice extends lesson_page {
             if (!$answer = $DB->get_record("lesson_answers", array("id" => $result->answerid))) {
                 print_error("Continue: answer record not found");
             }
+            $answer = parent::rewrite_answers_urls($answer);
             if ($this->lesson->jumpto_is_correct($this->properties->id, $answer->jumpto)) {
                 $result->correctanswer = true;
             }
@@ -279,33 +273,34 @@ class lesson_page_type_multichoice extends lesson_page {
         $options->para = false;
         $i = 1;
         foreach ($answers as $answer) {
+            $answer = parent::rewrite_answers_urls($answer);
             $cells = array();
             if ($this->lesson->custom && $answer->score > 0) {
                 // if the score is > 0, then it is correct
-                $cells[] = '<span class="labelcorrect">'.get_string("answer", "lesson")." $i</span>: \n";
+                $cells[] = '<label class="correct">' . get_string('answer', 'lesson') . " {$i}</label>: \n";
             } else if ($this->lesson->custom) {
-                $cells[] = '<span class="label">'.get_string("answer", "lesson")." $i</span>: \n";
+                $cells[] = '<label>' . get_string('answer', 'lesson') . " {$i}</label>: \n";
             } else if ($this->lesson->jumpto_is_correct($this->properties->id, $answer->jumpto)) {
                 // underline correct answers
-                $cells[] = '<span class="correct">'.get_string("answer", "lesson")." $i</span>: \n";
+                $cells[] = '<span class="correct">' . get_string('answer', 'lesson') . " {$i}</span>: \n";
             } else {
-                $cells[] = '<span class="labelcorrect">'.get_string("answer", "lesson")." $i</span>: \n";
+                $cells[] = '<label class="correct">' . get_string('answer', 'lesson') . " {$i}</label>: \n";
             }
             $cells[] = format_text($answer->answer, $answer->answerformat, $options);
             $table->data[] = new html_table_row($cells);
 
             $cells = array();
-            $cells[] = "<span class=\"label\">".get_string("response", "lesson")." $i</span>";
+            $cells[] = '<label>' . get_string('response', 'lesson') . " {$i} </label>:\n";
             $cells[] = format_text($answer->response, $answer->responseformat, $options);
             $table->data[] = new html_table_row($cells);
 
             $cells = array();
-            $cells[] = "<span class=\"label\">".get_string("score", "lesson").'</span>';
+            $cells[] = '<label>' . get_string('score', 'lesson') . '</label>:';
             $cells[] = $answer->score;
             $table->data[] = new html_table_row($cells);
 
             $cells = array();
-            $cells[] = "<span class=\"label\">".get_string("jump", "lesson").'</span>';
+            $cells[] = '<label>' . get_string('jump', 'lesson') . '</label>:';
             $cells[] = $this->get_jump_name($answer->jumpto);
             $table->data[] = new html_table_row($cells);
             if ($i === 1){
@@ -350,6 +345,7 @@ class lesson_page_type_multichoice extends lesson_page {
         $answers = $this->get_used_answers();
         $formattextdefoptions = new stdClass;
         $formattextdefoptions->para = false;  //I'll use it widely in this page
+        $formattextdefoptions->context = $answerpage->context;
 
         foreach ($answers as $answer) {
             if ($this->properties->qoption) {
@@ -440,6 +436,8 @@ class lesson_add_page_form_multichoice extends lesson_add_page_form_base {
 
     public $qtype = 'multichoice';
     public $qtypestring = 'multichoice';
+    protected $answerformat = LESSON_ANSWER_HTML;
+    protected $responseformat = LESSON_ANSWER_HTML;
 
     public function custom_definition() {
 
@@ -449,7 +447,7 @@ class lesson_add_page_form_multichoice extends lesson_add_page_form_base {
 
         for ($i = 0; $i < $this->_customdata['lesson']->maxanswers; $i++) {
             $this->_form->addElement('header', 'answertitle'.$i, get_string('answer').' '.($i+1));
-            $this->add_answer($i, null, ($i<2));
+            $this->add_answer($i, null, ($i<2), $this->get_answer_format());
             $this->add_response($i);
             $this->add_jumpto($i, null, ($i == 0 ? LESSON_NEXTPAGE : LESSON_THISPAGE));
             $this->add_score($i, null, ($i===0)?1:0);
@@ -471,6 +469,9 @@ class lesson_display_answer_form_multichoice_singleanswer extends moodleform {
             $attempt = new stdClass();
             $attempt->answerid = null;
         }
+
+        // Disable shortforms.
+        $mform->setDisableShortforms();
 
         $mform->addElement('header', 'pageheader');
 
@@ -496,6 +497,7 @@ class lesson_display_answer_form_multichoice_singleanswer extends moodleform {
         $i = 0;
         foreach ($answers as $answer) {
             $mform->addElement('html', '<div class="answeroption">');
+            $answer->answer = preg_replace('#>$#', '> ', $answer->answer);
             $mform->addElement('radio','answerid',null,format_text($answer->answer, $answer->answerformat, $options),$answer->id, $disabled);
             $mform->setType('answer'.$i, PARAM_INT);
             if ($hasattempt && $answer->id == $USER->modattempts[$lessonid]->answerid) {
@@ -523,6 +525,9 @@ class lesson_display_answer_form_multichoice_multianswer extends moodleform {
 
         $lessonid = $this->_customdata['lessonid'];
         $contents = $this->_customdata['contents'];
+
+        // Disable shortforms.
+        $mform->setDisableShortforms();
 
         $mform->addElement('header', 'pageheader');
 
@@ -558,6 +563,7 @@ class lesson_display_answer_form_multichoice_multianswer extends moodleform {
                 $mform->setDefault('answer['.$answer->id.']', true);
             }
             // NOTE: our silly checkbox supports only value '1' - we can not use it like the radiobox above!!!!!!
+            $answer->answer = preg_replace('#>$#', '> ', $answer->answer);
             $mform->addElement('checkbox', $answerid, null, format_text($answer->answer, $answer->answerformat, $options), $disabled);
             $mform->setType($answerid, PARAM_INT);
 

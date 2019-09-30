@@ -17,8 +17,7 @@
 /**
  * Customised version of phpmailer for Moodle
  *
- * @package    moodle
- * @subpackage lib
+ * @package    core
  * @author     Dan Poltawski <talktodan@gmail.com>
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
@@ -28,7 +27,6 @@ defined('MOODLE_INTERNAL') || die();
 // PLEASE NOTE: we use the phpmailer class _unmodified_
 // through the joys of OO. Distros are free to use their stock
 // version of this file.
-require_once($CFG->libdir.'/phpmailer/class.phpmailer.php');
 
 /**
  * Moodle Customised version of the PHPMailer class
@@ -41,7 +39,7 @@ require_once($CFG->libdir.'/phpmailer/class.phpmailer.php');
  * @license   http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  * @since     Moodle 2.0
  */
-class moodle_phpmailer extends PHPMailer {
+class moodle_phpmailer extends \PHPMailer\PHPMailer\PHPMailer {
 
     /**
      * Constructor - creates an instance of the PHPMailer class
@@ -50,8 +48,20 @@ class moodle_phpmailer extends PHPMailer {
     public function __construct(){
         global $CFG;
         $this->Version   = 'Moodle '.$CFG->version;         // mailer version
-        $this->PluginDir = $CFG->libdir.'/phpmailer/';      // plugin directory (eg smtp plugin)
         $this->CharSet   = 'UTF-8';
+        // MDL-52637: Disable the automatic TLS encryption added in v5.2.10 (9da56fc1328a72aa124b35b738966315c41ef5c6).
+        $this->SMTPAutoTLS = false;
+
+        if (!empty($CFG->smtpauthtype)) {
+            $this->AuthType = $CFG->smtpauthtype;
+        }
+
+        // Some MTAs may do double conversion of LF if CRLF used, CRLF is required line ending in RFC 822bis.
+        if (isset($CFG->mailnewline) and $CFG->mailnewline == 'CRLF') {
+            parent::setLE("\r\n");
+        } else {
+            parent::setLE("\n");
+        }
     }
 
     /**
@@ -59,37 +69,44 @@ class moodle_phpmailer extends PHPMailer {
      * message-ids
      * http://tracker.moodle.org/browse/MDL-3681
      */
-    public function AddCustomHeader($custom_header) {
-        if(preg_match('/message-id:(.*)/i', $custom_header, $matches)){
-            $this->MessageID = $matches[1];
+    public function addCustomHeader($custom_header, $value = null) {
+        if ($value === null and preg_match('/message-id:(.*)/i', $custom_header, $matches)) {
+            $this->MessageID = trim($matches[1]);
             return true;
-        }else{
-            return parent::AddCustomHeader($custom_header);
+        } else if ($value !== null and strcasecmp($custom_header, 'message-id') === 0) {
+            $this->MessageID = trim($value);
+            return true;
+        } else {
+            return parent::addCustomHeader($custom_header, $value);
         }
     }
 
     /**
-     * Use internal moodles own textlib to encode mimeheaders.
+     * Use internal moodles own core_text to encode mimeheaders.
      * Fall back to phpmailers inbuilt functions if not 
      */
-    public function EncodeHeader($str, $position = 'text') {
-        $encoded = textlib::encode_mimeheader($str, $this->CharSet);
+    public function encodeHeader($str, $position = 'text') {
+        $encoded = core_text::encode_mimeheader($str, $this->CharSet);
         if ($encoded !== false) {
-            $encoded = str_replace("\n", $this->LE, $encoded);
-            if ($position == 'phrase') {
-                return ("\"$encoded\"");
+            if ($position === 'phrase') {
+                // Escape special symbols in each line in the encoded string, join back together and enclose in quotes.
+                $chunks = preg_split("/\\n/", $encoded);
+                $chunks = array_map(function($chunk) {
+                    return addcslashes($chunk, "\0..\37\177\\\"");
+                }, $chunks);
+                return '"' . join(parent::getLE(), $chunks) . '"';
             }
-            return $encoded;
+            return str_replace("\n", parent::getLE(), $encoded);
         }
 
-        return parent::EncodeHeader($str, $position);
+        return parent::encodeHeader($str, $position);
     }
 
     /**
      * Replaced function to fix tz bug:
      * http://tracker.moodle.org/browse/MDL-12596
      */
-    public static function RFCDate() {
+    public static function rfcDate() {
         $tz = date('Z');
         $tzs = ($tz < 0) ? '-' : '+';
         $tz = abs($tz);
@@ -100,29 +117,29 @@ class moodle_phpmailer extends PHPMailer {
     }
 
     /**
-     * This is a temporary replacement of the parent::EncodeQP() that does not
-     * call quoted_printable_encode() even if it is available. See MDL-23240 for details
+     * Sends this mail.
      *
-     * @see parent::EncodeQP() for full documentation
+     * This function has been overridden to facilitate unit testing.
+     *
+     * @return bool
      */
-    public function EncodeQP($string, $line_max = 76, $space_conv = false) {
-        //if (function_exists('quoted_printable_encode')) { //Use native function if it's available (>= PHP5.3)
-        //    return quoted_printable_encode($string);
-        //}
-        $filters = stream_get_filters();
-        if (!in_array('convert.*', $filters)) { //Got convert stream filter?
-            return $this->EncodeQPphp($string, $line_max, $space_conv); //Fall back to old implementation
+    public function postSend() {
+        // Now ask phpunit if it wants to catch this message.
+        if (PHPUNIT_TEST) {
+            if (!phpunit_util::is_redirecting_phpmailer()) {
+                debugging('Unit tests must not send real emails! Use $this->redirectEmails()');
+                return true;
+            }
+            $mail = new stdClass();
+            $mail->header = $this->MIMEHeader;
+            $mail->body = $this->MIMEBody;
+            $mail->subject = $this->Subject;
+            $mail->from = $this->From;
+            $mail->to = $this->to[0][0];
+            phpunit_util::phpmailer_sent($mail);
+            return true;
+        } else {
+            return parent::postSend();
         }
-        $fp = fopen('php://temp/', 'r+');
-        $string = preg_replace('/\r\n?/', $this->LE, $string); //Normalise line breaks
-        $params = array('line-length' => $line_max, 'line-break-chars' => $this->LE);
-        $s = stream_filter_append($fp, 'convert.quoted-printable-encode', STREAM_FILTER_READ, $params);
-        fputs($fp, $string);
-        rewind($fp);
-        $out = stream_get_contents($fp);
-        stream_filter_remove($s);
-        $out = preg_replace('/^\./m', '=2E', $out); //Encode . if it is first char on a line, workaround for bug in Exchange
-        fclose($fp);
-        return $out;
     }
 }

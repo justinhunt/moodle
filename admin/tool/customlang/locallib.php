@@ -159,6 +159,11 @@ class tool_customlang_utils {
                         $needsupdate = true;
                         $current[$stringid]->local          = $stringlocal;
                         $current[$stringid]->timecustomized = $now;
+                    } else if (isset($currentlocal) && $stringlocal !== $currentlocal) {
+                        // If local string has been removed, we need to remove also the old local value from DB.
+                        $needsupdate = true;
+                        $current[$stringid]->local          = null;
+                        $current[$stringid]->timecustomized = $now;
                     }
 
                     if ($needsupdate) {
@@ -267,7 +272,7 @@ class tool_customlang_utils {
         if ($filename !== clean_param($filename, PARAM_FILE)) {
             throw new coding_exception('Incorrect file name '.s($filename));
         }
-        list($package, $subpackage) = normalize_component($component);
+        list($package, $subpackage) = core_component::normalize_component($component);
         $packageinfo = " * @package    $package";
         if (!is_null($subpackage)) {
             $packageinfo .= "\n * @subpackage $subpackage";
@@ -323,6 +328,7 @@ EOF
             fwrite($f, ";\n");
         }
         fclose($f);
+        @chmod($filepath, $CFG->filepermissions);
     }
 
     /**

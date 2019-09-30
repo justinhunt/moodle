@@ -1,5 +1,4 @@
 <?php
-
 // This file is part of Moodle - http://moodle.org/
 //
 // Moodle is free software: you can redistribute it and/or modify
@@ -25,3 +24,4 @@
 
 $string['activity_modules:addinstance'] = 'Add a new activities block';
 $string['pluginname'] = 'Activities';
+$string['privacy:metadata'] = 'The Activities block only shows data stored in other locations.';

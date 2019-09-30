@@ -24,8 +24,9 @@
  * @author     Yuliya Bozhko <yuliya.bozhko@totaralms.com>
  */
 
-require_once(dirname(dirname(__FILE__)) . '/config.php');
+require_once(__DIR__ . '/../config.php');
 require_once($CFG->libdir . '/badgeslib.php');
+require_once($CFG->libdir . '/filelib.php');
 
 $page        = optional_param('page', 0, PARAM_INT);
 $search      = optional_param('search', '', PARAM_CLEAN);
@@ -42,7 +43,14 @@ if (empty($CFG->enablebadges)) {
     print_error('badgesdisabled', 'badges');
 }
 
+$url = new moodle_url('/badges/mybadges.php');
+$PAGE->set_url($url);
+
 if (isguestuser()) {
+    $PAGE->set_context(context_system::instance());
+    echo $OUTPUT->header();
+    echo $OUTPUT->box(get_string('error:guestuseraccess', 'badges'), 'notifyproblem');
+    echo $OUTPUT->footer();
     die();
 }
 
@@ -56,54 +64,52 @@ if ($clearsearch) {
 
 if ($hide) {
     require_sesskey();
-    $DB->set_field('badge_issued', 'visible', 0, array('id' => $hide));
+    $DB->set_field('badge_issued', 'visible', 0, array('id' => $hide, 'userid' => $USER->id));
 } else if ($show) {
     require_sesskey();
-    $DB->set_field('badge_issued', 'visible', 1, array('id' => $show));
+    $DB->set_field('badge_issued', 'visible', 1, array('id' => $show, 'userid' => $USER->id));
 } else if ($download && $hash) {
     require_sesskey();
     $badge = new badge($download);
     $name = str_replace(' ', '_', $badge->name) . '.png';
-    ob_start();
-    $file = badges_bake($hash, $download);
-    header('Content-Type: image/png');
-    header('Content-Disposition: attachment; filename="'. $name .'"');
-    readfile($file);
-    ob_flush();
+    $name = clean_param($name, PARAM_FILE);
+    $filehash = badges_bake($hash, $download, $USER->id, true);
+    $fs = get_file_storage();
+    $file = $fs->get_file_by_hash($filehash);
+    send_stored_file($file, 0, 0, true, array('filename' => $name));
 } else if ($downloadall) {
     require_sesskey();
-    ob_start();
     badges_download($USER->id);
-    ob_flush();
 }
 
 $context = context_user::instance($USER->id);
 require_capability('moodle/badges:manageownbadges', $context);
 
-$url = new moodle_url('/badges/mybadges.php');
-
-$PAGE->set_url($url);
 $PAGE->set_context($context);
 
-$title = get_string('mybadges', 'badges');
+$title = get_string('badges', 'badges');
 $PAGE->set_title($title);
-$PAGE->set_heading($title);
-$PAGE->set_pagelayout('mydashboard');
+$PAGE->set_heading(fullname($USER));
+$PAGE->set_pagelayout('standard');
 
-// TODO: Better way of pushing badges to Mozilla backpack?
-if (!empty($CFG->badges_allowexternalbackpack)) {
-    $PAGE->requires->js(new moodle_url('http://backpack.openbadges.org/issuer.js'), true);
-    $PAGE->requires->js('/badges/backpack.js', true);
-}
+// Include JS files for backpack support.
+badges_setup_backpack_js();
 
 $output = $PAGE->get_renderer('core', 'badges');
 $badges = badges_get_user_badges($USER->id);
 
 echo $OUTPUT->header();
+$success = optional_param('success', '', PARAM_ALPHA);
+$warning = optional_param('warning', '', PARAM_ALPHA);
+if (!empty($success)) {
+    echo $OUTPUT->notification(get_string($success, 'core_badges'), 'notifysuccess');
+} else if (!empty($warning)) {
+    echo $OUTPUT->notification(get_string($warning, 'core_badges'), 'warning');
+}
 $totalcount = count($badges);
 $records = badges_get_user_badges($USER->id, null, $page, BADGE_PERPAGE, $search);
 
-$userbadges             = new badge_user_collection($records, $USER->id);
+$userbadges             = new \core_badges\output\badge_user_collection($records, $USER->id);
 $userbadges->sort       = 'dateissued';
 $userbadges->dir        = 'DESC';
 $userbadges->page       = $page;

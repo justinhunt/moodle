@@ -50,6 +50,11 @@ $strgroups           = get_string('groups');
 $strparticipants     = get_string('participants');
 $strautocreategroups = get_string('autocreategroups', 'group');
 
+$PAGE->set_title($strgroups);
+$PAGE->set_heading($course->fullname. ': '.$strgroups);
+$PAGE->set_pagelayout('admin');
+navigation_node::override_active_url(new moodle_url('/group/index.php', array('id' => $courseid)));
+
 // Print the page and form
 $preview = '';
 $error = '';
@@ -80,7 +85,22 @@ if ($editform->is_cancelled()) {
         default:
             print_error('unknoworder');
     }
-    $users = groups_get_potential_members($data->courseid, $data->roleid, $data->cohortid, $orderby);
+    $source = array();
+    if ($data->cohortid) {
+        $source['cohortid'] = $data->cohortid;
+    }
+    if ($data->groupingid) {
+        $source['groupingid'] = $data->groupingid;
+    }
+    if ($data->groupid) {
+        $source['groupid'] = $data->groupid;
+    }
+
+    // Display only active users if the option was selected or they do not have the capability to view suspended users.
+    $onlyactive = !empty($data->includeonlyactiveenrol) || !has_capability('moodle/course:viewsuspendedusers', $context);
+
+    $users = groups_get_potential_members($data->courseid, $data->roleid, $source, $orderby, !empty($data->notingroup),
+        $onlyactive);
     $usercnt = count($users);
 
     if ($data->allocateby == 'random') {
@@ -202,6 +222,7 @@ if ($editform->is_cancelled()) {
             $newgroup = new stdClass();
             $newgroup->courseid = $data->courseid;
             $newgroup->name     = $group['name'];
+            $newgroup->enablemessaging = $data->enablemessaging;
             $groupid = groups_create_group($newgroup);
             $createdgroups[] = $groupid;
             foreach($group['members'] as $user) {
@@ -233,9 +254,6 @@ $PAGE->navbar->add($strparticipants, new moodle_url('/user/index.php', array('id
 $PAGE->navbar->add($strgroups, new moodle_url('/group/index.php', array('id'=>$courseid)));
 $PAGE->navbar->add($strautocreategroups);
 
-/// Print header
-$PAGE->set_title($strgroups);
-$PAGE->set_heading($course->fullname. ': '.$strgroups);
 echo $OUTPUT->header();
 echo $OUTPUT->heading($strautocreategroups);
 

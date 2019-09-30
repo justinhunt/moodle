@@ -37,7 +37,7 @@ $newvalue = optional_param('newvalue', false, PARAM_TEXT);
 
 /// basic access checks
 if (!$course = $DB->get_record('course', array('id' => $courseid))) {
-    print_error('nocourseid');
+    print_error('invalidcourseid');
 }
 $context = context_course::instance($course->id);
 require_login($course);
@@ -91,7 +91,7 @@ switch ($action) {
                 }
 
                 if ($errorstr) {
-                    $user = $DB->get_record('user', array('id' => $userid), 'id, firstname, lastname');
+                    $user = $DB->get_record('user', array('id' => $userid), 'id, ' . get_all_user_name_fields(true));
                     $gradestr = new stdClass();
                     $gradestr->username = fullname($user);
                     $gradestr->itemname = $grade_item->get_name();
@@ -118,14 +118,6 @@ switch ($action) {
                 echo json_encode($json_object);
                 die();
             } else {
-                $url = '/report/grader/index.php?id=' . $course->id;
-
-                $user = $DB->get_record('user', array('id'=>$userid), '*', MUST_EXIST);
-                $fullname = fullname($user);
-
-                $info = "{$grade_item->itemname}: $fullname";
-                add_to_log($course->id, 'grade', 'update', $url, $info);
-
                 $json_object->gradevalue = $finalvalue;
 
                 if ($grade_item->update_final_grade($userid, $finalgrade, 'gradebook', $feedback, FORMAT_MOODLE)) {

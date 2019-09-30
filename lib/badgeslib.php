@@ -93,517 +93,37 @@ define('BADGE_MESSAGE_DAILY', 2);
 define('BADGE_MESSAGE_WEEKLY', 3);
 define('BADGE_MESSAGE_MONTHLY', 4);
 
-/**
- * Class that represents badge.
- *
+/*
+ * URL of backpack. Custom ones can be added.
  */
-class badge {
-    /** @var int Badge id */
-    public $id;
+define('BADGE_BACKPACKAPIURL', 'https://backpack.openbadges.org');
+define('BADGE_BACKPACKWEBURL', 'https://backpack.openbadges.org');
+define('BADGRIO_BACKPACKAPIURL', 'https://api.badgr.io/v2');
+define('BADGRIO_BACKPACKWEBURL', 'https://badgr.io');
 
-    /** Values from the table 'badge' */
-    public $name;
-    public $description;
-    public $timecreated;
-    public $timemodified;
-    public $usercreated;
-    public $usermodified;
-    public $image;
-    public $issuername;
-    public $issuerurl;
-    public $issuercontact;
-    public $expiredate;
-    public $expireperiod;
-    public $type;
-    public $courseid;
-    public $message;
-    public $messagesubject;
-    public $attachment;
-    public $notification;
-    public $status = 0;
-    public $nextcron;
+/*
+ * @deprecated since 3.7. Use the urls in the badge_external_backpack table instead.
+ */
+define('BADGE_BACKPACKURL', 'https://backpack.openbadges.org');
 
-    /** @var array Badge criteria */
-    public $criteria = array();
+/*
+ * Open Badges specifications.
+ */
+define('OPEN_BADGES_V1', 1);
+define('OPEN_BADGES_V2', 2);
 
-    /**
-     * Constructs with badge details.
-     *
-     * @param int $badgeid badge ID.
-     */
-    public function __construct($badgeid) {
-        global $DB;
-        $this->id = $badgeid;
+/*
+ * Only use for Open Badges 2.0 specification
+ */
+define('OPEN_BADGES_V2_CONTEXT', 'https://w3id.org/openbadges/v2');
+define('OPEN_BADGES_V2_TYPE_ASSERTION', 'Assertion');
+define('OPEN_BADGES_V2_TYPE_BADGE', 'BadgeClass');
+define('OPEN_BADGES_V2_TYPE_ISSUER', 'Issuer');
+define('OPEN_BADGES_V2_TYPE_ENDORSEMENT', 'Endorsement');
+define('OPEN_BADGES_V2_TYPE_AUTHOR', 'Author');
 
-        $data = $DB->get_record('badge', array('id' => $badgeid));
-
-        if (empty($data)) {
-            print_error('error:nosuchbadge', 'badges', $badgeid);
-        }
-
-        foreach ((array)$data as $field => $value) {
-            if (property_exists($this, $field)) {
-                $this->{$field} = $value;
-            }
-        }
-
-        $this->criteria = self::get_criteria();
-    }
-
-    /**
-     * Use to get context instance of a badge.
-     * @return context instance.
-     */
-    public function get_context() {
-        if ($this->type == BADGE_TYPE_SITE) {
-            return context_system::instance();
-        } else if ($this->type == BADGE_TYPE_COURSE) {
-            return context_course::instance($this->courseid);
-        } else {
-            debugging('Something is wrong...');
-        }
-    }
-
-    /**
-     * Return array of aggregation methods
-     * @return array
-     */
-    public static function get_aggregation_methods() {
-        return array(
-                BADGE_CRITERIA_AGGREGATION_ALL => get_string('all', 'badges'),
-                BADGE_CRITERIA_AGGREGATION_ANY => get_string('any', 'badges'),
-        );
-    }
-
-    /**
-     * Return array of accepted criteria types for this badge
-     * @return array
-     */
-    public function get_accepted_criteria() {
-        $criteriatypes = array();
-
-        if ($this->type == BADGE_TYPE_COURSE) {
-            $criteriatypes = array(
-                    BADGE_CRITERIA_TYPE_OVERALL,
-                    BADGE_CRITERIA_TYPE_MANUAL,
-                    BADGE_CRITERIA_TYPE_COURSE,
-                    BADGE_CRITERIA_TYPE_ACTIVITY
-            );
-        } else if ($this->type == BADGE_TYPE_SITE) {
-            $criteriatypes = array(
-                    BADGE_CRITERIA_TYPE_OVERALL,
-                    BADGE_CRITERIA_TYPE_MANUAL,
-                    BADGE_CRITERIA_TYPE_COURSESET,
-                    BADGE_CRITERIA_TYPE_PROFILE,
-            );
-        }
-
-        return $criteriatypes;
-    }
-
-    /**
-     * Save/update badge information in 'badge' table only.
-     * Cannot be used for updating awards and criteria settings.
-     *
-     * @return bool Returns true on success.
-     */
-    public function save() {
-        global $DB;
-
-        $fordb = new stdClass();
-        foreach (get_object_vars($this) as $k => $v) {
-            $fordb->{$k} = $v;
-        }
-        unset($fordb->criteria);
-
-        $fordb->timemodified = time();
-        if ($DB->update_record_raw('badge', $fordb)) {
-            return true;
-        } else {
-            throw new moodle_exception('error:save', 'badges');
-            return false;
-        }
-    }
-
-    /**
-     * Creates and saves a clone of badge with all its properties.
-     * Clone is not active by default and has 'Copy of' attached to its name.
-     *
-     * @return int ID of new badge.
-     */
-    public function make_clone() {
-        global $DB, $USER;
-
-        $fordb = new stdClass();
-        foreach (get_object_vars($this) as $k => $v) {
-            $fordb->{$k} = $v;
-        }
-
-        $fordb->name = get_string('copyof', 'badges', $this->name);
-        $fordb->status = BADGE_STATUS_INACTIVE;
-        $fordb->image = 0;
-        $fordb->usercreated = $USER->id;
-        $fordb->usermodified = $USER->id;
-        $fordb->timecreated = time();
-        $fordb->timemodified = time();
-        unset($fordb->id);
-
-        if ($fordb->notification > 1) {
-            $fordb->nextcron = badges_calculate_message_schedule($fordb->notification);
-        }
-
-        $criteria = $fordb->criteria;
-        unset($fordb->criteria);
-
-        if ($new = $DB->insert_record('badge', $fordb, true)) {
-            $newbadge = new badge($new);
-
-            // Copy badge image.
-            $fs = get_file_storage();
-            if ($file = $fs->get_file($this->get_context()->id, 'badges', 'badgeimage', $this->id, '/', 'f1.png')) {
-                if ($imagefile = $file->copy_content_to_temp()) {
-                    badges_process_badge_image($newbadge, $imagefile);
-                }
-            }
-
-            // Copy badge criteria.
-            foreach ($this->criteria as $crit) {
-                $crit->make_clone($new);
-            }
-
-            return $new;
-        } else {
-            throw new moodle_exception('error:clone', 'badges');
-            return false;
-        }
-    }
-
-    /**
-     * Checks if badges is active.
-     * Used in badge award.
-     *
-     * @return bool A status indicating badge is active
-     */
-    public function is_active() {
-        if (($this->status == BADGE_STATUS_ACTIVE) ||
-            ($this->status == BADGE_STATUS_ACTIVE_LOCKED)) {
-            return true;
-        }
-        return false;
-    }
-
-    /**
-     * Use to get the name of badge status.
-     *
-     */
-    public function get_status_name() {
-        return get_string('badgestatus_' . $this->status, 'badges');
-    }
-
-    /**
-     * Use to set badge status.
-     * Only active badges can be earned/awarded/issued.
-     *
-     * @param int $status Status from BADGE_STATUS constants
-     */
-    public function set_status($status = 0) {
-        $this->status = $status;
-        $this->save();
-    }
-
-    /**
-     * Checks if badges is locked.
-     * Used in badge award and editing.
-     *
-     * @return bool A status indicating badge is locked
-     */
-    public function is_locked() {
-        if (($this->status == BADGE_STATUS_ACTIVE_LOCKED) ||
-                ($this->status == BADGE_STATUS_INACTIVE_LOCKED)) {
-            return true;
-        }
-        return false;
-    }
-
-    /**
-     * Checks if badge has been awarded to users.
-     * Used in badge editing.
-     *
-     * @return bool A status indicating badge has been awarded at least once
-     */
-    public function has_awards() {
-        global $DB;
-        if ($DB->record_exists('badge_issued', array('badgeid' => $this->id))) {
-            return true;
-        }
-        return false;
-    }
-
-    /**
-     * Gets list of users who have earned an instance of this badge.
-     *
-     * @return array An array of objects with information about badge awards.
-     */
-    public function get_awards() {
-        global $DB;
-
-        $awards = $DB->get_records_sql(
-                'SELECT b.userid, b.dateissued, b.uniquehash, u.firstname, u.lastname
-                    FROM {badge_issued} b INNER JOIN {user} u
-                        ON b.userid = u.id
-                    WHERE b.badgeid = :badgeid', array('badgeid' => $this->id));
-
-        return $awards;
-    }
-
-    /**
-     * Indicates whether badge has already been issued to a user.
-     *
-     */
-    public function is_issued($userid) {
-        global $DB;
-        return $DB->record_exists('badge_issued', array('badgeid' => $this->id, 'userid' => $userid));
-    }
-
-    /**
-     * Issue a badge to user.
-     *
-     * @param int $userid User who earned the badge
-     * @param bool $nobake Not baking actual badges (for testing purposes)
-     */
-    public function issue($userid, $nobake = false) {
-        global $DB, $CFG;
-
-        $now = time();
-        $issued = new stdClass();
-        $issued->badgeid = $this->id;
-        $issued->userid = $userid;
-        $issued->uniquehash = sha1(rand() . $userid . $this->id . $now);
-        $issued->dateissued = $now;
-
-        if ($this->can_expire()) {
-            $issued->dateexpire = $this->calculate_expiry($now);
-        } else {
-            $issued->dateexpire = null;
-        }
-
-        // Take into account user badges privacy settings.
-        // If none set, badges default visibility is set to public.
-        $issued->visible = get_user_preferences('badgeprivacysetting', 1, $userid);
-
-        $result = $DB->insert_record('badge_issued', $issued, true);
-
-        if ($result) {
-            // Lock the badge, so that its criteria could not be changed any more.
-            if ($this->status == BADGE_STATUS_ACTIVE) {
-                $this->set_status(BADGE_STATUS_ACTIVE_LOCKED);
-            }
-
-            // Update details in criteria_met table.
-            $compl = $this->get_criteria_completions($userid);
-            foreach ($compl as $c) {
-                $obj = new stdClass();
-                $obj->id = $c->id;
-                $obj->issuedid = $result;
-                $DB->update_record('badge_criteria_met', $obj, true);
-            }
-
-            if (!$nobake) {
-                // Bake a badge image.
-                $pathhash = badges_bake($issued->uniquehash, $this->id, $userid, true);
-
-                // Notify recipients and badge creators.
-                if (empty($CFG->noemailever)) {
-                    badges_notify_badge_award($this, $userid, $issued->uniquehash, $pathhash);
-                }
-            }
-        }
-    }
-
-    /**
-     * Reviews all badge criteria and checks if badge can be instantly awarded.
-     *
-     * @return int Number of awards
-     */
-    public function review_all_criteria() {
-        global $DB, $CFG;
-        $awards = 0;
-
-        // Raise timelimit as this could take a while for big web sites.
-        set_time_limit(0);
-        raise_memory_limit(MEMORY_HUGE);
-
-        // For site level badges, get all active site users who can earn this badge and haven't got it yet.
-        if ($this->type == BADGE_TYPE_SITE) {
-            $sql = 'SELECT DISTINCT u.id, bi.badgeid
-                        FROM {user} u
-                        LEFT JOIN {badge_issued} bi
-                            ON u.id = bi.userid AND bi.badgeid = :badgeid
-                        WHERE bi.badgeid IS NULL AND u.id != :guestid AND u.deleted = 0';
-            $toearn = $DB->get_fieldset_sql($sql, array('badgeid' => $this->id, 'guestid' => $CFG->siteguest));
-        } else {
-            // For course level badges, get users who can earn this badge in the course.
-            // These are all enrolled users with capability moodle/badges:earnbadge.
-            $earned = $DB->get_fieldset_select('badge_issued', 'userid AS id', 'badgeid = :badgeid', array('badgeid' => $this->id));
-            $users = get_enrolled_users($this->get_context(), 'moodle/badges:earnbadge', 0, 'u.id');
-            $toearn = array_diff(array_keys($users), $earned);
-        }
-
-        foreach ($toearn as $uid) {
-            $toreview = false;
-            foreach ($this->criteria as $crit) {
-                if ($crit->criteriatype != BADGE_CRITERIA_TYPE_OVERALL) {
-                    if ($crit->review($uid)) {
-                        $crit->mark_complete($uid);
-                        if ($this->criteria[BADGE_CRITERIA_TYPE_OVERALL]->method == BADGE_CRITERIA_AGGREGATION_ANY) {
-                            $this->criteria[BADGE_CRITERIA_TYPE_OVERALL]->mark_complete($uid);
-                            $this->issue($uid);
-                            $awards++;
-                            break;
-                        } else {
-                            $toreview = true;
-                            continue;
-                        }
-                    } else {
-                        if ($this->criteria[BADGE_CRITERIA_TYPE_OVERALL]->method == BADGE_CRITERIA_AGGREGATION_ANY) {
-                            continue;
-                        } else {
-                            break;
-                        }
-                    }
-                }
-            }
-            // Review overall if it is required.
-            if ($toreview && $this->criteria[BADGE_CRITERIA_TYPE_OVERALL]->review($uid)) {
-                $this->criteria[BADGE_CRITERIA_TYPE_OVERALL]->mark_complete($uid);
-                $this->issue($uid);
-                $awards++;
-            }
-        }
-
-        return $awards;
-    }
-
-    /**
-     * Gets an array of completed criteria from 'badge_criteria_met' table.
-     *
-     * @param int $userid Completions for a user
-     * @return array Records of criteria completions
-     */
-    public function get_criteria_completions($userid) {
-        global $DB;
-        $completions = array();
-        $sql = "SELECT bcm.id, bcm.critid
-                FROM {badge_criteria_met} bcm
-                    INNER JOIN {badge_criteria} bc ON bcm.critid = bc.id
-                WHERE bc.badgeid = :badgeid AND bcm.userid = :userid ";
-        $completions = $DB->get_records_sql($sql, array('badgeid' => $this->id, 'userid' => $userid));
-
-        return $completions;
-    }
-
-    /**
-     * Checks if badges has award criteria set up.
-     *
-     * @return bool A status indicating badge has at least one criterion
-     */
-    public function has_criteria() {
-        if (count($this->criteria) > 0) {
-            return true;
-        }
-        return false;
-    }
-
-    /**
-     * Returns badge award criteria
-     *
-     * @return array An array of badge criteria
-     */
-    public function get_criteria() {
-        global $DB;
-        $criteria = array();
-
-        if ($records = (array)$DB->get_records('badge_criteria', array('badgeid' => $this->id))) {
-            foreach ($records as $record) {
-                $criteria[$record->criteriatype] = award_criteria::build((array)$record);
-            }
-        }
-
-        return $criteria;
-    }
-
-    /**
-     * Get aggregation method for badge criteria
-     *
-     * @param int $criteriatype If none supplied, get overall aggregation method (optional)
-     * @return int One of BADGE_CRITERIA_AGGREGATION_ALL or BADGE_CRITERIA_AGGREGATION_ANY
-     */
-    public function get_aggregation_method($criteriatype = 0) {
-        global $DB;
-        $params = array('badgeid' => $this->id, 'criteriatype' => $criteriatype);
-        $aggregation = $DB->get_field('badge_criteria', 'method', $params, IGNORE_MULTIPLE);
-
-        if (!$aggregation) {
-            return BADGE_CRITERIA_AGGREGATION_ALL;
-        }
-
-        return $aggregation;
-    }
-
-    /**
-     * Checks if badge has expiry period or date set up.
-     *
-     * @return bool A status indicating badge can expire
-     */
-    public function can_expire() {
-        if ($this->expireperiod || $this->expiredate) {
-            return true;
-        }
-        return false;
-    }
-
-    /**
-     * Calculates badge expiry date based on either expirydate or expiryperiod.
-     *
-     * @param int $timestamp Time of badge issue
-     * @return int A timestamp
-     */
-    public function calculate_expiry($timestamp) {
-        $expiry = null;
-
-        if (isset($this->expiredate)) {
-            $expiry = $this->expiredate;
-        } else if (isset($this->expireperiod)) {
-            $expiry = $timestamp + $this->expireperiod;
-        }
-
-        return $expiry;
-    }
-
-    /**
-     * Checks if badge has manual award criteria set.
-     *
-     * @return bool A status indicating badge can be awarded manually
-     */
-    public function has_manual_award_criteria() {
-        foreach ($this->criteria as $criterion) {
-            if ($criterion->criteriatype == BADGE_CRITERIA_TYPE_MANUAL) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    /**
-     * Marks the badge as archived.
-     * For reporting and historical purposed we cannot completely delete badges.
-     * We will just change their status to BADGE_STATUS_ARCHIVED.
-     */
-    public function delete() {
-        $this->status = BADGE_STATUS_ARCHIVED;
-        $this->save();
-    }
-}
+// Global badge class has been moved to the component namespace.
+class_alias('\core_badges\badge', 'badge');
 
 /**
  * Sends notifications to users about awarded badges.
@@ -620,8 +140,10 @@ function badges_notify_badge_award(badge $badge, $userid, $issued, $filepathhash
     $userfrom = new stdClass();
     $userfrom->id = $admin->id;
     $userfrom->email = !empty($CFG->badges_defaultissuercontact) ? $CFG->badges_defaultissuercontact : $admin->email;
+    foreach (get_all_user_name_fields() as $addname) {
+        $userfrom->$addname = !empty($CFG->badges_defaultissuername) ? '' : $admin->$addname;
+    }
     $userfrom->firstname = !empty($CFG->badges_defaultissuername) ? $CFG->badges_defaultissuername : $admin->firstname;
-    $userfrom->lastname = !empty($CFG->badges_defaultissuername) ? '' : $admin->lastname;
     $userfrom->maildisplay = true;
 
     $issuedlink = html_writer::link(new moodle_url('/badges/badge.php', array('hash' => $issued)), $badge->name);
@@ -632,27 +154,44 @@ function badges_notify_badge_award(badge $badge, $userid, $issued, $filepathhash
     $params->username = fullname($userto);
     $params->badgelink = $issuedlink;
     $message = badge_message_from_template($badge->message, $params);
-    $plaintext = format_text_email($message, FORMAT_HTML);
+    $plaintext = html_to_text($message);
 
-    if ($badge->attachment && $filepathhash) {
+    // Notify recipient.
+    $eventdata = new \core\message\message();
+    $eventdata->courseid          = is_null($badge->courseid) ? SITEID : $badge->courseid; // Profile/site come with no courseid.
+    $eventdata->component         = 'moodle';
+    $eventdata->name              = 'badgerecipientnotice';
+    $eventdata->userfrom          = $userfrom;
+    $eventdata->userto            = $userto;
+    $eventdata->notification      = 1;
+    $eventdata->subject           = $badge->messagesubject;
+    $eventdata->fullmessage       = $plaintext;
+    $eventdata->fullmessageformat = FORMAT_HTML;
+    $eventdata->fullmessagehtml   = $message;
+    $eventdata->smallmessage      = '';
+    $eventdata->customdata        = [
+        'notificationiconurl' => moodle_url::make_pluginfile_url(
+            $badge->get_context()->id, 'badges', 'badgeimage', $badge->id, '/', 'f1')->out(),
+        'hash' => $issued,
+    ];
+
+    // Attach badge image if possible.
+    if (!empty($CFG->allowattachments) && $badge->attachment && is_string($filepathhash)) {
         $fs = get_file_storage();
         $file = $fs->get_file_by_hash($filepathhash);
-        $attachment = $file->copy_content_to_temp();
-        email_to_user($userto,
-            $userfrom,
-            $badge->messagesubject,
-            $plaintext,
-            $message,
-            str_replace($CFG->dataroot, '', $attachment),
-            str_replace(' ', '_', $badge->name) . ".png"
-        );
-        @unlink($attachment);
+        $eventdata->attachment = $file;
+        $eventdata->attachname = str_replace(' ', '_', $badge->name) . ".png";
+
+        message_send($eventdata);
     } else {
-        email_to_user($userto, $userfrom, $badge->messagesubject, $plaintext, $message);
+        message_send($eventdata);
     }
 
     // Notify badge creator about the award if they receive notifications every time.
     if ($badge->notification == 1) {
+        $userfrom = core_user::get_noreply_user();
+        $userfrom->maildisplay = true;
+
         $creator = $DB->get_record('user', array('id' => $badge->usercreated), '*', MUST_EXIST);
         $a = new stdClass();
         $a->user = fullname($userto);
@@ -660,17 +199,23 @@ function badges_notify_badge_award(badge $badge, $userid, $issued, $filepathhash
         $creatormessage = get_string('creatorbody', 'badges', $a);
         $creatorsubject = get_string('creatorsubject', 'badges', $badge->name);
 
-        $eventdata = new stdClass();
+        $eventdata = new \core\message\message();
+        $eventdata->courseid          = $badge->courseid;
         $eventdata->component         = 'moodle';
-        $eventdata->name              = 'instantmessage';
+        $eventdata->name              = 'badgecreatornotice';
         $eventdata->userfrom          = $userfrom;
         $eventdata->userto            = $creator;
         $eventdata->notification      = 1;
         $eventdata->subject           = $creatorsubject;
-        $eventdata->fullmessage       = $creatormessage;
-        $eventdata->fullmessageformat = FORMAT_PLAIN;
-        $eventdata->fullmessagehtml   = format_text($creatormessage, FORMAT_HTML);
+        $eventdata->fullmessage       = html_to_text($creatormessage);
+        $eventdata->fullmessageformat = FORMAT_HTML;
+        $eventdata->fullmessagehtml   = $creatormessage;
         $eventdata->smallmessage      = '';
+        $eventdata->customdata        = [
+            'notificationiconurl' => moodle_url::make_pluginfile_url(
+                $badge->get_context()->id, 'badges', 'badgeimage', $badge->id, '/', 'f1')->out(),
+            'hash' => $issued,
+        ];
 
         message_send($eventdata);
         $DB->set_field('badge_issued', 'issuernotified', time(), array('badgeid' => $badge->id, 'userid' => $userid));
@@ -765,7 +310,9 @@ function badges_get_badges($type, $courseid = 0, $sort = '', $dir = '', $page = 
             $badges[$r->id]->dateissued = $r->dateissued;
             $badges[$r->id]->uniquehash = $r->uniquehash;
         } else {
-            $badges[$r->id]->awards = $DB->count_records('badge_issued', array('badgeid' => $badge->id));
+            $badges[$r->id]->awards = $DB->count_records_sql('SELECT COUNT(b.userid)
+                                        FROM {badge_issued} b INNER JOIN {user} u ON b.userid = u.id
+                                        WHERE b.badgeid = :badgeid AND u.deleted = 0', array('badgeid' => $badge->id));
             $badges[$r->id]->statstring = $badge->get_status_name();
         }
     }
@@ -784,10 +331,11 @@ function badges_get_badges($type, $courseid = 0, $sort = '', $dir = '', $page = 
  * @return array of badges ordered by decreasing date of issue
  */
 function badges_get_user_badges($userid, $courseid = 0, $page = 0, $perpage = 0, $search = '', $onlypublic = false) {
-    global $DB;
-    $badges = array();
+    global $CFG, $DB;
 
-    $params[] = $userid;
+    $params = array(
+        'userid' => $userid
+    );
     $sql = 'SELECT
                 bi.uniquehash,
                 bi.dateissued,
@@ -802,86 +350,26 @@ function badges_get_user_badges($userid, $courseid = 0, $page = 0, $perpage = 0,
                 {user} u
             WHERE b.id = bi.badgeid
                 AND u.id = bi.userid
-                AND bi.userid = ?';
+                AND bi.userid = :userid';
 
     if (!empty($search)) {
-        $sql .= ' AND (' . $DB->sql_like('b.name', '?', false) . ') ';
-        $params[] = "%$search%";
+        $sql .= ' AND (' . $DB->sql_like('b.name', ':search', false) . ') ';
+        $params['search'] = '%'.$DB->sql_like_escape($search).'%';
     }
     if ($onlypublic) {
         $sql .= ' AND (bi.visible = 1) ';
     }
 
-    if ($courseid != 0) {
-        $sql .= ' AND (b.courseid = ' . $courseid . ') ';
+    if (empty($CFG->badges_allowcoursebadges)) {
+        $sql .= ' AND b.courseid IS NULL';
+    } else if ($courseid != 0) {
+        $sql .= ' AND (b.courseid = :courseid) ';
+        $params['courseid'] = $courseid;
     }
     $sql .= ' ORDER BY bi.dateissued DESC';
     $badges = $DB->get_records_sql($sql, $params, $page * $perpage, $perpage);
 
     return $badges;
-}
-
-/**
- * Get issued badge details for assertion URL
- *
- * @param string $hash
- */
-function badges_get_issued_badge_info($hash) {
-    global $DB, $CFG;
-
-    $a = array();
-
-    $record = $DB->get_record_sql('
-            SELECT
-                bi.dateissued,
-                bi.dateexpire,
-                u.email,
-                b.*,
-                bb.email as backpackemail
-            FROM
-                {badge} b
-                JOIN {badge_issued} bi
-                    ON b.id = bi.badgeid
-                JOIN {user} u
-                    ON u.id = bi.userid
-                LEFT JOIN {badge_backpack} bb
-                    ON bb.userid = bi.userid
-            WHERE ' . $DB->sql_compare_text('bi.uniquehash', 40) . ' = ' . $DB->sql_compare_text(':hash', 40),
-            array('hash' => $hash), IGNORE_MISSING);
-
-    if ($record) {
-        if ($record->type == BADGE_TYPE_SITE) {
-            $context = context_system::instance();
-        } else {
-            $context = context_course::instance($record->courseid);
-        }
-
-        $url = new moodle_url('/badges/badge.php', array('hash' => $hash));
-        $email = empty($record->backpackemail) ? $record->email : $record->backpackemail;
-
-        // Recipient's email is hashed: <algorithm>$<hash(email + salt)>.
-        $a['recipient'] = 'sha256$' . hash('sha256', $email . $CFG->badges_badgesalt);
-        $a['salt'] = $CFG->badges_badgesalt;
-
-        if ($record->dateexpire) {
-            $a['expires'] = date('Y-m-d', $record->dateexpire);
-        }
-
-        $a['issued_on'] = date('Y-m-d', $record->dateissued);
-        $a['evidence'] = $url->out(); // Issued badge URL.
-        $a['badge'] = array();
-        $a['badge']['version'] = '0.5.0'; // Version of OBI specification, 0.5.0 - current beta.
-        $a['badge']['name'] = $record->name;
-        $a['badge']['image'] = moodle_url::make_pluginfile_url($context->id, 'badges', 'badgeimage', $record->id, '/', 'f1')->out();
-        $a['badge']['description'] = $record->description;
-        $a['badge']['criteria'] = $url->out(); // Issued badge URL.
-        $a['badge']['issuer'] = array();
-        $a['badge']['issuer']['origin'] = $record->issuerurl;
-        $a['badge']['issuer']['name'] = $record->issuername;
-        $a['badge']['issuer']['contact'] = $record->issuercontact;
-    }
-
-    return $a;
 }
 
 /**
@@ -895,142 +383,31 @@ function badges_add_course_navigation(navigation_node $coursenode, stdClass $cou
 
     $coursecontext = context_course::instance($course->id);
     $isfrontpage = (!$coursecontext || $course->id == $SITE->id);
+    $canmanage = has_any_capability(array('moodle/badges:viewawarded',
+                                          'moodle/badges:createbadge',
+                                          'moodle/badges:awardbadge',
+                                          'moodle/badges:configurecriteria',
+                                          'moodle/badges:configuremessages',
+                                          'moodle/badges:configuredetails',
+                                          'moodle/badges:deletebadge'), $coursecontext);
 
-    if (!empty($CFG->enablebadges) && !empty($CFG->badges_allowcoursebadges) && !$isfrontpage) {
-        if (has_capability('moodle/badges:configuredetails', $coursecontext)) {
-            $coursenode->add(get_string('coursebadges', 'badges'), null,
-                    navigation_node::TYPE_CONTAINER, null, 'coursebadges',
-                    new pix_icon('i/badge', get_string('coursebadges', 'badges')));
+    if (!empty($CFG->enablebadges) && !empty($CFG->badges_allowcoursebadges) && !$isfrontpage && $canmanage) {
+        $coursenode->add(get_string('coursebadges', 'badges'), null,
+                navigation_node::TYPE_CONTAINER, null, 'coursebadges',
+                new pix_icon('i/badge', get_string('coursebadges', 'badges')));
 
-            if (has_capability('moodle/badges:viewawarded', $coursecontext)) {
-                $url = new moodle_url($CFG->wwwroot . '/badges/index.php',
-                        array('type' => BADGE_TYPE_COURSE, 'id' => $course->id));
+        $url = new moodle_url('/badges/index.php', array('type' => BADGE_TYPE_COURSE, 'id' => $course->id));
 
-                $coursenode->get('coursebadges')->add(get_string('managebadges', 'badges'), $url,
-                    navigation_node::TYPE_SETTING, null, 'coursebadges');
-            }
+        $coursenode->get('coursebadges')->add(get_string('managebadges', 'badges'), $url,
+            navigation_node::TYPE_SETTING, null, 'coursebadges');
 
-            if (has_capability('moodle/badges:createbadge', $coursecontext)) {
-                $url = new moodle_url($CFG->wwwroot . '/badges/newbadge.php',
-                        array('type' => BADGE_TYPE_COURSE, 'id' => $course->id));
+        if (has_capability('moodle/badges:createbadge', $coursecontext)) {
+            $url = new moodle_url('/badges/newbadge.php', array('type' => BADGE_TYPE_COURSE, 'id' => $course->id));
 
-                $coursenode->get('coursebadges')->add(get_string('newbadge', 'badges'), $url,
-                        navigation_node::TYPE_SETTING, null, 'newbadge');
-            }
+            $coursenode->get('coursebadges')->add(get_string('newbadge', 'badges'), $url,
+                    navigation_node::TYPE_SETTING, null, 'newbadge');
         }
     }
-}
-
-/**
- * Triggered when 'course_completed' event happens.
- *
- * @param   object $eventdata
- * @return  boolean
- */
-function badges_award_handle_course_criteria_review(stdClass $eventdata) {
-    global $DB, $CFG;
-
-    if (!empty($CFG->enablebadges)) {
-        $userid = $eventdata->userid;
-        $courseid = $eventdata->course;
-
-        // Need to take into account that course can be a part of course_completion and courseset_completion criteria.
-        if ($rs = $DB->get_records('badge_criteria_param', array('name' => 'course_' . $courseid, 'value' => $courseid))) {
-            foreach ($rs as $r) {
-                $crit = $DB->get_record('badge_criteria', array('id' => $r->critid), 'badgeid, criteriatype', MUST_EXIST);
-                $badge = new badge($crit->badgeid);
-                if (!$badge->is_active() || $badge->is_issued($userid)) {
-                    continue;
-                }
-
-                if ($badge->criteria[$crit->criteriatype]->review($userid)) {
-                    $badge->criteria[$crit->criteriatype]->mark_complete($userid);
-
-                    if ($badge->criteria[BADGE_CRITERIA_TYPE_OVERALL]->review($userid)) {
-                        $badge->criteria[BADGE_CRITERIA_TYPE_OVERALL]->mark_complete($userid);
-                        $badge->issue($userid);
-                    }
-                }
-            }
-        }
-    }
-
-    return true;
-}
-
-/**
- * Triggered when 'activity_completed' event happens.
- *
- * @param   object $eventdata
- * @return  boolean
- */
-function badges_award_handle_activity_criteria_review(stdClass $eventdata) {
-    global $DB, $CFG;
-
-    if (!empty($CFG->enablebadges)) {
-        $userid = $eventdata->userid;
-        $mod = $eventdata->coursemoduleid;
-
-        if ($eventdata->completionstate == COMPLETION_COMPLETE
-            || $eventdata->completionstate == COMPLETION_COMPLETE_PASS
-            || $eventdata->completionstate == COMPLETION_COMPLETE_FAIL) {
-            // Need to take into account that there can be more than one badge with the same activity in its criteria.
-            if ($rs = $DB->get_records('badge_criteria_param', array('name' => 'module_' . $mod, 'value' => $mod))) {
-                foreach ($rs as $r) {
-                    $bid = $DB->get_field('badge_criteria', 'badgeid', array('id' => $r->critid), MUST_EXIST);
-                    $badge = new badge($bid);
-                    if (!$badge->is_active() || $badge->is_issued($userid)) {
-                        continue;
-                    }
-
-                    if ($badge->criteria[BADGE_CRITERIA_TYPE_ACTIVITY]->review($userid)) {
-                        $badge->criteria[BADGE_CRITERIA_TYPE_ACTIVITY]->mark_complete($userid);
-
-                        if ($badge->criteria[BADGE_CRITERIA_TYPE_OVERALL]->review($userid)) {
-                            $badge->criteria[BADGE_CRITERIA_TYPE_OVERALL]->mark_complete($userid);
-                            $badge->issue($userid);
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    return true;
-}
-
-/**
- * Triggered when 'user_updated' event happens.
- *
- * @param   object $eventdata Holds all information about a user.
- * @return  boolean
- */
-function badges_award_handle_profile_criteria_review(stdClass $eventdata) {
-    global $DB, $CFG;
-
-    if (!empty($CFG->enablebadges)) {
-        $userid = $eventdata->id;
-
-        if ($rs = $DB->get_records('badge_criteria', array('criteriatype' => BADGE_CRITERIA_TYPE_PROFILE))) {
-            foreach ($rs as $r) {
-                $badge = new badge($r->badgeid);
-                if (!$badge->is_active() || $badge->is_issued($userid)) {
-                    continue;
-                }
-
-                if ($badge->criteria[BADGE_CRITERIA_TYPE_PROFILE]->review($userid)) {
-                    $badge->criteria[BADGE_CRITERIA_TYPE_PROFILE]->mark_complete($userid);
-
-                    if ($badge->criteria[BADGE_CRITERIA_TYPE_OVERALL]->review($userid)) {
-                        $badge->criteria[BADGE_CRITERIA_TYPE_OVERALL]->mark_complete($userid);
-                        $badge->issue($userid);
-                    }
-                }
-            }
-        }
-    }
-
-    return true;
 }
 
 /**
@@ -1071,10 +448,7 @@ function badges_process_badge_image(badge $badge, $iconfile) {
     require_once($CFG->libdir. '/gdlib.php');
 
     if (!empty($CFG->gdversion)) {
-        if ($fileid = (int)process_new_icon($badge->get_context(), 'badges', 'badgeimage', $badge->id, $iconfile)) {
-            $badge->image = $fileid;
-            $badge->save();
-        }
+        process_new_icon($badge->get_context(), 'badges', 'badgeimage', $badge->id, $iconfile, true);
         @unlink($iconfile);
 
         // Clean up file draft area after badge image has been saved.
@@ -1096,7 +470,8 @@ function print_badge_image(badge $badge, stdClass $context, $size = 'small') {
 
     $imageurl = moodle_url::make_pluginfile_url($context->id, 'badges', 'badgeimage', $badge->id, '/', $fsize, false);
     // Appending a random parameter to image link to forse browser reload the image.
-    $attributes = array('src' => $imageurl . '?' . rand(1, 10000), 'alt' => s($badge->name), 'class' => 'activatebadge');
+    $imageurl->param('refresh', rand(1, 10000));
+    $attributes = array('src' => $imageurl, 'alt' => s($badge->name), 'class' => 'activatebadge');
 
     return html_writer::empty_tag('img', $attributes);
 }
@@ -1112,7 +487,7 @@ function print_badge_image(badge $badge, stdClass $context, $size = 'small') {
  */
 function badges_bake($hash, $badgeid, $userid = 0, $pathhash = false) {
     global $CFG, $USER;
-    require_once(dirname(dirname(__FILE__)) . '/badges/lib/bakerlib.php');
+    require_once(__DIR__ . '/../badges/lib/bakerlib.php');
 
     $badge = new badge($badgeid);
     $badge_context = $badge->get_context();
@@ -1121,7 +496,7 @@ function badges_bake($hash, $badgeid, $userid = 0, $pathhash = false) {
 
     $fs = get_file_storage();
     if (!$fs->file_exists($user_context->id, 'badges', 'userbadge', $badge->id, '/', $hash . '.png')) {
-        if ($file = $fs->get_file($badge_context->id, 'badges', 'badgeimage', $badge->id, '/', 'f1.png')) {
+        if ($file = $fs->get_file($badge_context->id, 'badges', 'badgeimage', $badge->id, '/', 'f3.png')) {
             $contents = $file->get_content();
 
             $filehandler = new PNG_MetaDataHandler($contents);
@@ -1145,8 +520,15 @@ function badges_bake($hash, $badgeid, $userid = 0, $pathhash = false) {
                 }
             }
         } else {
-            debugging('Error baking badge image!');
+            debugging('Error baking badge image!', DEBUG_DEVELOPER);
+            return;
         }
+    }
+
+    // If file exists and we just need its path hash, return it.
+    if ($pathhash) {
+        $file = $fs->get_file($user_context->id, 'badges', 'userbadge', $badge->id, '/', $hash . '.png');
+        return $file->get_pathnamehash();
     }
 
     $fileurl = moodle_url::make_pluginfile_url($user_context->id, 'badges', 'userbadge', $badge->id, '/', $hash, true);
@@ -1156,28 +538,40 @@ function badges_bake($hash, $badgeid, $userid = 0, $pathhash = false) {
 /**
  * Returns external backpack settings and badges from this backpack.
  *
+ * This function first checks if badges for the user are cached and
+ * tries to retrieve them from the cache. Otherwise, badges are obtained
+ * through curl request to the backpack.
+ *
  * @param int $userid Backpack user ID.
+ * @param boolean $refresh Refresh badges collection in cache.
  * @return null|object Returns null is there is no backpack or object with backpack settings.
  */
-function get_backpack_settings($userid) {
+function get_backpack_settings($userid, $refresh = false) {
     global $DB;
-    require_once(dirname(dirname(__FILE__)) . '/badges/lib/backpacklib.php');
 
+    // Try to get badges from cache first.
+    $badgescache = cache::make('core', 'externalbadges');
+    $out = $badgescache->get($userid);
+    if ($out !== false && !$refresh) {
+        return $out;
+    }
+    // Get badges through curl request to the backpack.
     $record = $DB->get_record('badge_backpack', array('userid' => $userid));
     if ($record) {
-        $backpack = new OpenBadgesBackpackHandler($record);
+        $sitebackpack = badges_get_site_backpack($record->externalbackpackid);
+        $backpack = new \core_badges\backpack_api($sitebackpack, $record);
         $out = new stdClass();
-        $out->backpackurl = $backpack->get_url();
+        $out->backpackid = $sitebackpack->id;
 
         if ($collections = $DB->get_records('badge_external', array('backpackid' => $record->id))) {
             $out->totalcollections = count($collections);
             $out->totalbadges = 0;
             $out->badges = array();
             foreach ($collections as $collection) {
-                $badges = $backpack->get_badges($collection->collectionid);
-                if (isset($badges->badges)) {
-                    $out->badges = array_merge($out->badges, $badges->badges);
-                    $out->totalbadges += count($out->badges);
+                $badges = $backpack->get_badges($collection, true);
+                if (!empty($badges)) {
+                    $out->badges = array_merge($out->badges, $badges);
+                    $out->totalbadges += count($badges);
                 } else {
                     $out->badges = array_merge($out->badges, array());
                 }
@@ -1187,6 +581,7 @@ function get_backpack_settings($userid) {
             $out->totalcollections = 0;
         }
 
+        $badgescache->set($userid, $out);
         return $out;
     }
 
@@ -1211,6 +606,7 @@ function badges_download($userid) {
         // Need to make image name user-readable and unique using filename safe characters.
         $name =  $badge->name . ' ' . userdate($issued->dateissued, '%d %b %Y') . ' ' . hash('crc32', $badge->id);
         $name = str_replace(' ', '_', $name);
+        $name = clean_param($name, PARAM_FILE);
         if ($file = $fs->get_file($context->id, 'badges', 'userbadge', $issued->badgeid, '/', $issued->uniquehash . '.png')) {
             $filelist[$name . '.png'] = $file;
         }
@@ -1222,42 +618,8 @@ function badges_download($userid) {
     if ($zipper->archive_to_pathname($filelist, $tempzip)) {
         send_temp_file($tempzip, 'badges.zip');
     } else {
-        debugging("Problems with archiving the files.");
-    }
-}
-
-/**
- * Print badges on user profile page.
- *
- * @param int $userid User ID.
- * @param int $courseid Course if we need to filter badges (optional).
- */
-function profile_display_badges($userid, $courseid = 0) {
-    global $CFG, $PAGE, $USER, $SITE;
-    require_once($CFG->dirroot . '/badges/renderer.php');
-
-    if ($USER->id == $userid || has_capability('moodle/badges:viewotherbadges', context_user::instance($USER->id))) {
-        $records = badges_get_user_badges($userid, $courseid, null, null, null, true);
-        $renderer = new core_badges_renderer($PAGE, '');
-
-        // Print local badges.
-        if ($records) {
-            $left = get_string('localbadgesp', 'badges', $SITE->fullname);
-            $right = $renderer->print_badges_list($records, $userid, true);
-            echo html_writer::tag('dt', $left);
-            echo html_writer::tag('dd', $right);
-        }
-
-        // Print external badges.
-        if ($courseid == 0 && !empty($CFG->badges_allowexternalbackpack)) {
-            $backpack = get_backpack_settings($userid);
-            if (isset($backpack->totalbadges) && $backpack->totalbadges !== 0) {
-                $left = get_string('externalbadgesp', 'badges');
-                $right = $renderer->print_badges_list($backpack->badges, $userid, true, true);
-                echo html_writer::tag('dt', $left);
-                echo html_writer::tag('dd', $right);
-            }
-        }
+        debugging("Problems with archiving the files.", DEBUG_DEVELOPER);
+        die;
     }
 }
 
@@ -1267,13 +629,23 @@ function profile_display_badges($userid, $courseid = 0) {
  * @return string Code of backpack accessibility status.
  */
 function badges_check_backpack_accessibility() {
+    if (defined('BEHAT_SITE_RUNNING') && BEHAT_SITE_RUNNING) {
+        // For behat sites, do not poll the remote badge site.
+        // Behat sites should not be available, but we should pretend as though they are.
+        return 'available';
+    }
+
+    if (badges_open_badges_backpack_api() == OPEN_BADGES_V2) {
+        return 'available';
+    }
+
     global $CFG;
     include_once $CFG->libdir . '/filelib.php';
 
     // Using fake assertion url to check whether backpack can access the web site.
     $fakeassertion = new moodle_url('/badges/assertion.php', array('b' => 'abcd1234567890'));
 
-    // Curl request to http://backpack.openbadges.org/baker.
+    // Curl request to backpack baker.
     $curl = new curl();
     $options = array(
         'FRESH_CONNECT' => true,
@@ -1281,7 +653,8 @@ function badges_check_backpack_accessibility() {
         'HEADER' => 0,
         'CONNECTTIMEOUT' => 2,
     );
-    $location = 'http://backpack.openbadges.org/baker';
+    // BADGE_BACKPACKURL and the "baker" API is deprecated and should never be used in future.
+    $location = BADGE_BACKPACKURL . '/baker';
     $out = $curl->get($location, array('assertion' => $fakeassertion->out(false)), $options);
 
     $data = json_decode($out);
@@ -1337,4 +710,501 @@ function badges_handle_course_deletion($courseid) {
         $toupdate->status = BADGE_STATUS_ARCHIVED;
         $DB->update_record('badge', $toupdate);
     }
+}
+
+/**
+ * Loads JS files required for backpack support.
+ *
+ * @uses   $CFG, $PAGE
+ * @return void
+ */
+function badges_setup_backpack_js() {
+    global $CFG, $PAGE;
+    if (!empty($CFG->badges_allowexternalbackpack)) {
+        if (badges_open_badges_backpack_api() == OPEN_BADGES_V1) {
+            $PAGE->requires->string_for_js('error:backpackproblem', 'badges');
+            // The issuer.js API is deprecated and should not be used in future.
+            $PAGE->requires->js(new moodle_url(BADGE_BACKPACKURL . '/issuer.js'), true);
+            // The backpack.js file is deprecated and should not be used in future.
+            $PAGE->requires->js('/badges/backpack.js', true);
+        }
+    }
+}
+
+/**
+ * No js files are required for backpack support.
+ * This only exists to directly support the custom V1 backpack api.
+ *
+ * @param boolean $checksite Call check site function.
+ * @return void
+ */
+function badges_local_backpack_js($checksite = false) {
+    global $CFG, $PAGE;
+    if (!empty($CFG->badges_allowexternalbackpack)) {
+        if (badges_open_badges_backpack_api() == OPEN_BADGES_V1) {
+            $PAGE->requires->js('/badges/backpack.js', true);
+            if ($checksite) {
+                $PAGE->requires->js_init_call('check_site_access', null, false);
+            }
+        }
+    }
+}
+
+/**
+ * Create the backpack with this data.
+ *
+ * @param stdClass $data The new backpack data.
+ * @return boolean
+ */
+function badges_create_site_backpack($data) {
+    global $DB;
+    $context = context_system::instance();
+    require_capability('moodle/badges:manageglobalsettings', $context);
+
+    $count = $DB->count_records('badge_external_backpack');
+
+    $backpack = new stdClass();
+    $backpack->apiversion = $data->apiversion;
+    $backpack->backpackapiurl = $data->backpackapiurl;
+    $backpack->backpackweburl = $data->backpackweburl;
+    $backpack->sortorder = $count;
+    $DB->insert_record('badge_external_backpack', $backpack);
+    return true;
+}
+
+/**
+ * Update the backpack with this id.
+ *
+ * @param integer $id The backpack to edit
+ * @param stdClass $data The new backpack data.
+ * @return boolean
+ */
+function badges_update_site_backpack($id, $data) {
+    global $DB;
+    $context = context_system::instance();
+    require_capability('moodle/badges:manageglobalsettings', $context);
+
+    if ($backpack = badges_get_site_backpack($id)) {
+        $backpack = new stdClass();
+        $backpack->id = $id;
+        $backpack->apiversion = $data->apiversion;
+        $backpack->backpackweburl = $data->backpackweburl;
+        $backpack->backpackapiurl = $data->backpackapiurl;
+        $backpack->password = $data->password;
+        $DB->update_record('badge_external_backpack', $backpack);
+        return true;
+    }
+    return false;
+}
+
+/**
+ * Is any backpack enabled that supports open badges V1?
+ * @return boolean
+ */
+function badges_open_badges_backpack_api() {
+    global $CFG;
+
+    $backpack = badges_get_site_backpack($CFG->badges_site_backpack);
+
+    if (empty($backpack->apiversion)) {
+        return OPEN_BADGES_V2;
+    }
+    return $backpack->apiversion;
+}
+
+/**
+ * Get a site backpacks by id or url.
+ *
+ * @param int $id The backpack id.
+ * @return array(stdClass)
+ */
+function badges_get_site_backpack($id) {
+    global $DB;
+
+    return $DB->get_record('badge_external_backpack', ['id' => $id]);
+}
+
+/**
+ * List the backpacks at site level.
+ *
+ * @return array(stdClass)
+ */
+function badges_get_site_backpacks() {
+    global $DB, $CFG;
+
+    $all = $DB->get_records('badge_external_backpack');
+
+    foreach ($all as $key => $bp) {
+        if ($bp->id == $CFG->badges_site_backpack) {
+            $all[$key]->sitebackpack = true;
+        } else {
+            $all[$key]->sitebackpack = false;
+        }
+    }
+    return $all;
+}
+
+/**
+ * List the supported badges api versions.
+ *
+ * @return array(version)
+ */
+function badges_get_badge_api_versions() {
+    return [
+        OPEN_BADGES_V1 => get_string('openbadgesv1', 'badges'),
+        OPEN_BADGES_V2 => get_string('openbadgesv2', 'badges')
+    ];
+}
+
+/**
+ * Called on install or upgrade to create default list of backpacks a user can connect to.
+ *
+ * @return void
+ */
+function badges_install_default_backpacks() {
+    global $DB;
+
+    $record = new stdClass();
+    $record->backpackweburl = BADGE_BACKPACKWEBURL;
+    $record->backpackapiurl = BADGE_BACKPACKAPIURL;
+    $record->apiversion = OPEN_BADGES_V1;
+    $record->sortorder = 0;
+    $record->password = '';
+
+    $bpid = 0;
+    if (!($bp = $DB->get_record('badge_external_backpack', array('backpackapiurl' => $record->backpackapiurl)))) {
+        $bpid = $DB->insert_record('badge_external_backpack', $record);
+    } else {
+        $bpid = $bp->id;
+    }
+    set_config('badges_site_backpack', $bpid);
+
+    // All existing backpacks default to V1.
+    $DB->set_field('badge_backpack', 'externalbackpackid', $bpid);
+
+    $record = new stdClass();
+    $record->backpackapiurl = BADGRIO_BACKPACKAPIURL;
+    $record->backpackweburl = BADGRIO_BACKPACKWEBURL;
+    $record->apiversion = OPEN_BADGES_V2;
+    $record->sortorder = 1;
+    $record->password = '';
+
+    if (!$DB->record_exists('badge_external_backpack', array('backpackapiurl' => $record->backpackapiurl))) {
+        $DB->insert_record('badge_external_backpack', $record);
+    }
+
+}
+
+/**
+ * Get the default issuer for a badge from this site.
+ *
+ * @return array
+ */
+function badges_get_default_issuer() {
+    global $CFG, $SITE;
+
+    $issuer = array();
+    $issuerurl = new moodle_url('/badges/issuer.php');
+    $issuer['name'] = $CFG->badges_defaultissuername;
+    if (empty($issuer['name'])) {
+        $issuer['name'] = $SITE->fullname ? $SITE->fullname : $SITE->shortname;
+    }
+    $issuer['url'] = $issuerurl->out(false);
+    $issuer['email'] = $CFG->badges_defaultissuercontact;
+    $issuer['@context'] = OPEN_BADGES_V2_CONTEXT;
+    $issuer['id'] = $issuerurl->out(false);
+    $issuer['type'] = OPEN_BADGES_V2_TYPE_ISSUER;
+    return $issuer;
+}
+
+/**
+ * Disconnect from the user backpack by deleting the user preferences.
+ *
+ * @param integer $userid The user to diconnect.
+ * @return boolean
+ */
+function badges_disconnect_user_backpack($userid) {
+    global $USER;
+
+    // We can only change backpack settings for our own real backpack.
+    if ($USER->id != $userid ||
+            \core\session\manager::is_loggedinas()) {
+
+        return false;
+    }
+
+    unset_user_preference('badges_email_verify_secret');
+    unset_user_preference('badges_email_verify_address');
+    unset_user_preference('badges_email_verify_backpackid');
+    unset_user_preference('badges_email_verify_password');
+
+    return true;
+}
+
+/**
+ * Used to remember which objects we connected with a backpack before.
+ *
+ * @param integer $sitebackpackid The site backpack to connect to.
+ * @param string $type The type of this remote object.
+ * @param string $internalid The id for this object on the Moodle site.
+ * @return mixed The id or false if it doesn't exist.
+ */
+function badges_external_get_mapping($sitebackpackid, $type, $internalid) {
+    global $DB;
+    // Return externalid if it exists.
+    $params = [
+        'sitebackpackid' => $sitebackpackid,
+        'type' => $type,
+        'internalid' => $internalid
+    ];
+
+    $record = $DB->get_record('badge_external_identifier', $params, 'externalid', IGNORE_MISSING);
+    if ($record) {
+        return $record->externalid;
+    }
+    return false;
+}
+
+/**
+ * Save the info about which objects we connected with a backpack before.
+ *
+ * @param integer $sitebackpackid The site backpack to connect to.
+ * @param string $type The type of this remote object.
+ * @param string $internalid The id for this object on the Moodle site.
+ * @param string $externalid The id of this object on the remote site.
+ * @return boolean
+ */
+function badges_external_create_mapping($sitebackpackid, $type, $internalid, $externalid) {
+    global $DB;
+
+    $params = [
+        'sitebackpackid' => $sitebackpackid,
+        'type' => $type,
+        'internalid' => $internalid,
+        'externalid' => $externalid
+    ];
+
+    return $DB->insert_record('badge_external_identifier', $params);
+}
+
+/**
+ * Delete all external mapping information for a backpack.
+ *
+ * @param integer $sitebackpackid The site backpack to connect to.
+ * @return boolean
+ */
+function badges_external_delete_mappings($sitebackpackid) {
+    global $DB;
+
+    $params = ['sitebackpackid' => $sitebackpackid];
+
+    return $DB->delete_records('badge_external_identifier', $params);
+}
+
+/**
+ * Delete a specific external mapping information for a backpack.
+ *
+ * @param integer $sitebackpackid The site backpack to connect to.
+ * @param string $type The type of this remote object.
+ * @param string $internalid The id for this object on the Moodle site.
+ * @return boolean
+ */
+function badges_external_delete_mapping($sitebackpackid, $type, $internalid) {
+    global $DB;
+
+    $params = [
+        'sitebackpackid' => $sitebackpackid,
+        'type' => $type,
+        'internalid' => $internalid
+    ];
+
+    $DB->delete_record('badge_external_identifier', $params);
+}
+
+/**
+ * Create and send a verification email to the email address supplied.
+ *
+ * Since we're not sending this email to a user, email_to_user can't be used
+ * but this function borrows largely the code from that process.
+ *
+ * @param string $email the email address to send the verification email to.
+ * @param int $backpackid the id of the backpack to connect to
+ * @param string $backpackpassword the user entered password to connect to this backpack
+ * @return true if the email was sent successfully, false otherwise.
+ */
+function badges_send_verification_email($email, $backpackid, $backpackpassword) {
+    global $DB, $USER;
+
+    // Store a user secret (badges_email_verify_secret) and the address (badges_email_verify_address) as users prefs.
+    // The address will be used by edit_backpack_form for display during verification and to facilitate the resending
+    // of verification emails to said address.
+    $secret = random_string(15);
+    set_user_preference('badges_email_verify_secret', $secret);
+    set_user_preference('badges_email_verify_address', $email);
+    set_user_preference('badges_email_verify_backpackid', $backpackid);
+    set_user_preference('badges_email_verify_password', $backpackpassword);
+
+    // To, from.
+    $tempuser = $DB->get_record('user', array('id' => $USER->id), '*', MUST_EXIST);
+    $tempuser->email = $email;
+    $noreplyuser = core_user::get_noreply_user();
+
+    // Generate the verification email body.
+    $verificationurl = '/badges/backpackemailverify.php';
+    $verificationurl = new moodle_url($verificationurl);
+    $verificationpath = $verificationurl->out(false);
+
+    $site = get_site();
+    $args = new stdClass();
+    $args->link = $verificationpath . '?data='. $secret;
+    $args->sitename = $site->fullname;
+    $args->admin = generate_email_signoff();
+
+    $messagesubject = get_string('backpackemailverifyemailsubject', 'badges', $site->fullname);
+    $messagetext = get_string('backpackemailverifyemailbody', 'badges', $args);
+    $messagehtml = text_to_html($messagetext, false, false, true);
+
+    return email_to_user($tempuser, $noreplyuser, $messagesubject, $messagetext, $messagehtml);
+}
+
+/**
+ * Return all the enabled criteria types for this site.
+ *
+ * @param boolean $enabled
+ * @return array
+ */
+function badges_list_criteria($enabled = true) {
+    global $CFG;
+
+    $types = array(
+        BADGE_CRITERIA_TYPE_OVERALL    => 'overall',
+        BADGE_CRITERIA_TYPE_ACTIVITY   => 'activity',
+        BADGE_CRITERIA_TYPE_MANUAL     => 'manual',
+        BADGE_CRITERIA_TYPE_SOCIAL     => 'social',
+        BADGE_CRITERIA_TYPE_COURSE     => 'course',
+        BADGE_CRITERIA_TYPE_COURSESET  => 'courseset',
+        BADGE_CRITERIA_TYPE_PROFILE    => 'profile',
+        BADGE_CRITERIA_TYPE_BADGE      => 'badge',
+        BADGE_CRITERIA_TYPE_COHORT     => 'cohort',
+        BADGE_CRITERIA_TYPE_COMPETENCY => 'competency',
+    );
+    if ($enabled) {
+        foreach ($types as $key => $type) {
+            $class = 'award_criteria_' . $type;
+            $file = $CFG->dirroot . '/badges/criteria/' . $class . '.php';
+            if (file_exists($file)) {
+                require_once($file);
+
+                if (!$class::is_enabled()) {
+                    unset($types[$key]);
+                }
+            }
+        }
+    }
+    return $types;
+}
+
+/**
+ * Check if any badge has records for competencies.
+ *
+ * @param array $competencyids Array of competencies ids.
+ * @return boolean Return true if competencies were found in any badge.
+ */
+function badge_award_criteria_competency_has_records_for_competencies($competencyids) {
+    global $DB;
+
+    list($insql, $params) = $DB->get_in_or_equal($competencyids, SQL_PARAMS_NAMED);
+
+    $sql = "SELECT DISTINCT bc.badgeid
+                FROM {badge_criteria} bc
+                JOIN {badge_criteria_param} bcp ON bc.id = bcp.critid
+                WHERE bc.criteriatype = :criteriatype AND bcp.value $insql";
+    $params['criteriatype'] = BADGE_CRITERIA_TYPE_COMPETENCY;
+
+    return $DB->record_exists_sql($sql, $params);
+}
+
+/**
+ * Creates single message for all notification and sends it out
+ *
+ * @param object $badge A badge which is notified about.
+ */
+function badge_assemble_notification(stdClass $badge) {
+    global $DB;
+
+    $userfrom = core_user::get_noreply_user();
+    $userfrom->maildisplay = true;
+
+    if ($msgs = $DB->get_records_select('badge_issued', 'issuernotified IS NULL AND badgeid = ?', array($badge->id))) {
+        // Get badge creator.
+        $creator = $DB->get_record('user', array('id' => $badge->creator), '*', MUST_EXIST);
+        $creatorsubject = get_string('creatorsubject', 'badges', $badge->name);
+        $creatormessage = '';
+
+        // Put all messages in one digest.
+        foreach ($msgs as $msg) {
+            $issuedlink = html_writer::link(new moodle_url('/badges/badge.php', array('hash' => $msg->uniquehash)), $badge->name);
+            $recipient = $DB->get_record('user', array('id' => $msg->userid), '*', MUST_EXIST);
+
+            $a = new stdClass();
+            $a->user = fullname($recipient);
+            $a->link = $issuedlink;
+            $creatormessage .= get_string('creatorbody', 'badges', $a);
+            $DB->set_field('badge_issued', 'issuernotified', time(), array('badgeid' => $msg->badgeid, 'userid' => $msg->userid));
+        }
+
+        // Create a message object.
+        $eventdata = new \core\message\message();
+        $eventdata->courseid          = SITEID;
+        $eventdata->component         = 'moodle';
+        $eventdata->name              = 'badgecreatornotice';
+        $eventdata->userfrom          = $userfrom;
+        $eventdata->userto            = $creator;
+        $eventdata->notification      = 1;
+        $eventdata->subject           = $creatorsubject;
+        $eventdata->fullmessage       = format_text_email($creatormessage, FORMAT_HTML);
+        $eventdata->fullmessageformat = FORMAT_PLAIN;
+        $eventdata->fullmessagehtml   = $creatormessage;
+        $eventdata->smallmessage      = $creatorsubject;
+
+        message_send($eventdata);
+    }
+}
+
+/**
+ * Attempt to authenticate with the site backpack credentials and return an error
+ * if the authentication fails. If external backpacks are not enabled, this will
+ * not perform any test.
+ *
+ * @return string
+ */
+function badges_verify_site_backpack() {
+    global $OUTPUT, $CFG;
+
+    if (empty($CFG->badges_allowexternalbackpack)) {
+        return '';
+    }
+
+    $backpack = badges_get_site_backpack($CFG->badges_site_backpack);
+
+    if (empty($backpack->apiversion) || ($backpack->apiversion == OPEN_BADGES_V2)) {
+        $backpackapi = new \core_badges\backpack_api($backpack);
+
+        // Clear any cached access tokens in the session.
+        $backpackapi->clear_system_user_session();
+
+        // Now attempt a login with these credentials.
+        $result = $backpackapi->authenticate();
+        if (empty($result) || !empty($result->error)) {
+            $warning = $backpackapi->get_authentication_error();
+
+            $params = ['id' => $backpack->id, 'action' => 'edit'];
+            $backpackurl = (new moodle_url('/badges/backpacks.php', $params))->out(false);
+
+            $message = get_string('sitebackpackwarning', 'badges', ['url' => $backpackurl, 'warning' => $warning]);
+            $icon = $OUTPUT->pix_icon('i/warning', get_string('warning', 'moodle'));
+            return $OUTPUT->container($icon . $message, 'text-error');
+        }
+    }
+    return '';
 }

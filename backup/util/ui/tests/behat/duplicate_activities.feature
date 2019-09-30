@@ -4,30 +4,37 @@ Feature: Duplicate activities
   As a teacher
   I need to duplicate activities inside the same course
 
-  @javascript
   Scenario: Duplicate an activity
-    Given the following "courses" exists:
+    Given the following "courses" exist:
       | fullname | shortname | category |
       | Course 1 | C1 | 0 |
-    And the following "users" exists:
+    And the following "users" exist:
       | username | firstname | lastname | email |
-      | teacher1 | Teacher | 1 | teacher1@asd.com |
-    And the following "course enrolments" exists:
+      | teacher1 | Teacher | 1 | teacher1@example.com |
+    And the following "course enrolments" exist:
       | user | course | role |
       | teacher1 | C1 | editingteacher |
+    And I log in as "admin"
+    And I set the following administration settings values:
+      | backup_import_activities    | 0 |
+    And I log out
     And I log in as "teacher1"
-    And I follow "Course 1"
-    And I turn editing mode on
+    And I am on "Course 1" course homepage with editing mode on
     And I add a "Database" to section "1" and I fill the form with:
       | Name | Test database name |
       | Description | Test database description |
-    When I click on "Duplicate" "link" in the "#section-1" "css_element"
-    And I press "Continue"
-    And I press "Edit the new copy"
-    And I fill the moodle form with:
+    And I duplicate "Test database name" activity
+    And I should see "Test database name (copy)"
+    And I wait until section "1" is available
+    And I click on "Edit settings" "link" in the "Test database name" activity
+    And I set the following fields to these values:
+      | Name | Original database name |
+    And I press "Save and return to course"
+    And I click on "Edit settings" "link" in the "Test database name (copy)" activity
+    And I set the following fields to these values:
       | Name | Duplicated database name |
       | Description | Duplicated database description |
     And I press "Save and return to course"
-    Then I should see "Test database name" in the "#section-1" "css_element"
-    And I should see "Duplicated database name" in the "#section-1" "css_element"
-    And "Test database name" "link" should appear before "Duplicated database name" "link"
+    Then I should see "Original database name" in the "Topic 1" "section"
+    And I should see "Duplicated database name" in the "Topic 1" "section"
+    And "Original database name" "link" should appear before "Duplicated database name" "link"

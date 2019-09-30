@@ -38,15 +38,9 @@ defined('MOODLE_INTERNAL') || die();
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 class qbehaviour_manualgraded extends question_behaviour_with_save {
-    const IS_ARCHETYPAL = true;
 
     public function is_compatible_question(question_definition $question) {
         return $question instanceof question_with_responses;
-    }
-
-    public static function get_unused_display_options() {
-        return array('correctness', 'marks', 'specificfeedback', 'generalfeedback',
-                'rightanswer');
     }
 
     public function adjust_display_options(question_display_options $options) {
@@ -71,6 +65,34 @@ class qbehaviour_manualgraded extends question_behaviour_with_save {
         }
     }
 
+    /**
+     * Like the parent method, except that when a response is gradable, but not
+     * completely, we move it to the invalid state.
+     * @param question_attempt_pending_step $pendingstep a partially initialised step
+     *      containing all the information about the action that is being performed.
+     * @return bool either {@link question_attempt::KEEP} or {@link question_attempt::DISCARD}
+     */
+    public function process_save(question_attempt_pending_step $pendingstep) {
+        if ($this->qa->get_state()->is_finished()) {
+            return question_attempt::DISCARD;
+        } else if (!$this->qa->get_state()->is_active()) {
+            throw new coding_exception('Question is not active, cannot process_actions.');
+        }
+
+        if ($this->is_same_response($pendingstep)) {
+            return question_attempt::DISCARD;
+        }
+
+        if ($this->is_complete_response($pendingstep)) {
+            $pendingstep->set_state(question_state::$complete);
+        } else if ($this->question->is_gradable_response($pendingstep->get_qt_data())) {
+            $pendingstep->set_state(question_state::$invalid);
+        } else {
+            $pendingstep->set_state(question_state::$todo);
+        }
+        return question_attempt::KEEP;
+    }
+
     public function summarise_action(question_attempt_step $step) {
         if ($step->has_behaviour_var('comment')) {
             return $this->summarise_manual_comment($step);
@@ -87,7 +109,7 @@ class qbehaviour_manualgraded extends question_behaviour_with_save {
         }
 
         $response = $this->qa->get_last_step()->get_qt_data();
-        if (!$this->question->is_complete_response($response)) {
+        if (!$this->question->is_gradable_response($response)) {
             $pendingstep->set_state(question_state::$gaveup);
         } else {
             $pendingstep->set_state(question_state::$needsgrading);

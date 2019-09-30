@@ -17,7 +17,7 @@
 /**
  * Steps definitions related with administration.
  *
- * @package   core
+ * @package   core_admin
  * @category  test
  * @copyright 2013 David Monllaó
  * @license   http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
@@ -34,7 +34,7 @@ use Behat\Gherkin\Node\TableNode as TableNode,
 /**
  * Site administration level steps definitions.
  *
- * @package    core
+ * @package    core_admin
  * @category   test
  * @copyright  2013 David Monllaó
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
@@ -48,49 +48,67 @@ class behat_admin extends behat_base {
      * @param TableNode $table
      */
     public function i_set_the_following_administration_settings_values(TableNode $table) {
-
         if (!$data = $table->getRowsHash()) {
             return;
         }
 
         foreach ($data as $label => $value) {
-
-            // We expect admin block to be visible, otherwise go to homepage.
-            if (!$this->getSession()->getPage()->find('css', '.block_settings')) {
-                $this->getSession()->visit($this->locate_path('/'));
-                $this->wait(self::TIMEOUT, '(document.readyState === "complete")');
-            }
+            $this->execute('behat_navigation::i_select_from_flat_navigation_drawer', [get_string('administrationsite')]);
 
             // Search by label.
-            $searchbox = $this->find_field('Search in settings');
-            $searchbox->setValue($label);
-            $submitsearch = $this->find('css', 'form.adminsearchform input[type=submit]');
-            $submitsearch->press();
-
-            $this->wait(self::TIMEOUT, '(document.readyState === "complete")');
+            $this->execute('behat_forms::i_set_the_field_to', [get_string('query', 'admin'), $label]);
+            $this->execute("behat_forms::press_button", get_string('search', 'admin'));
 
             // Admin settings does not use the same DOM structure than other moodle forms
             // but we also need to use lib/behat/form_field/* to deal with the different moodle form elements.
             $exception = new ElementNotFoundException($this->getSession(), '"' . $label . '" administration setting ');
-            $fieldxpath = "//*[self::input | self::textarea | self::select][not(./@type = 'submit' or ./@type = 'image' or ./@type = 'hidden')]" .
-                "[@id=//label[contains(normalize-space(string(.)), '" . $label . "')]/@for]";
-            $fieldnode = $this->find('xpath', $fieldxpath, $exception);
-            $formfieldtypenode = $this->find('xpath', $fieldxpath . "/ancestor::div[@class='form-setting']" .
-                "/child::div[contains(concat(' ', @class, ' '),  ' form-')]/child::*/parent::div");
 
-            // Getting the class which contains the field type.
-            $classes = explode(' ', $formfieldtypenode->getAttribute('class'));
-            foreach ($classes as $class) {
-                if (substr($class, 0, 5) == 'form-') {
-                    $type = substr($class, 5);
-                }
+            // The argument should be converted to an xpath literal.
+            $label = behat_context_helper::escape($label);
+
+            // Single element settings.
+            try {
+                $fieldxpath = "//*[self::input | self::textarea | self::select]" .
+                        "[not(./@type = 'submit' or ./@type = 'image' or ./@type = 'hidden')]" .
+                        "[@id=//label[contains(normalize-space(.), $label)]/@for or " .
+                        "@id=//span[contains(normalize-space(.), $label)]/preceding-sibling::label[1]/@for]";
+                $fieldnode = $this->find('xpath', $fieldxpath, $exception);
+
+            } catch (ElementNotFoundException $e) {
+                // Multi element settings, interacting only the first one.
+                $fieldxpath = "//*[label[contains(., $label)]|span[contains(., $label)]]" .
+                        "/ancestor::div[contains(concat(' ', normalize-space(@class), ' '), ' form-item ')]" .
+                        "/descendant::div[contains(concat(' ', @class, ' '), ' form-group ')]" .
+                        "/descendant::*[self::input | self::textarea | self::select]" .
+                        "[not(./@type = 'submit' or ./@type = 'image' or ./@type = 'hidden')]";
             }
 
-            // Instantiating the appropiate field type.
-            $field = behat_field_manager::get_field_instance($type, $fieldnode, $this->getSession());
-            $field->set_value($value);
+            $this->execute('behat_forms::i_set_the_field_with_xpath_to', [$fieldxpath, $value]);
+            $this->execute("behat_general::i_click_on", [get_string('savechanges'), 'button']);
+        }
+    }
 
-            $this->find_button('Save changes')->press();
+    /**
+     * Sets the specified site settings. A table with | config | value | (optional)plugin | is expected.
+     *
+     * @Given /^the following config values are set as admin:$/
+     * @param TableNode $table
+     */
+    public function the_following_config_values_are_set_as_admin(TableNode $table) {
+
+        if (!$data = $table->getRowsHash()) {
+            return;
+        }
+
+        foreach ($data as $config => $value) {
+            // Default plugin value is null.
+            $plugin = null;
+
+            if (is_array($value)) {
+                $plugin = $value[1];
+                $value = $value[0];
+            }
+            set_config($config, $value, $plugin);
         }
     }
 

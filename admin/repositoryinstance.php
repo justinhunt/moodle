@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
-require_once(dirname(dirname(__FILE__)) . '/config.php');
+require_once(__DIR__ . '/../config.php');
 require_once($CFG->dirroot . '/repository/lib.php');
 require_once($CFG->libdir . '/adminlib.php');
 
@@ -42,7 +42,6 @@ if ($edit){
 }
 
 admin_externalpage_setup($pagename, '', null, new moodle_url('/admin/repositoryinstance.php'));
-require_capability('moodle/site:config', $context);
 
 $baseurl = new moodle_url("/$CFG->admin/repositoryinstance.php", array('sesskey'=>sesskey()));
 
@@ -102,6 +101,7 @@ if (!empty($edit) || !empty($new)) {
             $data = data_submitted();
         }
         if ($success) {
+            core_plugin_manager::reset_caches();
             redirect($parenturl);
         } else {
             print_error('instancenotsaved', 'repository', $parenturl);
@@ -118,6 +118,7 @@ if (!empty($edit) || !empty($new)) {
 } else if (!empty($hide)) {
     $instance = repository::get_type_by_typename($hide);
     $instance->hide();
+    core_plugin_manager::reset_caches();
     $return = true;
 } else if (!empty($delete)) {
     $instance = repository::get_instance($delete);
@@ -130,6 +131,7 @@ if (!empty($edit) || !empty($new)) {
     if ($sure) {
         if ($instance->delete($downloadcontents)) {
             $deletedstr = get_string('instancedeleted', 'repository');
+            core_plugin_manager::reset_caches();
             redirect($parenturl, $deletedstr, 3);
         } else {
             print_error('instancenotdeleted', 'repository', $parenturl);

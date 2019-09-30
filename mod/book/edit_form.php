@@ -42,7 +42,18 @@ class book_chapter_edit_form extends moodleform {
 
         $mform = $this->_form;
 
-        $mform->addElement('header', 'general', get_string('edit'));
+        if (!empty($chapter->id)) {
+            $mform->addElement('header', 'general', get_string('editingchapter', 'mod_book'));
+        } else {
+            $mform->addElement('header', 'general', get_string('addafter', 'mod_book'));
+        }
+
+        if (isset($chapter->currentchaptertitle)) {
+            $mform->addElement('static', 'details',
+                get_string('previouschapter', 'mod_book'),
+                $chapter->currentchaptertitle
+            );
+        }
 
         $mform->addElement('text', 'title', get_string('chaptertitle', 'mod_book'), array('size'=>'30'));
         $mform->setType('title', PARAM_RAW);
@@ -53,6 +64,12 @@ class book_chapter_edit_form extends moodleform {
         $mform->addElement('editor', 'content_editor', get_string('content', 'mod_book'), null, $options);
         $mform->setType('content_editor', PARAM_RAW);
         $mform->addRule('content_editor', get_string('required'), 'required', null, 'client');
+
+        if (core_tag_tag::is_enabled('mod_book', 'book_chapters')) {
+            $mform->addElement('header', 'tagshdr', get_string('tags', 'tag'));
+        }
+        $mform->addElement('tags', 'tags', get_string('tags'),
+            array('itemtype' => 'book_chapters', 'component' => 'mod_book'));
 
         $mform->addElement('hidden', 'id');
         $mform->setType('id', PARAM_INT);

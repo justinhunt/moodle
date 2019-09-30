@@ -1,15 +1,41 @@
 <?php
+// This file is part of Moodle - http://moodle.org/
+//
+// Moodle is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// Moodle is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
+
+/**
+ * Date filter
+ *
+ * @package   core_user
+ * @category  user
+ * @copyright 1999 Martin Dougiamas  http://dougiamas.com
+ * @license   http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
+ */
 
 require_once($CFG->dirroot.'/user/filters/lib.php');
 
 /**
  * Generic filter based on a date.
+ * @copyright 1999 Martin Dougiamas  http://dougiamas.com
+ * @license   http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 class user_filter_date extends user_filter_type {
     /**
      * the fields available for comparisson
+     * @var string
      */
-    var $_field;
+    public $_field;
 
     /**
      * Constructor
@@ -18,21 +44,40 @@ class user_filter_date extends user_filter_type {
      * @param boolean $advanced advanced form element flag
      * @param string $field user table filed name
      */
-    function user_filter_date($name, $label, $advanced, $field) {
-        parent::user_filter_type($name, $label, $advanced);
+    public function __construct($name, $label, $advanced, $field) {
+        parent::__construct($name, $label, $advanced);
         $this->_field = $field;
+    }
+
+    /**
+     * Old syntax of class constructor. Deprecated in PHP7.
+     *
+     * @deprecated since Moodle 3.1
+     */
+    public function user_filter_date($name, $label, $advanced, $field) {
+        debugging('Use of class name as constructor is deprecated', DEBUG_DEVELOPER);
+        self::__construct($name, $label, $advanced, $field);
     }
 
     /**
      * Adds controls specific to this filter in the form.
      * @param object $mform a MoodleForm object to setup
      */
-    function setupForm(&$mform) {
+    public function setupForm(&$mform) {
         $objs = array();
 
-        $objs[] =& $mform->createElement('date_selector', $this->_name.'_sdt', null, array('optional' => true));
-        $objs[] =& $mform->createElement('static', $this->_name.'_break', null, '<br/>');
-        $objs[] =& $mform->createElement('date_selector', $this->_name.'_edt', null, array('optional' => true));
+        $objs[] = $mform->createElement('static', $this->_name.'_s1', null,
+            html_writer::start_tag('div', array('class' => 'w-100 d-flex align-items-center')));
+        $objs[] = $mform->createElement('static', $this->_name.'_s2', null,
+            html_writer::tag('div', get_string('isafter', 'filters'), array('class' => 'mr-2')));
+        $objs[] = $mform->createElement('date_selector', $this->_name.'_sdt', null, array('optional' => true));
+        $objs[] = $mform->createElement('static', $this->_name.'_s3', null, html_writer::end_tag('div'));
+        $objs[] = $mform->createElement('static', $this->_name.'_s4', null,
+            html_writer::start_tag('div', array('class' => 'w-100 d-flex align-items-center')));
+        $objs[] = $mform->createElement('static', $this->_name.'_s5', null,
+            html_writer::tag('div', get_string('isbefore', 'filters'), array('class' => 'mr-2')));
+        $objs[] = $mform->createElement('date_selector', $this->_name.'_edt', null, array('optional' => true));
+        $objs[] = $mform->createElement('static', $this->_name.'_s6', null, html_writer::end_tag('div'));
 
         $grp =& $mform->addElement('group', $this->_name.'_grp', $this->_label, $objs, '', false);
 
@@ -46,7 +91,7 @@ class user_filter_date extends user_filter_type {
      * @param object $formdata data submited with the form
      * @return mixed array filter data or false when filter not set
      */
-    function check_data($formdata) {
+    public function check_data($formdata) {
         $sdt = $this->_name.'_sdt';
         $edt = $this->_name.'_edt';
 
@@ -66,7 +111,7 @@ class user_filter_date extends user_filter_type {
      * @param array $data filter settings
      * @return array sql string and $params
      */
-    function get_sql_filter($data) {
+    public function get_sql_filter($data) {
         $after  = (int)$data['after'];
         $before = (int)$data['before'];
 
@@ -76,7 +121,7 @@ class user_filter_date extends user_filter_type {
             return array('', array());
         }
 
-        $res = " $field >= 0 " ;
+        $res = " $field >= 0 ";
 
         if ($after) {
             $res .= " AND $field >= $after";
@@ -93,7 +138,7 @@ class user_filter_date extends user_filter_type {
      * @param array $data filter settings
      * @return string active filter label
      */
-    function get_label($data) {
+    public function get_label($data) {
         $after  = $data['after'];
         $before = $data['before'];
         $field  = $this->_field;

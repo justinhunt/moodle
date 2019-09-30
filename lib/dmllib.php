@@ -52,7 +52,7 @@ define('IGNORE_MULTIPLE', 1);
 define('MUST_EXIST', 2);
 
 /**
- * DML exception class, use instead of error() in dml code.
+ * DML exception class, use instead of print_error() in dml code.
  *
  * @package    core
  * @category   dml
@@ -205,7 +205,7 @@ class dml_missing_record_exception extends dml_exception {
             case 'course':
                 $errcode = empty($sql) ? 'invalidcourseid' : 'invalidrecord';
                 break;
-            case 'course_module':
+            case 'course_modules':
                 $errcode = 'invalidcoursemodule';
                 break;
             case 'user':
@@ -314,10 +314,6 @@ function setup_DB() {
                 $CFG->dbtype = 'pgsql';
                 break;
 
-            case 'mssql_n':
-                $CFG->dbtype = 'mssql';
-                break;
-
             case 'oci8po':
                 $CFG->dbtype = 'oci';
                 break;
@@ -344,6 +340,11 @@ function setup_DB() {
         $DB->connect($CFG->dbhost, $CFG->dbuser, $CFG->dbpass, $CFG->dbname, $CFG->prefix, $CFG->dboptions);
     } catch (moodle_exception $e) {
         if (empty($CFG->noemailever) and !empty($CFG->emailconnectionerrorsto)) {
+            $body = "Connection error: ".$CFG->wwwroot.
+                "\n\nInfo:".
+                "\n\tError code: ".$e->errorcode.
+                "\n\tDebug info: ".$e->debuginfo.
+                "\n\tServer: ".$_SERVER['SERVER_NAME']." (".$_SERVER['SERVER_ADDR'].")";
             if (file_exists($CFG->dataroot.'/emailcount')){
                 $fp = @fopen($CFG->dataroot.'/emailcount', 'r');
                 $content = @fread($fp, 24);
@@ -352,7 +353,7 @@ function setup_DB() {
                     //email directly rather than using messaging
                     @mail($CFG->emailconnectionerrorsto,
                         'WARNING: Database connection error: '.$CFG->wwwroot,
-                        'Connection error: '.$CFG->wwwroot);
+                        $body);
                     $fp = @fopen($CFG->dataroot.'/emailcount', 'w');
                     @fwrite($fp, time());
                 }
@@ -360,7 +361,7 @@ function setup_DB() {
                //email directly rather than using messaging
                @mail($CFG->emailconnectionerrorsto,
                     'WARNING: Database connection error: '.$CFG->wwwroot,
-                    'Connection error: '.$CFG->wwwroot);
+                    $body);
                $fp = @fopen($CFG->dataroot.'/emailcount', 'w');
                @fwrite($fp, time());
             }

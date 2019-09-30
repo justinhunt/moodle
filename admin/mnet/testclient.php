@@ -12,7 +12,7 @@
  * @license http://www.gnu.org/copyleft/gpl.html GNU Public License
  * @package mnet
  */
-require_once(dirname(dirname(dirname(__FILE__))) . '/config.php');
+require(__DIR__.'/../../config.php');
 require_once $CFG->dirroot.'/mnet/xmlrpc/client.php';
 require_once($CFG->libdir.'/adminlib.php');
 include_once($CFG->dirroot.'/mnet/lib.php');
@@ -21,11 +21,7 @@ if ($CFG->mnet_dispatcher_mode === 'off') {
     print_error('mnetdisabled', 'mnet');
 }
 
-require_login();
 admin_externalpage_setup('mnettestclient');
-
-$context = context_system::instance();
-require_capability('moodle/site:config', $context);
 
 error_reporting(DEBUG_ALL);
 
@@ -66,11 +62,18 @@ if (!empty($hostid) && array_key_exists($hostid, $hosts)) {
 
     $mnet_request->set_method('system/listServices');
     $mnet_request->send($mnet_peer);
+
     $services = $mnet_request->response;
     $yesno = array('No', 'Yes');
     $servicenames = array();
 
     echo $OUTPUT->heading(get_string('servicesavailableonhost', 'mnet', $host->wwwroot));
+
+    if (!empty($mnet_request->error)) {
+        echo $OUTPUT->heading(get_string('error'), 3);
+        echo html_writer::alist($mnet_request->error);
+        $services = array();
+    }
 
     $table = new html_table();
     $table->head = array(
@@ -127,6 +130,7 @@ if (!empty($hostid) && array_key_exists($hostid, $hosts)) {
     echo html_writer::table($table);
 
 
+    $mnet_request = new mnet_xmlrpc_client();
     $mnet_request->set_method('system/listMethods');
     if (isset($servicename) && array_key_exists($servicename, $serviceinfo)) {
         echo $OUTPUT->heading(get_string('methodsavailableonhostinservice', 'mnet', (object)array('host' => $host->wwwroot, 'service' => $servicename)));
@@ -139,6 +143,11 @@ if (!empty($hostid) && array_key_exists($hostid, $hosts)) {
     $mnet_request->send($mnet_peer);
     $methods = $mnet_request->response;
 
+    if (!empty($mnet_request->error)) {
+        echo $OUTPUT->heading(get_string('error'), 3);
+        echo html_writer::alist($mnet_request->error);
+        $methods = array();
+    }
 
     $table = new html_table();
     $table->head = array(
@@ -170,6 +179,12 @@ if (!empty($hostid) && array_key_exists($hostid, $hosts)) {
         $signature = $mnet_request->response;
 
         echo $OUTPUT->heading(get_string('methodsignature', 'mnet', $method));
+
+        if (!empty($mnet_request->error)) {
+            echo $OUTPUT->heading(get_string('error'), 3);
+            echo html_writer::alist($mnet_request->error);
+            $signature = array();
+        }
 
         $table = new html_table();
         $table->head = array(

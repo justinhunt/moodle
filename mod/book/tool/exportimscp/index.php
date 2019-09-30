@@ -24,8 +24,8 @@
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
-require(dirname(__FILE__).'/../../../../config.php');
-require_once(dirname(__FILE__).'/locallib.php');
+require(__DIR__.'/../../../../config.php');
+require_once(__DIR__.'/locallib.php');
 require_once($CFG->dirroot.'/mod/book/locallib.php');
 require_once($CFG->libdir.'/filelib.php');
 
@@ -43,7 +43,7 @@ $context = context_module::instance($cm->id);
 require_capability('mod/book:read', $context);
 require_capability('booktool/exportimscp:export', $context);
 
-add_to_log($course->id, 'book', 'exportimscp', 'tool/exportimscp/index.php?id='.$cm->id, $book->id, $cm->id);
+\booktool_exportimscp\event\book_exported::create_from_book($book, $context)->trigger();
 
 $file = booktool_exportimscp_build_package($book, $context);
 
