@@ -806,7 +806,7 @@ function question_preview_url($questionid, $preferredbehaviour = null,
     }
 
     if (!is_null($maxmark)) {
-        $params['maxmark'] = format_float($maxmark, strlen($maxmark), true, true);
+        $params['maxmark'] = format_float($maxmark, -1);
     }
 
     if (!is_null($displayoptions)) {
@@ -1420,7 +1420,7 @@ function question_category_options($contexts, $top = false, $currentcat = 0,
     foreach ($contexts as $context) {
         $pcontexts[] = $context->id;
     }
-    $contextslist = join($pcontexts, ', ');
+    $contextslist = join(', ', $pcontexts);
 
     $categories = get_categories_for_contexts($contextslist, 'parent, sortorder, name ASC', $top);
 
@@ -2011,7 +2011,7 @@ class question_edit_contexts {
      */
     public function require_one_cap($caps) {
         if (!$this->have_one_cap($caps)) {
-            $capsstring = join($caps, ', ');
+            $capsstring = join(', ', $caps);
             print_error('nopermissions', '', '', $capsstring);
         }
     }
