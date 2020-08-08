@@ -1725,6 +1725,7 @@ class core_plugin_manager {
             'block' => array('course_overview', 'messages', 'community', 'participants'),
             'cachestore' => array('memcache'),
             'enrol' => array('authorize'),
+            'quizaccess' => array('safebrowser'),
             'report' => array('search'),
             'repository' => array('alfresco'),
             'tinymce' => array('dragmath'),
@@ -1816,6 +1817,10 @@ class core_plugin_manager {
                 'gregorian'
             ),
 
+            'contenttype' => array(
+                'h5p'
+            ),
+
             'customfield' => array(
                 'checkbox', 'date', 'select', 'text', 'textarea'
             ),
@@ -1881,6 +1886,10 @@ class core_plugin_manager {
                 'rubric', 'guide'
             ),
 
+            'h5plib' => array(
+                'v124'
+            ),
+
             'local' => array(
             ),
 
@@ -1910,7 +1919,7 @@ class core_plugin_manager {
 
             'mod' => array(
                 'assign', 'assignment', 'book', 'chat', 'choice', 'data', 'feedback', 'folder',
-                'forum', 'glossary', 'imscp', 'label', 'lesson', 'lti', 'page',
+                'forum', 'glossary', 'h5pactivity', 'imscp', 'label', 'lesson', 'lti', 'page',
                 'quiz', 'resource', 'scorm', 'survey', 'url', 'wiki', 'workshop'
             ),
 
@@ -1952,17 +1961,17 @@ class core_plugin_manager {
 
             'quizaccess' => array(
                 'delaybetweenattempts', 'ipaddress', 'numattempts', 'offlineattempts', 'openclosedate',
-                'password', 'safebrowser', 'securewindow', 'timelimit'
+                'password', 'seb', 'securewindow', 'timelimit'
             ),
 
             'report' => array(
                 'backups', 'competency', 'completion', 'configlog', 'courseoverview', 'eventlist',
                 'insights', 'log', 'loglive', 'outline', 'participation', 'progress', 'questioninstances',
-                'security', 'stats', 'performance', 'usersessions'
+                'security', 'stats', 'status', 'performance', 'usersessions'
             ),
 
             'repository' => array(
-                'areafiles', 'boxnet', 'coursefiles', 'dropbox', 'equella', 'filesystem',
+                'areafiles', 'boxnet', 'contentbank', 'coursefiles', 'dropbox', 'equella', 'filesystem',
                 'flickr', 'flickr_public', 'googledocs', 'local', 'merlot', 'nextcloud',
                 'onedrive', 'picasa', 'recent', 'skydrive', 's3', 'upload', 'url', 'user', 'webdav',
                 'wikimedia', 'youtube'
@@ -1990,10 +1999,11 @@ class core_plugin_manager {
 
             'tool' => array(
                 'analytics', 'availabilityconditions', 'behat', 'capability', 'cohortroles', 'customlang',
-                'dataprivacy', 'dbtransfer', 'filetypes', 'generator', 'health', 'httpsreplace', 'innodb', 'installaddon',
-                'langimport', 'log', 'lp', 'lpimportcsv', 'lpmigrate', 'messageinbound', 'mobile', 'multilangupgrade',
-                'monitor', 'oauth2', 'phpunit', 'policy', 'profiling', 'recyclebin', 'replace', 'spamcleaner', 'task',
-                'templatelibrary', 'uploadcourse', 'uploaduser', 'unsuproles', 'usertours', 'xmldb'
+                'dataprivacy', 'dbtransfer', 'filetypes', 'generator', 'health', 'httpsreplace', 'innodb',
+                'installaddon', 'langimport', 'licensemanager', 'log', 'lp', 'lpimportcsv', 'lpmigrate', 'messageinbound',
+                'mobile', 'moodlenet', 'multilangupgrade', 'monitor', 'oauth2', 'phpunit', 'policy', 'profiling', 'recyclebin',
+                'replace', 'spamcleaner', 'task', 'templatelibrary', 'uploadcourse', 'uploaduser', 'unsuproles',
+                'usertours', 'xmldb'
             ),
 
             'webservice' => array(

@@ -17,6 +17,12 @@ select {
     }
 }
 
+.path-mod-choice {
+    .choices .option label {
+        vertical-align: top;
+    }
+}
+
 .path-mod-feedback .feedback_form .col-form-label {
     display: block !important; /* stylelint-disable-line declaration-no-important */
 }
@@ -487,12 +493,15 @@ $grading-content-show-content-button-padding-left: calc(#{map-get($spacers, 2) *
 }
 
 .path-mod-forum .unified-grader {
-    .navbar {
-        max-height: none;
-        z-index: 1;
+    @include media-breakpoint-up(xs) {
+        .navbar {
+            max-height: none;
+            z-index: 1;
+        }
     }
 
     .body-container {
+        overflow: auto;
         &.hidden {
             display: none !important; /* stylelint-disable-line declaration-no-important */
         }
@@ -504,8 +513,8 @@ $grading-content-show-content-button-padding-left: calc(#{map-get($spacers, 2) *
     }
 
     .grader-grading-panel {
-        position: absolute;
         top: 0;
+        position: absolute;
         height: 100%;
         z-index: 0;
         width: $grading-drawer-width;
@@ -717,10 +726,6 @@ $grading-content-show-content-button-padding-left: calc(#{map-get($spacers, 2) *
         @include transition(margin-right .2s ease-in-out);
     }
 
-    .grader-grading-panel.hidden + .grader-module-content {
-        margin-right: 0;
-    }
-
     .drawer-button {
         position: relative;
 
@@ -915,6 +920,13 @@ $grading-content-show-content-button-padding-left: calc(#{map-get($spacers, 2) *
     .path-mod-forum .unified-grader {
         .grader-grading-panel {
             width: 100%;
+            position: fixed;
+            height: calc(100vh - 50px);
+            overflow: scroll;
+            top: 50px;
+        }
+        .body-container {
+            overflow: visible;
         }
     }
 }
@@ -1063,15 +1075,6 @@ div#dock {
 .usermenu {
     .login {
         line-height: 2.25rem;
-
-        a {
-            color: $link-color;
-            &:hover,
-            &:focus {
-                color: $link-hover-color;
-                text-decoration: underline;
-            }
-        }
     }
 }
 
