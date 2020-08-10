@@ -164,7 +164,7 @@ if (($launchcontainer == LTI_LAUNCH_CONTAINER_WINDOW) &&
     $attributes['height']='600px';
     $attributes['width']='100%';
     $attributes['src']='launch.php?id=' . $cm->id .'&triggerview=0';
-    $attributes['allow']="microphone $lti_allow; camera $lti_allow; geolocation $lti_allow; midi $lti_allow; encrypted-media $lti_allow";
+    $attributes['allow']="microphone $lti_allow; camera $lti_allow; geolocation $lti_allow; midi $lti_allow; encrypted-media $lti_allow; autoplay $lti_allow";
     $attributes['webkitallowfullscreen']=1;
     $attributes['mozallowfullscreen']=1;
     $attributes['allowfullscreen']=1;
