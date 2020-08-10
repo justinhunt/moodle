@@ -1609,8 +1609,16 @@ class framework_testcase extends \advanced_testcase {
             'libraryMinorVersion' => $mainlibrary->minorversion,
             'libraryEmbedTypes' => $mainlibrary->embedtypes,
             'libraryFullscreen' => $mainlibrary->fullscreen,
-            'metadata' => ''
+            'metadata' => '',
+            'pathnamehash' => $h5p->pathnamehash
         );
+
+        $params = json_decode($h5p->jsoncontent);
+        if (empty($params->metadata)) {
+            $params->metadata = new \stdClass();
+        }
+        $expected['metadata'] = $params->metadata;
+        $expected['params'] = json_encode($params->params ?? $params);
 
         // The returned content should match the expected array.
         $this->assertEquals($expected, $content);
@@ -1737,6 +1745,57 @@ class framework_testcase extends \advanced_testcase {
         // The loaded content dependencies should now return 1 library.
         $this->assertCount(1, $dynamicdependencies);
         $this->assertEquals($expected, $dynamicdependencies);
+    }
+
+    /**
+     * Test the behaviour of getOption().
+     */
+    public function test_getOption(): void {
+        $this->resetAfterTest();
+
+        // Get value for display_option_download.
+        $value = $this->framework->getOption(\H5PCore::DISPLAY_OPTION_DOWNLOAD);
+        $expected = \H5PDisplayOptionBehaviour::CONTROLLED_BY_AUTHOR_DEFAULT_OFF;
+        $this->assertEquals($expected, $value);
+
+        // Get value for display_option_embed using default value (it should be ignored).
+        $value = $this->framework->getOption(\H5PCore::DISPLAY_OPTION_EMBED, \H5PDisplayOptionBehaviour::NEVER_SHOW);
+        $expected = \H5PDisplayOptionBehaviour::CONTROLLED_BY_AUTHOR_DEFAULT_OFF;
+        $this->assertEquals($expected, $value);
+
+        // Get value for unexisting setting without default.
+        $value = $this->framework->getOption('unexistingsetting');
+        $expected = false;
+        $this->assertEquals($expected, $value);
+
+        // Get value for unexisting setting with default.
+        $value = $this->framework->getOption('unexistingsetting', 'defaultvalue');
+        $expected = 'defaultvalue';
+        $this->assertEquals($expected, $value);
+    }
+
+    /**
+     * Test the behaviour of setOption().
+     */
+    public function test_setOption(): void {
+        $this->resetAfterTest();
+
+        // Set value for 'newsetting' setting.
+        $name = 'newsetting';
+        $value = $this->framework->getOption($name);
+        $this->assertEquals(false, $value);
+        $newvalue = 'value1';
+        $this->framework->setOption($name, $newvalue);
+        $value = $this->framework->getOption($name);
+        $this->assertEquals($newvalue, $value);
+
+        // Set value for display_option_download and then get it again. Check it hasn't changed.
+        $name = \H5PCore::DISPLAY_OPTION_DOWNLOAD;
+        $newvalue = \H5PDisplayOptionBehaviour::NEVER_SHOW;
+        $this->framework->setOption($name, $newvalue);
+        $value = $this->framework->getOption($name);
+        $expected = \H5PDisplayOptionBehaviour::CONTROLLED_BY_AUTHOR_DEFAULT_OFF;
+        $this->assertEquals($expected, $value);
     }
 
     /**

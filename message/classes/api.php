@@ -1730,9 +1730,10 @@ class api {
      *
      * @param int $touserid the id of the message recipient
      * @param int|null $fromuserid the id of the message sender, null if all messages
+     * @param int|null $timecreatedto mark notifications created before this time as read
      * @return void
      */
-    public static function mark_all_notifications_as_read($touserid, $fromuserid = null) {
+    public static function mark_all_notifications_as_read($touserid, $fromuserid = null, $timecreatedto = null) {
         global $DB;
 
         $notificationsql = "SELECT n.*
@@ -1743,6 +1744,10 @@ class api {
         if (!empty($fromuserid)) {
             $notificationsql .= " AND useridfrom = ?";
             $notificationsparams[] = $fromuserid;
+        }
+        if (!empty($timecreatedto)) {
+            $notificationsql .= " AND timecreated <= ?";
+            $notificationsparams[] = $timecreatedto;
         }
 
         $notifications = $DB->get_recordset_sql($notificationsql, $notificationsparams);
@@ -2609,7 +2614,7 @@ class api {
      * @return \stdClass the request
      */
     public static function create_contact_request(int $userid, int $requesteduserid) : \stdClass {
-        global $DB, $PAGE;
+        global $DB, $PAGE, $SITE;
 
         $request = new \stdClass();
         $request->userid = $userid;
@@ -2622,10 +2627,17 @@ class api {
         $userfrom = \core_user::get_user($userid);
         $userfromfullname = fullname($userfrom);
         $userto = \core_user::get_user($requesteduserid);
-        $url = new \moodle_url('/message/pendingcontactrequests.php');
+        $url = new \moodle_url('/message/index.php', ['view' => 'contactrequests']);
 
-        $subject = get_string('messagecontactrequestsnotificationsubject', 'core_message', $userfromfullname);
-        $fullmessage = get_string('messagecontactrequestsnotification', 'core_message', $userfromfullname);
+        $subject = get_string_manager()->get_string('messagecontactrequestsubject', 'core_message', (object) [
+            'sitename' => format_string($SITE->fullname, true, ['context' => \context_system::instance()]),
+            'user' => $userfromfullname,
+        ], $userto->lang);
+
+        $fullmessage = get_string_manager()->get_string('messagecontactrequest', 'core_message', (object) [
+            'url' => $url->out(),
+            'user' => $userfromfullname,
+        ], $userto->lang);
 
         $message = new \core\message\message();
         $message->courseid = SITEID;

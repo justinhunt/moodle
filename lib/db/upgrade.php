@@ -2106,9 +2106,6 @@ function xmldb_main_upgrade($oldversion) {
     // Put any upgrade step following this.
 
     if ($oldversion < 2019120500.01) {
-        // Delete any tool_cohortroles mappings for roles which no longer exist.
-        $DB->delete_records_select('tool_cohortroles', "roleid NOT IN (SELECT id FROM {role})");
-
         // Delete any role assignments for roles which no longer exist.
         $DB->delete_records_select('role_assignments', "roleid NOT IN (SELECT id FROM {role})");
 
@@ -2170,6 +2167,376 @@ function xmldb_main_upgrade($oldversion) {
         $DB->delete_records_select('event', $select);
 
         upgrade_main_savepoint(true, 2020011700.02);
+    }
+
+    if ($oldversion < 2020013000.01) {
+        global $DB;
+        // Delete any associated files.
+        $fs = get_file_storage();
+        $sql = "SELECT cuc.id, cuc.userid
+                  FROM {competency_usercomp} cuc
+             LEFT JOIN {user} u ON cuc.userid = u.id
+                 WHERE u.deleted = 1";
+        $usercompetencies = $DB->get_records_sql($sql);
+        foreach ($usercompetencies as $usercomp) {
+            $DB->delete_records('competency_evidence', ['usercompetencyid' => $usercomp->id]);
+            $DB->delete_records('competency_usercompcourse', ['userid' => $usercomp->userid]);
+            $DB->delete_records('competency_usercompplan', ['userid' => $usercomp->userid]);
+            $DB->delete_records('competency_usercomp', ['userid' => $usercomp->userid]);
+        }
+
+        $sql = "SELECT cue.id, cue.userid
+                  FROM {competency_userevidence} cue
+             LEFT JOIN {user} u ON cue.userid = u.id
+                 WHERE u.deleted = 1";
+        $userevidences = $DB->get_records_sql($sql);
+        foreach ($userevidences as $userevidence) {
+            $DB->delete_records('competency_userevidencecomp', ['userevidenceid' => $userevidence->id]);
+            $DB->delete_records('competency_userevidence', ['id' => $userevidence->id]);
+
+            $context = context_user::instance($userevidence->userid);
+            $fs->delete_area_files($context->id, 'core_competency', 'userevidence', $userevidence->id);
+        }
+
+        $sql = "SELECT cp.id
+                  FROM {competency_plan} cp
+             LEFT JOIN {user} u ON cp.userid = u.id
+                 WHERE u.deleted = 1";
+        $userplans = $DB->get_records_sql($sql);
+        foreach ($userplans as $userplan) {
+            $DB->delete_records('competency_plancomp', ['planid' => $userplan->id]);
+            $DB->delete_records('competency_plan', ['id' => $userplan->id]);
+        }
+
+        // Main savepoint reached.
+        upgrade_main_savepoint(true, 2020013000.01);
+    }
+
+    if ($oldversion < 2020040200.01) {
+        // Clean up completion criteria records referring to courses that no longer exist.
+        $select = 'criteriatype = :type AND courseinstance NOT IN (SELECT id FROM {course})';
+        $params = ['type' => 8]; // COMPLETION_CRITERIA_TYPE_COURSE.
+
+        $DB->delete_records_select('course_completion_criteria', $select, $params);
+
+        // Main savepoint reached.
+        upgrade_main_savepoint(true, 2020040200.01);
+    }
+
+    if ($oldversion < 2020040700.00) {
+        // Remove deprecated Mozilla OpenBadges backpack.
+        $url = 'https://backpack.openbadges.org';
+        $bp = $DB->get_record('badge_external_backpack', ['backpackapiurl' => $url]);
+        if ($bp) {
+            // Remove connections for users to this backpack.
+            $sql = "SELECT DISTINCT bb.id
+                      FROM {badge_backpack} bb
+                 LEFT JOIN {badge_external} be ON be. backpackid = bb.externalbackpackid
+                     WHERE bb.externalbackpackid = :backpackid";
+            $params = ['backpackid' => $bp->id];
+            $externalbackpacks = $DB->get_fieldset_sql($sql, $params);
+            if ($externalbackpacks) {
+                list($sql, $params) = $DB->get_in_or_equal($externalbackpacks);
+
+                // Delete user external collections references to this backpack.
+                $DB->execute("DELETE FROM {badge_external} WHERE backpackid " . $sql, $params);
+            }
+            $DB->delete_records('badge_backpack', ['externalbackpackid' => $bp->id]);
+
+            // Delete deprecated backpack entry.
+            $DB->delete_records('badge_external_backpack', ['backpackapiurl' => $url]);
+        }
+
+        // Set active external backpack to Badgr.io.
+        $url = 'https://api.badgr.io/v2';
+        if ($bp = $DB->get_record('badge_external_backpack', ['backpackapiurl' => $url])) {
+            set_config('badges_site_backpack', $bp->id);
+        } else {
+            unset_config('badges_site_backpack');
+        }
+
+        upgrade_main_savepoint(true, 2020040700.00);
+    }
+
+    if ($oldversion < 2020041500.00) {
+        // Define table to store contentbank contents.
+        $table = new xmldb_table('contentbank_content');
+
+        // Adding fields to table content_bank.
+        $table->add_field('id', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, XMLDB_SEQUENCE, null);
+        $table->add_field('name', XMLDB_TYPE_CHAR, '255', null, XMLDB_NOTNULL, null, null);
+        $table->add_field('contenttype', XMLDB_TYPE_CHAR, '100', null, XMLDB_NOTNULL, null, null);
+        $table->add_field('contextid', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, null);
+        $table->add_field('instanceid', XMLDB_TYPE_INTEGER, '10', null, null, null, null);
+        $table->add_field('configdata', XMLDB_TYPE_TEXT, null, null, null, null, null);
+        $table->add_field('usercreated', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, null);
+        $table->add_field('usermodified', XMLDB_TYPE_INTEGER, '10', null, null, null, null);
+        $table->add_field('timecreated', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, '0');
+        $table->add_field('timemodified', XMLDB_TYPE_INTEGER, '10', null, null, null, '0');
+
+        // Adding keys to table contentbank_content.
+        $table->add_key('primary', XMLDB_KEY_PRIMARY, ['id']);
+        $table->add_key('contextid', XMLDB_KEY_FOREIGN, ['contextid'], 'context', ['id']);
+        $table->add_key('usermodified', XMLDB_KEY_FOREIGN, ['usermodified'], 'user', ['id']);
+        $table->add_key('usercreated', XMLDB_KEY_FOREIGN, ['usercreated'], 'user', ['id']);
+
+        // Adding indexes to table contentbank_content.
+        $table->add_index('name', XMLDB_INDEX_NOTUNIQUE, ['name']);
+        $table->add_index('instance', XMLDB_INDEX_NOTUNIQUE, ['contextid', 'contenttype', 'instanceid']);
+
+        if (!$dbman->table_exists($table)) {
+            $dbman->create_table($table);
+        }
+
+        // Main savepoint reached.
+        upgrade_main_savepoint(true, 2020041500.00);
+    }
+
+    if ($oldversion < 2020041700.01) {
+        // Upgrade h5p MIME type for existing h5p files.
+        $select = $DB->sql_like('filename', '?', false);
+        $DB->set_field_select(
+            'files',
+            'mimetype',
+            'application/zip.h5p',
+            $select,
+            array('%.h5p')
+        );
+
+        upgrade_main_savepoint(true, 2020041700.01);
+    }
+
+    if ($oldversion < 2020042800.01) {
+        // Delete obsolete config value.
+        unset_config('enablesafebrowserintegration');
+        // Clean up config of the old plugin.
+        unset_all_config_for_plugin('quizaccess_safebrowser');
+
+        upgrade_main_savepoint(true, 2020042800.01);
+    }
+
+    if ($oldversion < 2020051900.01) {
+        // Define field component to be added to event.
+        $table = new xmldb_table('event');
+        $field = new xmldb_field('component', XMLDB_TYPE_CHAR, '100', null, null, null, null, 'repeatid');
+
+        // Conditionally launch add field component.
+        if (!$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+
+        // Define index component (not unique) to be added to event.
+        $table = new xmldb_table('event');
+        $index = new xmldb_index('component', XMLDB_INDEX_NOTUNIQUE, ['component', 'eventtype', 'instance']);
+
+        // Conditionally launch add index component.
+        if (!$dbman->index_exists($table, $index)) {
+            $dbman->add_index($table, $index);
+        }
+
+        // Main savepoint reached.
+        upgrade_main_savepoint(true, 2020051900.01);
+    }
+
+    if ($oldversion < 2020052000.00) {
+        // Define table badge_backpack_oauth2 to be created.
+        $table = new xmldb_table('badge_backpack_oauth2');
+
+        // Adding fields to table badge_backpack_oauth2.
+        $table->add_field('id', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, XMLDB_SEQUENCE, null);
+        $table->add_field('usermodified', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, '0');
+        $table->add_field('timecreated', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, '0');
+        $table->add_field('timemodified', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, '0');
+        $table->add_field('userid', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, null);
+        $table->add_field('issuerid', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, null);
+        $table->add_field('externalbackpackid', XMLDB_TYPE_INTEGER, '10', null, XMLDB_NOTNULL, null, null);
+        $table->add_field('token', XMLDB_TYPE_TEXT, null, null, XMLDB_NOTNULL, null, null);
+        $table->add_field('refreshtoken', XMLDB_TYPE_TEXT, null, null, XMLDB_NOTNULL, null, null);
+        $table->add_field('expires', XMLDB_TYPE_INTEGER, '10', null, null, null, null);
+        $table->add_field('scope', XMLDB_TYPE_TEXT, null, null, null, null, null);
+
+        // Adding keys to table badge_backpack_oauth2.
+        $table->add_key('primary', XMLDB_KEY_PRIMARY, ['id']);
+        $table->add_key('usermodified', XMLDB_KEY_FOREIGN, ['usermodified'], 'user', ['id']);
+        $table->add_key('userid', XMLDB_KEY_FOREIGN, ['userid'], 'user', ['id']);
+        $table->add_key('issuerid', XMLDB_KEY_FOREIGN, ['issuerid'], 'oauth2_issuer', ['id']);
+        $table->add_key('externalbackpackid', XMLDB_KEY_FOREIGN, ['externalbackpackid'], 'badge_external_backpack', ['id']);
+        // Conditionally launch create table for badge_backpack_oauth2.
+        if (!$dbman->table_exists($table)) {
+            $dbman->create_table($table);
+        }
+
+        // Define field oauth2_issuerid to be added to badge_external_backpack.
+        $tablebadgeexternalbackpack = new xmldb_table('badge_external_backpack');
+        $fieldoauth2issuerid = new xmldb_field('oauth2_issuerid', XMLDB_TYPE_INTEGER, '10', null, null, null, null, 'password');
+        $keybackpackoauth2key = new xmldb_key('backpackoauth2key', XMLDB_KEY_FOREIGN, ['oauth2_issuerid'], 'oauth2_issuer', ['id']);
+
+        // Conditionally launch add field oauth2_issuerid.
+        if (!$dbman->field_exists($tablebadgeexternalbackpack, $fieldoauth2issuerid)) {
+            $dbman->add_field($tablebadgeexternalbackpack, $fieldoauth2issuerid);
+
+            // Launch add key backpackoauth2key.
+            $dbman->add_key($tablebadgeexternalbackpack, $keybackpackoauth2key);
+        }
+
+        // Define field assertion to be added to badge_external.
+        $tablebadgeexternal = new xmldb_table('badge_external');
+        $fieldassertion = new xmldb_field('assertion', XMLDB_TYPE_TEXT, null, null, null, null, null, 'entityid');
+
+        // Conditionally launch add field assertion.
+        if (!$dbman->field_exists($tablebadgeexternal, $fieldassertion)) {
+            $dbman->add_field($tablebadgeexternal, $fieldassertion);
+        }
+
+        // Main savepoint reached.
+        upgrade_main_savepoint(true, 2020052000.00);
+    }
+
+    if ($oldversion < 2020052200.01) {
+
+        // Define field custom to be added to license.
+        $table = new xmldb_table('license');
+        $field = new xmldb_field('custom', XMLDB_TYPE_INTEGER, '1', null, XMLDB_NOTNULL, null, '0');
+
+        // Conditionally launch add field custom.
+        if (!$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+
+        // Define field sortorder to be added to license.
+        $field = new xmldb_field('sortorder', XMLDB_TYPE_INTEGER, '5', null, XMLDB_NOTNULL, null, '0');
+
+        // Conditionally launch add field sortorder.
+        if (!$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+
+        // Define index license (not unique) to be added to files.
+        $table = new xmldb_table('files');
+        $index = new xmldb_index('license', XMLDB_INDEX_NOTUNIQUE, ['license']);
+
+        // Conditionally launch add index license.
+        if (!$dbman->index_exists($table, $index)) {
+            $dbman->add_index($table, $index);
+        }
+
+        // Upgrade the core license details.
+        upgrade_core_licenses();
+
+        // Main savepoint reached.
+        upgrade_main_savepoint(true, 2020052200.01);
+    }
+
+    if ($oldversion < 2020060500.01) {
+        // Define field moodlenetprofile to be added to user.
+        $table = new xmldb_table('user');
+        $field = new xmldb_field('moodlenetprofile', XMLDB_TYPE_CHAR, '255', null, null, null, null, 'alternatename');
+
+        // Conditionally launch add field moodlenetprofile.
+        if (!$dbman->field_exists($table, $field)) {
+            $dbman->add_field($table, $field);
+        }
+
+        // Main savepoint reached.
+        upgrade_main_savepoint(true, 2020060500.01);
+    }
+
+    // Automatically generated Moodle v3.9.0 release upgrade line.
+    // Put any upgrade step following this.
+    if ($oldversion < 2020061500.02) {
+        // Update default digital age consent map according to the current legislation on each country.
+
+        // The default age of digital consent map for 38 and below.
+        $oldageofdigitalconsentmap = implode(PHP_EOL, [
+            '*, 16',
+            'AT, 14',
+            'ES, 14',
+            'US, 13'
+        ]);
+
+        // Check if the current age of digital consent map matches the old one.
+        if (get_config('moodle', 'agedigitalconsentmap') === $oldageofdigitalconsentmap) {
+            // If the site is still using the old defaults, upgrade to the new default.
+            $ageofdigitalconsentmap = implode(PHP_EOL, [
+                '*, 16',
+                'AT, 14',
+                'BE, 13',
+                'BG, 14',
+                'CY, 14',
+                'CZ, 15',
+                'DK, 13',
+                'EE, 13',
+                'ES, 14',
+                'FI, 13',
+                'FR, 15',
+                'GB, 13',
+                'GR, 15',
+                'IT, 14',
+                'LT, 14',
+                'LV, 13',
+                'MT, 13',
+                'NO, 13',
+                'PT, 13',
+                'SE, 13',
+                'US, 13'
+            ]);
+            set_config('agedigitalconsentmap', $ageofdigitalconsentmap);
+        }
+
+        upgrade_main_savepoint(true, 2020061500.02);
+    }
+
+    if ($oldversion < 2020062600.01) {
+        // Add index to the token field in the external_tokens table.
+        $table = new xmldb_table('external_tokens');
+        $index = new xmldb_index('token', XMLDB_INDEX_NOTUNIQUE, ['token']);
+
+        if (!$dbman->index_exists($table, $index)) {
+            $dbman->add_index($table, $index);
+        }
+
+        upgrade_main_savepoint(true, 2020062600.01);
+    }
+
+    if ($oldversion < 2020071100.01) {
+        // Clean up completion criteria records referring to NULL course prerequisites.
+        $select = 'criteriatype = :type AND courseinstance IS NULL';
+        $params = ['type' => 8]; // COMPLETION_CRITERIA_TYPE_COURSE.
+
+        $DB->delete_records_select('course_completion_criteria', $select, $params);
+
+        // Main savepoint reached.
+        upgrade_main_savepoint(true, 2020071100.01);
+    }
+
+    if ($oldversion < 2020072300.01) {
+        // Restore and set the guest user if it has been previously removed via GDPR, or set to an nonexistent
+        // user account.
+        $currentguestuser = $DB->get_record('user', array('id' => $CFG->siteguest));
+
+        if (!$currentguestuser) {
+            if (!$guest = $DB->get_record('user', array('username' => 'guest', 'mnethostid' => $CFG->mnet_localhost_id))) {
+                // Create a guest user account.
+                $guest = new stdClass();
+                $guest->auth        = 'manual';
+                $guest->username    = 'guest';
+                $guest->password    = hash_internal_user_password('guest');
+                $guest->firstname   = get_string('guestuser');
+                $guest->lastname    = ' ';
+                $guest->email       = 'root@localhost';
+                $guest->description = get_string('guestuserinfo');
+                $guest->mnethostid  = $CFG->mnet_localhost_id;
+                $guest->confirmed   = 1;
+                $guest->lang        = $CFG->lang;
+                $guest->timemodified= time();
+                $guest->id = $DB->insert_record('user', $guest);
+            }
+            // Set the guest user.
+            set_config('siteguest', $guest->id);
+        }
+
+        // Main savepoint reached.
+        upgrade_main_savepoint(true, 2020072300.01);
     }
 
     return true;

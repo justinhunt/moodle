@@ -28,8 +28,8 @@ defined('MOODLE_INTERNAL') || die();
 
 /** Default socket timeout */
 define('ANTIVIRUS_CLAMAV_SOCKET_TIMEOUT', 10);
-/** Default socket data stream chunk size */
-define('ANTIVIRUS_CLAMAV_SOCKET_CHUNKSIZE', 1024);
+/** Default socket data stream chunk size (32Mb: 32 * 1024 * 1024) */
+define('ANTIVIRUS_CLAMAV_SOCKET_CHUNKSIZE', 33554432);
 
 /**
  * Class implementing ClamAV antivirus.
@@ -72,20 +72,28 @@ class scanner extends \core\antivirus\scanner {
 
         // We can do direct stream scanning if unixsocket or tcpsocket running methods are in use,
         // if not, use default process.
-        $runningmethod = $this->get_config('runningmethod');
-        switch ($runningmethod) {
-            case 'unixsocket':
-            case 'tcpsocket':
-                $return = $this->scan_file_execute_socket($file, $runningmethod);
-                break;
-            case 'commandline':
-                $return = $this->scan_file_execute_commandline($file);
-                break;
-            default:
-                // This should not happen.
-                debugging('Unknown running method.');
-                return self::SCAN_RESULT_ERROR;
-        }
+        $maxtries = get_config('antivirus_clamav', 'tries');
+        $tries = 0;
+        do {
+            $runningmethod = $this->get_config('runningmethod');
+            $tries++;
+            switch ($runningmethod) {
+                case 'unixsocket':
+                case 'tcpsocket':
+                    $return = $this->scan_file_execute_socket($file, $runningmethod);
+                    break;
+                case 'commandline':
+                    $return = $this->scan_file_execute_commandline($file);
+                    break;
+                default:
+                    // This should not happen.
+                    throw new \coding_exception('Unknown running method.');
+            }
+        } while ($return == self::SCAN_RESULT_ERROR && $tries < $maxtries);
+
+        $notice = get_string('tries_notice', 'antivirus_clamav',
+            ['tries' => $tries, 'notice' => $this->get_scanning_notice()]);
+        $this->set_scanning_notice($notice);
 
         if ($return === self::SCAN_RESULT_ERROR) {
             $this->message_admins($this->get_scanning_notice());
@@ -93,6 +101,11 @@ class scanner extends \core\antivirus\scanner {
             // return SCAN_RESULT_FOUND result.
             if ($this->get_config('clamfailureonupload') === 'actlikevirus') {
                 return self::SCAN_RESULT_FOUND;
+            } else if ($this->get_config('clamfailureonupload') === 'tryagain') {
+                // Do not upload the file, just give a message to the user to try again later.
+                unlink($file);
+                throw new \core\antivirus\scanner_exception('antivirusfailed', '', ['item' => $filename],
+                        null, 'antivirus_clamav');
             }
         }
         return $return;
