@@ -14,31 +14,27 @@
 // You should have received a copy of the GNU General Public License
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
-/**
- * PHPUnit tests for template class.
- *
- * @package    quizaccess_seb
- * @author     Dmitrii Metelkin <dmitriim@catalyst-au.net>
- * @copyright  2020 Catalyst IT
- * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
- */
-
-use quizaccess_seb\template;
+namespace quizaccess_seb;
 
 defined('MOODLE_INTERNAL') || die();
 
+require_once(__DIR__ . '/test_helper_trait.php');
+
 /**
  * PHPUnit tests for template class.
  *
- * @copyright  2020 Catalyst IT
+ * @package   quizaccess_seb
+ * @author    Dmitrii Metelkin <dmitriim@catalyst-au.net>
+ * @copyright 2020 Catalyst IT
  * @license   http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
-class quizaccess_seb_template_testcase extends advanced_testcase {
+class template_test extends \advanced_testcase {
+    use \quizaccess_seb_test_helper_trait;
 
     /**
      * Called before every test.
      */
-    public function setUp() {
+    public function setUp(): void {
         parent::setUp();
 
         $this->resetAfterTest();
@@ -47,9 +43,9 @@ class quizaccess_seb_template_testcase extends advanced_testcase {
     /**
      * Test that template saved with valid content.
      */
-    public function test_template_is_saved() {
+    public function test_template_is_saved(): void {
         global $DB;
-        $data = new stdClass();
+        $data = new \stdClass();
         $data->name = 'Test name';
         $data->description = 'Test description';
         $data->enabled = 1;
@@ -78,11 +74,11 @@ class quizaccess_seb_template_testcase extends advanced_testcase {
     /**
      * Test that template is not saved with invalid content.
      */
-    public function test_template_is_not_saved_with_invalid_content() {
+    public function test_template_is_not_saved_with_invalid_content(): void {
         $this->expectException(\core\invalid_persistent_exception::class);
         $this->expectExceptionMessage('Invalid SEB config template');
 
-        $data = new stdClass();
+        $data = new \stdClass();
         $data->name = 'Test name';
         $data->description = 'Test description';
         $data->enabled = 1;
@@ -94,10 +90,10 @@ class quizaccess_seb_template_testcase extends advanced_testcase {
     /**
      * Test that a template cannot be deleted when assigned to a quiz.
      */
-    public function test_cannot_delete_template_when_assigned_to_quiz() {
+    public function test_cannot_delete_template_when_assigned_to_quiz(): void {
         global $DB;
 
-        $data = new stdClass();
+        $data = new \stdClass();
         $data->name = 'Test name';
         $data->description = 'Test description';
         $data->enabled = 1;
@@ -117,7 +113,7 @@ class quizaccess_seb_template_testcase extends advanced_testcase {
         $template->save();
         $this->assertTrue($template->can_delete());
 
-        $DB->insert_record(\quizaccess_seb\quiz_settings::TABLE, (object) [
+        $DB->insert_record(seb_quiz_settings::TABLE, (object) [
             'quizid' => 1,
             'cmid' => 1,
             'templateid' => $template->get('id'),
@@ -149,4 +145,60 @@ class quizaccess_seb_template_testcase extends advanced_testcase {
         $this->assertFalse($template->can_delete());
     }
 
+    /**
+     * Test that a disabled template no longer shows up in quiz SEB settings other than quizzes already using it.
+     *
+     * @covers \quizaccess_seb\seb_quiz_settings::get_record
+     * @covers \quizaccess_seb\settings_provider::get_requiresafeexambrowser_options
+     */
+    public function test_disabled_template_quiz_setting_options(): void {
+        // Create quiz and fetch standard SEB requirement options.
+        $this->setAdminUser();
+        $this->course = $this->getDataGenerator()->create_course();
+
+        $templateoptionstr = get_string('seb_use_template', 'quizaccess_seb');
+
+        // Create a quiz.
+        $this->quiz = $this->create_test_quiz($this->course, settings_provider::USE_SEB_CONFIG_MANUALLY);
+        $context = \context_module::instance($this->quiz->cmid);
+
+        // Check there is no template option (as there aren't any).
+        $options = settings_provider::get_requiresafeexambrowser_options($context);
+        $this->assertNotContainsEquals($templateoptionstr, $options);
+
+        // Create a template.
+        $data = new \stdClass();
+        $data->name = 'Test name';
+        $data->description = 'Test description';
+        $data->enabled = 1;
+        $data->content = file_get_contents(__DIR__ . '/fixtures/unencrypted.seb');
+        $template = new template(0, $data);
+        $template->save();
+
+        // Check options now include template option.
+        $options = settings_provider::get_requiresafeexambrowser_options($context);
+        $this->assertContainsEquals($templateoptionstr, $options);
+
+        // Set SEB setting to use template for quiz.
+        $settings = seb_quiz_settings::get_record(['quizid' => $this->quiz->id]);
+        $settings->set('templateid', $template->get('id'));
+        $settings->set('requiresafeexambrowser', settings_provider::USE_SEB_TEMPLATE);
+        $settings->save();
+
+        // Disable template.
+        $template->set('enabled', 0);
+        $template->save();
+
+        // Check option still exists on current quiz.
+        $options = settings_provider::get_requiresafeexambrowser_options($context);
+        $this->assertContainsEquals($templateoptionstr, $options);
+
+        // Create a new quiz.
+        $newquiz = $this->create_test_quiz($this->course, settings_provider::USE_SEB_CONFIG_MANUALLY);
+        $context = \context_module::instance($newquiz->cmid);
+
+        // Check there is no template option (as the template is now disabled).
+        $options = settings_provider::get_requiresafeexambrowser_options($context);
+        $this->assertNotContainsEquals($templateoptionstr, $options);
+    }
 }

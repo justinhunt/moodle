@@ -24,6 +24,8 @@
 
 defined('MOODLE_INTERNAL') || die;
 
+require_once(__DIR__ . '/deprecatedlib.php');
+
 /**
  * Returns list of available numbering types
  * @return array
@@ -39,28 +41,6 @@ function book_get_numbering_types() {
         BOOK_NUM_BULLETS    => get_string('numbering2', 'mod_book'),
         BOOK_NUM_INDENTED   => get_string('numbering3', 'mod_book')
     );
-}
-
-/**
- * Returns list of available navigation link types.
- * @return array
- */
-function book_get_nav_types() {
-    require_once(__DIR__.'/locallib.php');
-
-    return array (
-        BOOK_LINK_TOCONLY   => get_string('navtoc', 'mod_book'),
-        BOOK_LINK_IMAGE     => get_string('navimages', 'mod_book'),
-        BOOK_LINK_TEXT      => get_string('navtext', 'mod_book'),
-    );
-}
-
-/**
- * Returns list of available navigation link CSS classes.
- * @return array
- */
-function book_get_nav_classes() {
-    return array ('navtoc', 'navimages', 'navtext');
 }
 
 /**
@@ -163,7 +143,7 @@ function book_reset_userdata($data) {
 
     if (!empty($data->reset_book_tags)) {
         // Loop through the books and remove the tags from the chapters.
-        if ($books = $DB->get_records('book', array('course' => $data->courseid))) {
+        if ($books = $DB->get_records('book', ['course' => $data->courseid])) {
             foreach ($books as $book) {
                 if (!$cm = get_coursemodule_from_instance('book', $book->id)) {
                     continue;
@@ -174,11 +154,10 @@ function book_reset_userdata($data) {
             }
         }
 
-
         $status[] = [
             'component' => get_string('modulenameplural', 'book'),
-            'item' => get_string('tagsdeleted', 'book'),
-            'error' => false
+            'item' => get_string('removeallbooktags', 'book'),
+            'error' => false,
         ];
     }
 
@@ -188,10 +167,11 @@ function book_reset_userdata($data) {
 /**
  * The elements to add the course reset form.
  *
- * @param moodleform $mform
+ * @param MoodleQuickForm $mform
  */
 function book_reset_course_form_definition(&$mform) {
     $mform->addElement('header', 'bookheader', get_string('modulenameplural', 'book'));
+    $mform->addElement('static', 'bookdelete', get_string('delete'));
     $mform->addElement('checkbox', 'reset_book_tags', get_string('removeallbooktags', 'book'));
 }
 
@@ -212,14 +192,6 @@ function book_cron () {
  */
 function book_grades($bookid) {
     return null;
-}
-
-/**
- * @deprecated since Moodle 3.8
- */
-function book_scale_used() {
-    throw new coding_exception('book_scale_used() can not be used anymore. Plugins can implement ' .
-        '<modname>_scale_used_anywhere, all implementations of <modname>_scale_used are now ignored');
 }
 
 /**
@@ -298,7 +270,7 @@ function book_get_post_actions() {
  * Supported features
  *
  * @param string $feature FEATURE_xx constant for requested feature
- * @return mixed True if module supports feature, false if not, null if doesn't know
+ * @return mixed True if module supports feature, false if not, null if doesn't know or string for the module purpose.
  */
 function book_supports($feature) {
     switch($feature) {
@@ -311,6 +283,7 @@ function book_supports($feature) {
         case FEATURE_GRADE_OUTCOMES:          return false;
         case FEATURE_BACKUP_MOODLE2:          return true;
         case FEATURE_SHOW_DESCRIPTION:        return true;
+        case FEATURE_MOD_PURPOSE:             return MOD_PURPOSE_CONTENT;
 
         default: return null;
     }
@@ -324,7 +297,7 @@ function book_supports($feature) {
  * @return void
  */
 function book_extend_settings_navigation(settings_navigation $settingsnav, navigation_node $booknode) {
-    global $USER, $PAGE, $OUTPUT;
+    global $USER, $OUTPUT;
 
     if ($booknode->children->count() > 0) {
         $firstkey = $booknode->children->get_key_list()[0];
@@ -332,10 +305,10 @@ function book_extend_settings_navigation(settings_navigation $settingsnav, navig
         $firstkey = null;
     }
 
-    $params = $PAGE->url->params();
+    $params = $settingsnav->get_page()->url->params();
 
-    if ($PAGE->cm->modname === 'book' and !empty($params['id']) and !empty($params['chapterid'])
-            and has_capability('mod/book:edit', $PAGE->cm->context)) {
+    if ($settingsnav->get_page()->cm->modname === 'book' and !empty($params['id']) and !empty($params['chapterid'])
+            and has_capability('mod/book:edit', $settingsnav->get_page()->cm->context)) {
         if (!empty($USER->editing)) {
             $string = get_string("turneditingoff");
             $edit = '0';
@@ -345,8 +318,11 @@ function book_extend_settings_navigation(settings_navigation $settingsnav, navig
         }
         $url = new moodle_url('/mod/book/view.php', array('id'=>$params['id'], 'chapterid'=>$params['chapterid'], 'edit'=>$edit, 'sesskey'=>sesskey()));
         $editnode = navigation_node::create($string, $url, navigation_node::TYPE_SETTING);
+        $editnode->set_show_in_secondary_navigation(false);
         $booknode->add_node($editnode, $firstkey);
-        $PAGE->set_button($OUTPUT->single_button($url, $string));
+        if (!$settingsnav->get_page()->theme->haseditswitch) {
+            $settingsnav->get_page()->set_button($OUTPUT->single_button($url, $string));
+        }
     }
 
     $plugins = core_component::get_plugin_list('booktool');
@@ -723,12 +699,8 @@ function book_check_updates_since(cm_info $cm, $from, $filter = array()) {
  */
 function mod_book_get_fontawesome_icon_map() {
     return [
-        'mod_book:chapter' => 'fa-bookmark-o',
-        'mod_book:nav_prev' => 'fa-arrow-left',
-        'mod_book:nav_sep' => 'fa-minus',
         'mod_book:add' => 'fa-plus',
-        'mod_book:nav_next' => 'fa-arrow-right',
-        'mod_book:nav_exit' => 'fa-arrow-up',
+        'mod_book:chapter' => 'fa-book-bookmark',
     ];
 }
 

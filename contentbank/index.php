@@ -30,24 +30,41 @@ $contextid    = optional_param('contextid', \context_system::instance()->id, PAR
 $search = optional_param('search', '', PARAM_CLEAN);
 $context = context::instance_by_id($contextid, MUST_EXIST);
 
+$cb = new \core_contentbank\contentbank();
+if (!$cb->is_context_allowed($context)) {
+    throw new \moodle_exception('contextnotallowed', 'core_contentbank');
+}
+
 require_capability('moodle/contentbank:access', $context);
 
-$statusmsg = optional_param('statusmsg', '', PARAM_ALPHANUMEXT);
-$errormsg = optional_param('errormsg', '', PARAM_ALPHANUMEXT);
+// If notifications had been sent we don't pay attention to message parameter.
+if (empty($SESSION->notifications)) {
+    $statusmsg = optional_param('statusmsg', '', PARAM_ALPHANUMEXT);
+    $errormsg = optional_param('errormsg', '', PARAM_ALPHANUMEXT);
+}
 
 $title = get_string('contentbank');
 \core_contentbank\helper::get_page_ready($context, $title);
 if ($PAGE->course) {
     require_login($PAGE->course->id);
 }
-$PAGE->set_url('/contentbank/index.php');
-$PAGE->set_context($context);
+$PAGE->set_url('/contentbank/index.php', ['contextid' => $contextid]);
+if ($contextid == \context_system::instance()->id) {
+    $PAGE->set_context(context_course::instance($contextid));
+} else {
+    $PAGE->set_context($context);
+}
+
+if ($context->contextlevel == CONTEXT_COURSECAT) {
+    $PAGE->set_primary_active_tab('home');
+}
+
 $PAGE->set_title($title);
-$PAGE->set_heading($title);
+$PAGE->add_body_class('limitedwidth');
 $PAGE->set_pagetype('contentbank');
+$PAGE->set_secondary_active_tab('contentbank');
 
 // Get all contents managed by active plugins where the user has permission to render them.
-$cb = new \core_contentbank\contentbank();
 $contenttypes = [];
 $enabledcontenttypes = $cb->get_enabled_content_types();
 foreach ($enabledcontenttypes as $contenttypename) {
@@ -58,10 +75,32 @@ foreach ($enabledcontenttypes as $contenttypename) {
     }
 }
 
-$foldercontents = $cb->search_contents($search, $contextid, $contenttypes);
-
 // Get the toolbar ready.
 $toolbar = array ();
+
+if (has_capability('moodle/contentbank:viewunlistedcontent', $context)) {
+    $setdisplay = optional_param('displayunlisted', null, PARAM_INT);
+    if (is_null($setdisplay)) {
+        $display = get_user_preferences('core_contentbank_displayunlisted', 1);
+    } else {
+        set_user_preference('core_contentbank_displayunlisted', $setdisplay);
+        $display = $setdisplay;
+    }
+    $toolbar[] = [
+        'name' => 'displayunlisted',
+        'id' => 'displayunlisted',
+        'checkbox' => true,
+        'checked' => $display,
+        'label' => get_string('displayunlisted', 'contentbank'),
+        'class' => 'displayunlisted m-2',
+        'action' => 'displayunlisted',
+    ];
+    $PAGE->requires->js_call_amd(
+        'core_contentbank/displayunlisted',
+        'update',
+        ['[data-action=displayunlisted]']
+    );
+}
 
 // Place the Add button in the toolbar.
 if (has_capability('moodle/contentbank:useeditor', $context)) {
@@ -84,30 +123,38 @@ if (has_capability('moodle/contentbank:upload', $context)) {
     // Don' show upload button if there's no plugin to support any file extension.
     $accepted = $cb->get_supported_extensions_as_string($context);
     if (!empty($accepted)) {
-        $importurl = new moodle_url('/contentbank/upload.php', ['contextid' => $contextid]);
+        $importurl = new moodle_url('/contentbank/index.php', ['contextid' => $contextid]);
         $toolbar[] = [
             'name' => get_string('upload', 'contentbank'),
-            'link' => $importurl,
+            'link' => $importurl->out(false),
             'icon' => 'i/upload',
             'action' => 'upload'
         ];
+        $PAGE->requires->js_call_amd(
+            'core_contentbank/upload',
+            'initModal',
+            ['[data-action=upload]', \core_contentbank\form\upload_files::class, $contextid]
+        );
     }
 }
 
 echo $OUTPUT->header();
+echo $OUTPUT->heading($title, 2);
 echo $OUTPUT->box_start('generalbox');
 
 // If needed, display notifications.
-if ($errormsg !== '' && get_string_manager()->string_exists($errormsg, 'core_contentbank')) {
+if (!empty($errormsg) && get_string_manager()->string_exists($errormsg, 'core_contentbank')) {
     $errormsg = get_string($errormsg, 'core_contentbank');
     echo $OUTPUT->notification($errormsg);
-} else if ($statusmsg !== '' && get_string_manager()->string_exists($statusmsg, 'core_contentbank')) {
+} else if (!empty($statusmsg) && get_string_manager()->string_exists($statusmsg, 'core_contentbank')) {
     $statusmsg = get_string($statusmsg, 'core_contentbank');
     echo $OUTPUT->notification($statusmsg, 'notifysuccess');
 }
 
+$foldercontents = $cb->search_contents($search, $contextid, $contenttypes);
+
 // Render the contentbank contents.
-$folder = new \core_contentbank\output\bankcontent($foldercontents, $toolbar, $context);
+$folder = new \core_contentbank\output\bankcontent($foldercontents, $toolbar, $context, $cb);
 echo $OUTPUT->render($folder);
 
 echo $OUTPUT->box_end();

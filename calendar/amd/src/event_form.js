@@ -17,11 +17,10 @@
  * A javascript module to enhance the event form.
  *
  * @module     core_calendar/event_form
- * @package    core_calendar
  * @copyright  2017 Ryan Wyllie <ryan@moodle.com>
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
-define(['jquery', 'core_calendar/repository'], function($, CalendarRepository) {
+define(['jquery', 'core_calendar/repository', 'core/notification'], function($, CalendarRepository, Notification) {
 
     var SELECTORS = {
         EVENT_GROUP_COURSE_ID: '[name="groupcourseid"]',
@@ -56,11 +55,15 @@ define(['jquery', 'core_calendar/repository'], function($, CalendarRepository) {
         // If the user choose a course in the selector do a WS request to get groups.
         courseGroupSelect.on('change', function() {
             var courseId = formElement.find(SELECTORS.EVENT_GROUP_COURSE_ID).val();
-            CalendarRepository.getCourseGroupsData(courseId)
-                .then(function(groups) {
-                    return loadGroupSelectOptions(groups);
-                })
-                .catch(Notification.exception);
+            if (isNaN(courseId) || courseId <= 0) {
+                loadGroupSelectOptions([]);
+            } else {
+                CalendarRepository.getCourseGroupsData(courseId)
+                    .then(function(groups) {
+                        return loadGroupSelectOptions(groups);
+                    })
+                    .catch(Notification.exception);
+            }
         });
     };
 

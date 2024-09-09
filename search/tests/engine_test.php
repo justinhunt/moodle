@@ -14,14 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
-/**
- * Search engine base unit tests.
- *
- * @package     core_search
- * @category    phpunit
- * @copyright   2015 David Monllao {@link http://www.davidmonllao.com}
- * @license     http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
- */
+namespace core_search;
 
 defined('MOODLE_INTERNAL') || die();
 
@@ -36,14 +29,15 @@ require_once(__DIR__ . '/fixtures/mock_search_area.php');
  * @copyright   2015 David Monllao {@link http://www.davidmonllao.com}
  * @license     http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
-class search_engine_testcase extends advanced_testcase {
+class engine_test extends \advanced_testcase {
 
-    public function setUp() {
+    public function setUp(): void {
+        parent::setUp();
         $this->resetAfterTest();
         set_config('enableglobalsearch', true);
 
         // Set \core_search::instance to the mock_search_engine as we don't require the search engine to be working to test this.
-        $search = testable_core_search::instance();
+        $search = \testable_core_search::instance();
     }
 
     /**
@@ -51,7 +45,7 @@ class search_engine_testcase extends advanced_testcase {
      *
      * @return void
      */
-    public function test_engine_info() {
+    public function test_engine_info(): void {
         $engine = new \mock_search\engine();
 
         $this->assertEquals('mock_search', $engine->get_plugin_name());
@@ -65,7 +59,7 @@ class search_engine_testcase extends advanced_testcase {
      *
      * @return void
      */
-    public function test_engine_caches() {
+    public function test_engine_caches(): void {
         global $DB;
 
         $engine = new \mock_search\engine();
@@ -93,7 +87,7 @@ class search_engine_testcase extends advanced_testcase {
     /**
      * Tests the core functions related to schema updates.
      */
-    public function test_engine_schema_modification() {
+    public function test_engine_schema_modification(): void {
         // Apply a schema update starting from no version.
         $engine = new \mock_search\engine();
         $engine->check_latest_schema();
@@ -124,7 +118,7 @@ class search_engine_testcase extends advanced_testcase {
     /**
      * Tests the get_supported_orders stub function.
      */
-    public function test_get_supported_orders() {
+    public function test_get_supported_orders(): void {
         $engine = new \mock_search\engine();
         $orders = $engine->get_supported_orders(\context_system::instance());
         $this->assertCount(1, $orders);
@@ -134,11 +128,11 @@ class search_engine_testcase extends advanced_testcase {
     /**
      * Test that search engine sets an icon before render a document.
      */
-    public function test_engine_sets_doc_icon() {
+    public function test_engine_sets_doc_icon(): void {
         $generator = self::getDataGenerator()->get_plugin_generator('core_search');
         $generator->setup();
 
-        $area = new core_mocksearch\search\mock_search_area();
+        $area = new \core_mocksearch\search\mock_search_area();
         $engine = new \mock_search\engine();
 
         $record = $generator->create_record();

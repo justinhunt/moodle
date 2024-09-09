@@ -35,11 +35,15 @@ defined('MOODLE_INTERNAL') || die();
 // Like other files in the db directory this file uses an array.
 // The old class name is the key, the new class name is the value.
 // The array must be called $renamedclasses.
-$renamedclasses = array(
-    // Since Moodle 3.7.
-    'core\\analytics\\target\\course_dropout' => 'core_course\\analytics\\target\\course_dropout',
-    'core\\analytics\\target\\course_competencies' => 'core_course\\analytics\\target\\course_competencies',
-    'core\\analytics\\target\\course_completion' => 'core_course\\analytics\\target\\course_completion',
-    'core\\analytics\\target\\course_gradetopass' => 'core_course\\analytics\\target\\course_gradetopass',
-    'core\\analytics\\target\\no_teaching' => 'core_course\\analytics\\target\\no_teaching',
-);
+$renamedclasses = [
+    // Since Moodle 4.2.
+    'Box\\Spout' => 'OpenSpout',
+    // Since Moodle 4.3.
+    'core_question\\bank\\search\\condition' => 'core_question\\local\\bank\\condition',
+    'core_question\\bank\\search\\category_condition' => 'qbank_managecategories\\category_condition',
+    'core_question\\bank\\search\\hidden_condition' => 'qbank_deletequestion\\hidden_condition',
+    // Since Moodle 4.5.
+    'core_reportbuilder\\report_access_exception' => 'core_reportbuilder\\exception\\report_access_exception',
+    'core_reportbuilder\\source_invalid_exception' => 'core_reportbuilder\\exception\\source_invalid_exception',
+    'core_reportbuilder\\source_unavailable_exception' => 'core_reportbuilder\\exception\\source_unavailable_exception',
+];

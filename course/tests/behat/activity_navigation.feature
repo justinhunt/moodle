@@ -18,6 +18,8 @@ Feature: Activity navigation
       | student1  | C1      | student         |
       | teacher1  | C1      | editingteacher  |
       | student1  | C2      | student         |
+    And I enable "chat" "mod" plugin
+    And I enable "survey" "mod" plugin
     And the following "activities" exist:
       | activity   | name         | intro                       | course | idnumber  | section |
       | assign     | Assignment 1 | Test assignment description | C1     | assign1   | 0       |
@@ -42,9 +44,9 @@ Feature: Activity navigation
       | wiki       | Wiki 1       | Test wiki description       | C1     | wiki1     | 6       |
       | workshop   | Workshop 1   | Test workshop description   | C1     | workshop1 | 6       |
       | assign     | Assignment 1 | Test assignment description | C2     | assign21  | 0       |
-    And I log in as "admin"
-    And I set the following administration settings values:
+    And the following config values are set as admin:
       | allowstealth | 1 |
+    And I log in as "teacher1"
     And I am on "Course 1" course homepage with editing mode on
     # Stealth activity.
     And I click on "Hide" "link" in the "Forum 1" activity
@@ -52,6 +54,7 @@ Feature: Activity navigation
     # Hidden activity.
     And I click on "Hide" "link" in the "Glossary 1" activity
     # Hidden section.
+    And I am on "Course 1" course homepage
     And I hide section "5"
     # Set up book.
     And I follow "Book 1"

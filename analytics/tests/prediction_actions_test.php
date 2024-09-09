@@ -14,13 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
-/**
- * Unit tests for prediction actions.
- *
- * @package   core_analytics
- * @copyright 2017 David Monllaó {@link http://www.davidmonllao.com}
- * @license   http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
- */
+namespace core_analytics;
 
 defined('MOODLE_INTERNAL') || die();
 
@@ -34,13 +28,38 @@ require_once(__DIR__ . '/fixtures/test_target_shortname.php');
  * @copyright 2017 David Monllaó {@link http://www.davidmonllao.com}
  * @license   http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
-class analytics_prediction_actions_testcase extends advanced_testcase {
+class prediction_actions_test extends \advanced_testcase {
+
+    /** @var model Store Model. */
+    protected $model;
+
+    /** @var \stdClass Store model object. */
+    protected $modelobj;
+
+    /** @var \stdClass Course 1 record. */
+    protected $course1;
+
+    /** @var \stdClass Course 2 record. */
+    protected $course2;
+
+    /** @var \context_course Store Model. */
+    protected $context;
+
+    /** @var \stdClass Teacher 1 user record. */
+    protected $teacher1;
+
+    /** @var \stdClass Teacher 2 user record. */
+    protected $teacher2;
+
+    /** @var \stdClass Teacher 3 user record. */
+    protected $teacher3;
 
     /**
      * Common startup tasks
      */
-    public function setUp() {
+    public function setUp(): void {
         global $DB;
+        parent::setUp();
 
         $this->setAdminUser();
         $target = \core_analytics\manager::get_target('test_target_shortname');
@@ -87,7 +106,7 @@ class analytics_prediction_actions_testcase extends advanced_testcase {
     /**
      * test_get_predictions
      */
-    public function test_action_executed() {
+    public function test_action_executed(): void {
         global $DB;
 
         $this->assertEquals(0, $DB->count_records('analytics_prediction_actions'));
@@ -113,9 +132,89 @@ class analytics_prediction_actions_testcase extends advanced_testcase {
     }
 
     /**
+     * Data provider for test_get_executed_actions.
+     *
+     * @return  array
+     */
+    public function execute_actions_provider(): array {
+        return [
+            'Empty actions with no filter' => [
+                [],
+                [],
+                0
+            ],
+            'Empty actions with filter' => [
+                [],
+                [\core_analytics\prediction::ACTION_FIXED],
+                0
+            ],
+            'Multiple actions with no filter' => [
+                [
+                    \core_analytics\prediction::ACTION_FIXED,
+                    \core_analytics\prediction::ACTION_FIXED,
+                    \core_analytics\prediction::ACTION_INCORRECTLY_FLAGGED
+                ],
+                [],
+                3
+            ],
+            'Multiple actions applying filter' => [
+                [
+                    \core_analytics\prediction::ACTION_FIXED,
+                    \core_analytics\prediction::ACTION_FIXED,
+                    \core_analytics\prediction::ACTION_INCORRECTLY_FLAGGED
+                ],
+                [\core_analytics\prediction::ACTION_FIXED],
+                2
+            ],
+            'Multiple actions not applying filter' => [
+                [
+                    \core_analytics\prediction::ACTION_FIXED,
+                    \core_analytics\prediction::ACTION_FIXED,
+                    \core_analytics\prediction::ACTION_INCORRECTLY_FLAGGED
+                ],
+                [\core_analytics\prediction::ACTION_NOT_APPLICABLE],
+                0
+            ],
+            'Multiple actions with multiple filter' => [
+                [
+                    \core_analytics\prediction::ACTION_FIXED,
+                    \core_analytics\prediction::ACTION_FIXED,
+                    \core_analytics\prediction::ACTION_INCORRECTLY_FLAGGED
+                ],
+                [\core_analytics\prediction::ACTION_FIXED, \core_analytics\prediction::ACTION_INCORRECTLY_FLAGGED],
+                3
+            ],
+        ];
+    }
+
+    /**
+     * Tests for get_executed_actions() function.
+     *
+     * @dataProvider    execute_actions_provider
+     * @param   array   $actionstoexecute    An array of actions to execute
+     * @param   array   $actionnamefilter   Actions to filter
+     * @param   int     $returned             Number of actions returned
+     *
+     * @covers \core_analytics\prediction::get_executed_actions
+     */
+    public function test_get_executed_actions(array $actionstoexecute, array $actionnamefilter, int $returned): void {
+
+        $this->setUser($this->teacher2);
+        list($ignored, $predictions) = $this->model->get_predictions($this->context, true);
+        $prediction = reset($predictions);
+        $target = $this->model->get_target();
+        foreach($actionstoexecute as $action) {
+            $prediction->action_executed($action, $target);
+        }
+
+        $filteredactions = $prediction->get_executed_actions($actionnamefilter);
+        $this->assertCount($returned, $filteredactions);
+    }
+
+    /**
      * test_get_predictions
      */
-    public function test_get_predictions() {
+    public function test_get_predictions(): void {
         global $DB;
 
         // Already logged in as admin.

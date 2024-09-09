@@ -22,6 +22,14 @@
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
+$string['activitydate:assessmentsclose'] = 'Assessments close:';
+$string['activitydate:assessmentsclosed'] = 'Assessments closed:';
+$string['activitydate:assessmentsopen'] = 'Assessments open:';
+$string['activitydate:assessmentsopened'] = 'Assessments opened:';
+$string['activitydate:submissionsclose'] = 'Submissions close:';
+$string['activitydate:submissionsclosed'] = 'Submissions closed:';
+$string['activitydate:submissionsopen'] = 'Submissions open:';
+$string['activitydate:submissionsopened'] = 'Submissions opened:';
 $string['aggregategrades'] = 'Re-calculate grades';
 $string['aggregation'] = 'Grades aggregation';
 $string['allocate'] = 'Allocate submissions';
@@ -125,6 +133,7 @@ $string['eventsubmissionreassessed'] = 'Submission re-assessed';
 $string['eventsubmissionupdated'] = 'Submission updated';
 $string['eventsubmissiondeleted'] = 'Submission deleted';
 $string['eventsubmissionviewed'] = 'Submission viewed';
+$string['eventphaseautomaticallyswitched'] = 'Phase automatically switched';
 $string['eventphaseswitched'] = 'Phase switched';
 $string['example'] = 'Example submission';
 $string['exampleadd'] = 'Add example submission';
@@ -197,7 +206,6 @@ $string['latesubmissions'] = 'Late submissions';
 $string['latesubmissions_desc'] = 'Allow submissions after the deadline';
 $string['latesubmissions_help'] = 'If enabled, an author may submit their work after the submissions deadline or during the assessment phase. Late submissions cannot be edited though.';
 $string['latesubmissionsallowed'] = 'Late submissions are allowed';
-$string['legacyallocationplugincron'] = 'Legacy cron workshop allocation';
 $string['maxbytes'] = 'Maximum submission attachment size';
 $string['modulename'] = 'Workshop';
 $string['modulename_help'] = 'The workshop activity module enables the collection, review and peer assessment of students\' work.
@@ -310,9 +318,9 @@ $string['reassess'] = 'Re-assess';
 $string['receivedgrades'] = 'Grades received';
 $string['recentassessments'] = 'Workshop assessments:';
 $string['recentsubmissions'] = 'Workshop submissions:';
-$string['resetassessments'] = 'Delete all assessments';
+$string['resetassessments'] = 'All assessments';
 $string['resetassessments_help'] = 'You can choose to delete just allocated assessments without affecting submissions. If submissions are to be deleted, their assessments will be deleted implicitly and this option is ignored. Note this also includes assessments of example submissions.';
-$string['resetsubmissions'] = 'Delete all submissions';
+$string['resetsubmissions'] = 'All submissions';
 $string['resetsubmissions_help'] = 'All the submissions and their assessments will be deleted. This does not affect example submissions.';
 $string['resetphase'] = 'Switch to the setup phase';
 $string['resetphase_help'] = 'If enabled, all workshops will be put into the initial setup phase.';
@@ -327,6 +335,7 @@ $string['showingperpagechange'] = 'Change ...';
 $string['someuserswosubmission'] = 'There is at least one author who has not yet submitted their work';
 $string['sortasc'] = 'Ascending sort';
 $string['sortdesc'] = 'Descending sort';
+$string['submissionsallocation'] = 'Submissions allocation';
 $string['strategy'] = 'Grading strategy';
 $string['strategy_help'] = 'The grading strategy determines the assessment form used and the method of grading submissions. There are 4 options:
 
@@ -445,3 +454,4 @@ $string['workshop:viewreviewernames'] = 'View reviewer names';
 $string['yourassessmentfor'] = 'Your assessment for {$a}';
 $string['yourgrades'] = 'Your grades';
 $string['yoursubmission'] = 'Your submission';
+$string['yoursubmissionwithassessments'] = 'Your submission with assessments';

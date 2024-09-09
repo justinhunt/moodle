@@ -46,7 +46,7 @@ class moodle_content_writer_test extends advanced_testcase {
      * @param   \stdClass  $data Data
      * @covers ::export_data
      */
-    public function test_export_data($data) {
+    public function test_export_data($data): void {
         $context = \context_system::instance();
         $subcontext = [];
 
@@ -71,7 +71,7 @@ class moodle_content_writer_test extends advanced_testcase {
      * @param   \stdClass  $data Data
      * @covers ::export_data
      */
-    public function test_export_data_different_context($data) {
+    public function test_export_data_different_context($data): void {
         $context = \context_user::instance(\core_user::get_user_by_username('admin')->id);
         $subcontext = ['sub', 'context'];
 
@@ -94,7 +94,7 @@ class moodle_content_writer_test extends advanced_testcase {
      *
      * @covers ::export_data
      */
-    public function test_export_data_writes_to_multiple_context() {
+    public function test_export_data_writes_to_multiple_context(): void {
         $subcontext = ['sub', 'context'];
 
         $systemcontext = \context_system::instance();
@@ -138,7 +138,7 @@ class moodle_content_writer_test extends advanced_testcase {
      *
      * @covers ::export_data
      */
-    public function test_export_data_multiple_writes_same_context() {
+    public function test_export_data_multiple_writes_same_context(): void {
         $subcontext = ['sub', 'context'];
 
         $systemcontext = \context_system::instance();
@@ -194,7 +194,7 @@ class moodle_content_writer_test extends advanced_testcase {
      * @param   string  $description Description
      * @covers ::export_metadata
      */
-    public function test_export_metadata($key, $value, $description) {
+    public function test_export_metadata($key, $value, $description): void {
         $context = \context_system::instance();
         $subcontext = ['a', 'b', 'c'];
 
@@ -219,7 +219,7 @@ class moodle_content_writer_test extends advanced_testcase {
      *
      * @covers ::export_metadata
      */
-    public function test_export_metadata_additive() {
+    public function test_export_metadata_additive(): void {
         $context = \context_system::instance();
         $subcontext = [];
 
@@ -255,7 +255,7 @@ class moodle_content_writer_test extends advanced_testcase {
      *
      * @covers ::export_metadata
      */
-    public function test_export_metadata_to_multiple_contexts() {
+    public function test_export_metadata_to_multiple_contexts(): void {
         $systemcontext = \context_system::instance();
         $usercontext = \context_user::instance(\core_user::get_user_by_username('admin')->id);
         $subcontext = [];
@@ -333,7 +333,7 @@ class moodle_content_writer_test extends advanced_testcase {
      *
      * @covers ::export_area_files
      */
-    public function test_export_area_files() {
+    public function test_export_area_files(): void {
         $this->resetAfterTest();
         $context = \context_system::instance();
         $fs = get_file_storage();
@@ -439,7 +439,7 @@ class moodle_content_writer_test extends advanced_testcase {
      *
      * @covers ::export_file
      */
-    public function test_export_file($filearea, $itemid, $filepath, $filename, $content) {
+    public function test_export_file($filearea, $itemid, $filepath, $filename, $content): void {
         $this->resetAfterTest();
         $context = \context_system::instance();
         $filenamepath = '/' . $filearea . '/' . ($itemid ? '_' . $itemid : '') . $filepath . $filename;
@@ -536,7 +536,7 @@ class moodle_content_writer_test extends advanced_testcase {
      * @param   string      $desc Description
      * @covers ::export_user_preference
      */
-    public function test_export_user_preference_context_user($component, $key, $value, $desc) {
+    public function test_export_user_preference_context_user($component, $key, $value, $desc): void {
         $admin = \core_user::get_user_by_username('admin');
 
         $writer = $this->get_writer_instance();
@@ -569,7 +569,7 @@ class moodle_content_writer_test extends advanced_testcase {
      * @param   string      $desc Description
      * @covers ::export_user_preference
      */
-    public function test_export_user_preference_context_coursecat($component, $key, $value, $desc) {
+    public function test_export_user_preference_context_coursecat($component, $key, $value, $desc): void {
         global $DB;
 
         $categories = $DB->get_records('course_categories');
@@ -603,7 +603,7 @@ class moodle_content_writer_test extends advanced_testcase {
      * @param   string      $desc Description
      * @covers ::export_user_preference
      */
-    public function test_export_user_preference_context_course($component, $key, $value, $desc) {
+    public function test_export_user_preference_context_course($component, $key, $value, $desc): void {
         global $DB;
 
         $this->resetAfterTest();
@@ -638,7 +638,7 @@ class moodle_content_writer_test extends advanced_testcase {
      * @param   string      $desc Description
      * @covers ::export_user_preference
      */
-    public function test_export_user_preference_context_module($component, $key, $value, $desc) {
+    public function test_export_user_preference_context_module($component, $key, $value, $desc): void {
         global $DB;
 
         $this->resetAfterTest();
@@ -674,7 +674,7 @@ class moodle_content_writer_test extends advanced_testcase {
      * @param   string      $desc Description
      * @covers ::export_user_preference
      */
-    public function test_export_user_preference_context_block($component, $key, $value, $desc) {
+    public function test_export_user_preference_context_block($component, $key, $value, $desc): void {
         global $DB;
 
         $blocks = $DB->get_records('block_instances');
@@ -705,7 +705,7 @@ class moodle_content_writer_test extends advanced_testcase {
      *
      * @covers ::export_user_preference
      */
-    public function test_export_user_preference_context_block_multiple_instances() {
+    public function test_export_user_preference_context_block_multiple_instances(): void {
         $this->resetAfterTest();
 
         $generator = $this->getDataGenerator();
@@ -767,7 +767,7 @@ class moodle_content_writer_test extends advanced_testcase {
      *
      * @covers ::export_user_preference
      */
-    public function test_export_user_preference_context_system($component, $key, $value, $desc) {
+    public function test_export_user_preference_context_system($component, $key, $value, $desc): void {
         $context = \context_system::instance();
         $writer = $this->get_writer_instance()
             ->set_context($context)
@@ -791,7 +791,7 @@ class moodle_content_writer_test extends advanced_testcase {
      *
      * @covers ::export_user_preference
      */
-    public function test_export_multiple_user_preference_context_system() {
+    public function test_export_multiple_user_preference_context_system(): void {
         $context = \context_system::instance();
         $writer = $this->get_writer_instance();
         $component = 'core_privacy';
@@ -825,7 +825,7 @@ class moodle_content_writer_test extends advanced_testcase {
      *
      * @covers ::export_user_preference
      */
-    public function test_export_user_preference_replace() {
+    public function test_export_user_preference_replace(): void {
         $context = \context_system::instance();
         $writer = $this->get_writer_instance();
         $component = 'core_privacy';
@@ -888,7 +888,7 @@ class moodle_content_writer_test extends advanced_testcase {
      * @param string $text
      * @covers ::export_data
      */
-    public function test_export_data_unescaped_unicode($text) {
+    public function test_export_data_unescaped_unicode($text): void {
         $context = \context_system::instance();
         $subcontext = [];
         $data = (object) ['key' => $text];
@@ -902,7 +902,7 @@ class moodle_content_writer_test extends advanced_testcase {
         $contextpath = $this->get_context_path($context, $subcontext, 'data.json');
 
         $json = $fileroot->getChild($contextpath)->getContent();
-        $this->assertRegExp("/$text/", $json);
+        $this->assertMatchesRegularExpression("/$text/", $json);
 
         $expanded = json_decode($json);
         $this->assertEquals($data, $expanded);
@@ -915,7 +915,7 @@ class moodle_content_writer_test extends advanced_testcase {
      * @param string $text
      * @covers ::export_metadata
      */
-    public function test_export_metadata_unescaped_unicode($text) {
+    public function test_export_metadata_unescaped_unicode($text): void {
         $context = \context_system::instance();
         $subcontext = ['a', 'b', 'c'];
 
@@ -928,7 +928,7 @@ class moodle_content_writer_test extends advanced_testcase {
         $contextpath = $this->get_context_path($context, $subcontext, 'metadata.json');
 
         $json = $fileroot->getChild($contextpath)->getContent();
-        $this->assertRegExp("/$text.*$text.*$text/is", $json);
+        $this->assertMatchesRegularExpression("/$text.*$text.*$text/is", $json);
 
         $expanded = json_decode($json);
         $this->assertTrue(isset($expanded->$text));
@@ -943,7 +943,7 @@ class moodle_content_writer_test extends advanced_testcase {
      * @param string $text
      * @covers ::export_related_data
      */
-    public function test_export_related_data_unescaped_unicode($text) {
+    public function test_export_related_data_unescaped_unicode($text): void {
         $context = \context_system::instance();
         $subcontext = [];
         $data = (object) ['key' => $text];
@@ -957,7 +957,7 @@ class moodle_content_writer_test extends advanced_testcase {
         $contextpath = $this->get_context_path($context, $subcontext, 'name.json');
 
         $json = $fileroot->getChild($contextpath)->getContent();
-        $this->assertRegExp("/$text/", $json);
+        $this->assertMatchesRegularExpression("/$text/", $json);
 
         $expanded = json_decode($json);
         $this->assertEquals($data, $expanded);
@@ -968,7 +968,7 @@ class moodle_content_writer_test extends advanced_testcase {
      *
      * @covers ::export_related_data
      */
-    public function test_export_related_data_clean_name() {
+    public function test_export_related_data_clean_name(): void {
         $context = \context_system::instance();
         $subcontext = [];
         $data = (object) ['foo' => 'bar'];
@@ -998,7 +998,7 @@ class moodle_content_writer_test extends advanced_testcase {
      * @param string $text
      * @covers ::export_user_preference
      */
-    public function test_export_user_preference_unescaped_unicode($text) {
+    public function test_export_user_preference_unescaped_unicode($text): void {
         $context = \context_system::instance();
         $component = 'core_privacy';
 
@@ -1011,7 +1011,7 @@ class moodle_content_writer_test extends advanced_testcase {
         $contextpath = $this->get_context_path($context, [get_string('userpreferences')], "{$component}.json");
 
         $json = $fileroot->getChild($contextpath)->getContent();
-        $this->assertRegExp("/$text.*$text.*$text/is", $json);
+        $this->assertMatchesRegularExpression("/$text.*$text.*$text/is", $json);
 
         $expanded = json_decode($json);
         $this->assertTrue(isset($expanded->$text));
@@ -1035,7 +1035,7 @@ class moodle_content_writer_test extends advanced_testcase {
      *
      * @covers ::export_data
      */
-    public function test_export_data_clean_subcontext() {
+    public function test_export_data_clean_subcontext(): void {
         $context = \context_system::instance();
         $subcontext = ['Something/weird', 'More/bad:>', 'Bad&chars:>'];
         $data = (object) ['foo' => 'bar'];
@@ -1064,7 +1064,7 @@ class moodle_content_writer_test extends advanced_testcase {
      *
      * @covers ::export_data
      */
-    public function test_export_data_long_filename($longtext, $expected, $text) {
+    public function test_export_data_long_filename($longtext, $expected, $text): void {
         $context = \context_system::instance();
         $subcontext = [$longtext];
         $data = (object) ['key' => $text];
@@ -1080,7 +1080,7 @@ class moodle_content_writer_test extends advanced_testcase {
         $this->assertEquals($expectedpath, $contextpath);
 
         $json = $fileroot->getChild($contextpath)->getContent();
-        $this->assertRegExp("/$text/", $json);
+        $this->assertMatchesRegularExpression("/$text/", $json);
 
         $expanded = json_decode($json);
         $this->assertEquals($data, $expanded);
@@ -1096,7 +1096,7 @@ class moodle_content_writer_test extends advanced_testcase {
      *
      * @covers ::export_related_data
      */
-    public function test_export_related_data_long_filename($longtext, $expected, $text) {
+    public function test_export_related_data_long_filename($longtext, $expected, $text): void {
         $context = \context_system::instance();
         $subcontext = [$longtext];
         $data = (object) ['key' => $text];
@@ -1112,7 +1112,7 @@ class moodle_content_writer_test extends advanced_testcase {
         $this->assertEquals($expectedpath, $contextpath);
 
         $json = $fileroot->getChild($contextpath)->getContent();
-        $this->assertRegExp("/$text/", $json);
+        $this->assertMatchesRegularExpression("/$text/", $json);
 
         $expanded = json_decode($json);
         $this->assertEquals($data, $expanded);
@@ -1126,7 +1126,7 @@ class moodle_content_writer_test extends advanced_testcase {
      * @param string $expected
      * @param string $text
      */
-    public function test_export_metadata_long_filename($longtext, $expected, $text) {
+    public function test_export_metadata_long_filename($longtext, $expected, $text): void {
         $context = \context_system::instance();
         $subcontext = [$longtext];
         $data = (object) ['key' => $text];
@@ -1142,7 +1142,7 @@ class moodle_content_writer_test extends advanced_testcase {
         $this->assertEquals($expectedpath, $contextpath);
 
         $json = $fileroot->getChild($contextpath)->getContent();
-        $this->assertRegExp("/$text.*$text.*$text/is", $json);
+        $this->assertMatchesRegularExpression("/$text.*$text.*$text/is", $json);
 
         $expanded = json_decode($json);
         $this->assertTrue(isset($expanded->$text));
@@ -1158,7 +1158,7 @@ class moodle_content_writer_test extends advanced_testcase {
      * @param string $expected
      * @param string $text
      */
-    public function test_export_user_preference_long_filename($longtext, $expected, $text) {
+    public function test_export_user_preference_long_filename($longtext, $expected, $text): void {
         $this->resetAfterTest();
 
         if (!array_key_exists('json', core_filetypes::get_types())) {
@@ -1180,7 +1180,7 @@ class moodle_content_writer_test extends advanced_testcase {
         $this->assertEquals($expectedpath, $contextpath);
 
         $json = $fileroot->getChild($contextpath)->getContent();
-        $this->assertRegExp("/$text.*$text.*$text/is", $json);
+        $this->assertMatchesRegularExpression("/$text.*$text.*$text/is", $json);
 
         $expanded = json_decode($json);
         $this->assertTrue(isset($expanded->$text));
@@ -1250,11 +1250,9 @@ class moodle_content_writer_test extends advanced_testcase {
 
         if (null === $subcontext) {
             $rcm = $rc->getMethod('get_context_path');
-            $rcm->setAccessible(true);
             $path = $rcm->invoke($writer);
         } else {
             $rcm = $rc->getMethod('get_path');
-            $rcm->setAccessible(true);
             $path = $rcm->invoke($writer, $subcontext, $name);
         }
 
@@ -1275,7 +1273,7 @@ class moodle_content_writer_test extends advanced_testcase {
      * @param string $expectedoutput Expected output of URL rewriting.
      * @covers ::rewrite_pluginfile_urls
      */
-    public function test_rewrite_pluginfile_urls($filearea, $itemid, $input, $expectedoutput) {
+    public function test_rewrite_pluginfile_urls($filearea, $itemid, $input, $expectedoutput): void {
 
         $writer = $this->get_writer_instance();
         $writer->set_context(\context_system::instance());
@@ -1292,6 +1290,18 @@ class moodle_content_writer_test extends advanced_testcase {
      */
     public function rewrite_pluginfile_urls_provider() {
         return [
+            'nullcontent' => [
+                'intro',
+                0,
+                null,
+                '',
+            ],
+            'emptycontent' => [
+                'intro',
+                0,
+                '',
+                '',
+            ],
             'zeroitemid' => [
                 'intro',
                 0,
@@ -1313,7 +1323,7 @@ class moodle_content_writer_test extends advanced_testcase {
         ];
     }
 
-    public function test_export_html_functions() {
+    public function test_export_html_functions(): void {
         $this->resetAfterTest();
 
         $data = (object) ['key' => 'value'];
@@ -1370,7 +1380,7 @@ class moodle_content_writer_test extends advanced_testcase {
             'System _.1' => [
                 'data.json',
                 'paper' => 'data.json',
-                'Category Miscellaneous _.' . $misccoursecxt->id => [
+                'Category Category 1 _.' . $misccoursecxt->id => [
                     'Course Test course 1 _.' . $coursecontext->id => [
                         'Chat Chat 1 _.' . $modulecontext->id => 'data.json',
                         'grades' => 'data.json'
@@ -1390,9 +1400,9 @@ class moodle_content_writer_test extends advanced_testcase {
         $expectedlistoutput = [
             'System _.1/data.json' => 'data_file_1',
             'System _.1/paper/data.json' => 'data_file_2',
-            'System _.1/Category Miscellaneous _.' . $misccoursecxt->id . '/Course Test course 1 _.' .
+            'System _.1/Category Category 1 _.' . $misccoursecxt->id . '/Course Test course 1 _.' .
                     $coursecontext->id . '/Chat Chat 1 _.' . $modulecontext->id . '/data.json'   => 'data_file_3',
-            'System _.1/Category Miscellaneous _.' . $misccoursecxt->id . '/Course Test course 1 _.' .
+            'System _.1/Category Category 1 _.' . $misccoursecxt->id . '/Course Test course 1 _.' .
                     $coursecontext->id . '/grades/data.json'   => 'data_file_4',
             'System _.1/Category Course category 1 _.' . $categorycontext->id . '/data.json' => 'data_file_5',
             'System _.1/_files/tests/a.txt' => 'No var',
@@ -1403,9 +1413,9 @@ class moodle_content_writer_test extends advanced_testcase {
         $expectedindex = [
             'data_file_1' => 'System _.1/data.js',
             'data_file_2' => 'System _.1/paper/data.js',
-            'data_file_3' => 'System _.1/Category Miscellaneous _.' . $misccoursecxt->id . '/Course Test course 1 _.' .
+            'data_file_3' => 'System _.1/Category Category 1 _.' . $misccoursecxt->id . '/Course Test course 1 _.' .
                     $coursecontext->id . '/Chat Chat 1 _.' . $modulecontext->id . '/data.js',
-            'data_file_4' => 'System _.1/Category Miscellaneous _.' . $misccoursecxt->id . '/Course Test course 1 _.' .
+            'data_file_4' => 'System _.1/Category Category 1 _.' . $misccoursecxt->id . '/Course Test course 1 _.' .
                     $coursecontext->id . '/grades/data.js',
             'data_file_5' => 'System _.1/Category Course category 1 _.' . $categorycontext->id . '/data.js',
             'data_file_6' => 'System _.1/Logs/Standard log/data.js'
@@ -1438,9 +1448,9 @@ class moodle_content_writer_test extends advanced_testcase {
                             ]
                         ]
                     ],
-                    'Category Miscellaneous _.' . $misccoursecxt->id => (object) [
+                    'Category Category 1 _.' . $misccoursecxt->id => (object) [
                         'itemtype' => 'treeitem',
-                        'name' => 'Category Miscellaneous ',
+                        'name' => 'Category Category 1 ',
                         'context' => $misccoursecxt,
                         'children' => [
                             'Course Test course 1 _.' . $coursecontext->id => (object) [
@@ -1542,9 +1552,9 @@ class moodle_content_writer_test extends advanced_testcase {
                 'name' => 'System ',
                 'context' => \context_system::instance(),
                 'children' => [
-                    'Category Miscellaneous _.' . $misccoursecxt->id => (object) [
+                    'Category Category 1 _.' . $misccoursecxt->id => (object) [
                         'itemtype' => 'treeitem',
-                        'name' => 'Category Miscellaneous ',
+                        'name' => 'Category Category 1 ',
                         'context' => $misccoursecxt,
                         'children' => [
                             'Course Test course 1 _.' . $coursecontext->id => (object) [

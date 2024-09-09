@@ -1,4 +1,4 @@
-@editor @editor_atto @atto @_file_upload
+@editor @editor_atto @atto
 Feature: Atto Autosave
   To reduce frustration, atto should save drafts of my work.
 
@@ -20,8 +20,8 @@ Feature: Atto Autosave
     And I set the field with xpath "//select[@name='s_editor_atto_autosavefrequency[u]']" to "seconds"
     And I click on "Save changes" "button"
     And I am on "Course 1" course homepage
-    And I navigate to "Edit settings" in current page administration
-    And I set the field with xpath "//select[@name='summary_editor[format]']" to "1"
+    And I navigate to "Settings" in current page administration
+    And I set the field "Course summary format" to "1"
     And I click on "Save and display" "button"
     And I log out
 
@@ -29,33 +29,31 @@ Feature: Atto Autosave
   Scenario: Restore a draft
     Given I log in as "teacher1"
     And I am on "Course 1" course homepage
-    And I navigate to "Edit settings" in current page administration
+    And I navigate to "Settings" in current page administration
     And I set the field "Course summary" to "This is my draft"
     # Wait for the autosave
     And I wait "5" seconds
     And I log out
     When I log in as "teacher1"
     And I am on "Course 1" course homepage
-    And I navigate to "Edit settings" in current page administration
+    And I navigate to "Settings" in current page administration
     # Wait for the autorestore
     And I wait "2" seconds
     Then I should see "This is my draft"
 
   @javascript
   Scenario: Do not restore a draft if files have been modified
-    Given I log in as "teacher1"
-    And I am on "Course 1" course homepage
-    And I navigate to "Edit settings" in current page administration
+    Given the following "user private file" exists:
+      | user     | teacher2                                       |
+      | filepath | lib/editor/atto/tests/fixtures/moodle-logo.png |
+    And I am on the "Course 1" course page logged in as teacher1
+    And I navigate to "Settings" in current page administration
     And I set the field "Course summary" to "This is my draft"
     # Wait for the autosave
     And I wait "5" seconds
     And I log out
-    And I log in as "teacher2"
-    And I follow "Manage private files..."
-    And I upload "lib/editor/atto/tests/fixtures/moodle-logo.png" file to "Files" filemanager
-    And I click on "Save changes" "button"
-    And I am on "Course 1" course homepage
-    And I navigate to "Edit settings" in current page administration
+    And I am on the "Course 1" course page logged in as teacher2
+    And I navigate to "Settings" in current page administration
     And I set the field "Course summary" to "<p>Image test</p>"
     And I select the text in the "Course summary" Atto editor
     And I click on "Insert or edit image" "button"
@@ -71,26 +69,26 @@ Feature: Atto Autosave
     And I log out
     When I log in as "teacher1"
     And I am on "Course 1" course homepage
-    And I navigate to "Edit settings" in current page administration
+    And I navigate to "Settings" in current page administration
     Then I should not see "This is my draft"
 
   @javascript
   Scenario: Do not restore a draft if text has been modified
     Given I log in as "teacher1"
     And I am on "Course 1" course homepage
-    And I navigate to "Edit settings" in current page administration
+    And I navigate to "Settings" in current page administration
     And I set the field "Course summary" to "This is my draft"
     # Wait for the autosave
     And I wait "5" seconds
     And I log out
     And I log in as "teacher2"
     And I am on "Course 1" course homepage
-    And I navigate to "Edit settings" in current page administration
+    And I navigate to "Settings" in current page administration
     And I set the field "Course summary" to "Modified text"
     And I click on "Save and display" "button"
     And I log out
     When I log in as "teacher1"
     And I am on "Course 1" course homepage
-    And I navigate to "Edit settings" in current page administration
+    And I navigate to "Settings" in current page administration
     Then I should not see "This is my draft"
     And I should see "Modified text"

@@ -23,11 +23,9 @@
  */
 namespace core_user\output;
 
-use context_course;
-use renderable;
+use core_user\fields;
 use renderer_base;
 use stdClass;
-use templatable;
 
 /**
  * Class for rendering user filters on the course participants page.
@@ -35,29 +33,7 @@ use templatable;
  * @copyright  2020 Michael Hawkins <michaelh@moodle.com>
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
-class participants_filter implements renderable, templatable {
-
-    /** @var context_course $context The context where the filters are being rendered. */
-    protected $context;
-
-    /** @var string $tableregionid The table to be updated by this filter */
-    protected $tableregionid;
-
-    /** @var stdClass $course The course shown */
-    protected $course;
-
-    /**
-     * Participants filter constructor.
-     *
-     * @param context_course $context The context where the filters are being rendered.
-     * @param string $tableregionid The table to be updated by this filter
-     */
-    public function __construct(context_course $context, string $tableregionid) {
-        $this->context = $context;
-        $this->tableregionid = $tableregionid;
-
-        $this->course = get_course($context->instanceid);
-    }
+class participants_filter extends \core\output\datafilter {
 
     /**
      * Get data for all filter types.
@@ -86,6 +62,10 @@ class participants_filter implements renderable, templatable {
         }
 
         if ($filtertype = $this->get_accesssince_filter()) {
+            $filtertypes[] = $filtertype;
+        }
+
+        if ($filtertype = $this->get_country_filter()) {
             $filtertypes[] = $filtertype;
         }
 
@@ -129,10 +109,10 @@ class participants_filter implements renderable, templatable {
     protected function get_roles_filter(): ?stdClass {
         $roles = [];
         $roles += [-1 => get_string('noroles', 'role')];
-        $roles += get_viewable_roles($this->context);
+        $roles += get_viewable_roles($this->context, null, ROLENAME_BOTH);
 
         if (has_capability('moodle/role:assign', $this->context)) {
-            $roles += get_assignable_roles($this->context, ROLENAME_ALIAS);
+            $roles += get_assignable_roles($this->context, ROLENAME_BOTH);
         }
 
         return $this->get_filter_object(
@@ -224,7 +204,7 @@ class participants_filter implements renderable, templatable {
             array_map(function($group) {
                 return (object) [
                     'value' => $group->id,
-                    'title' => $group->name,
+                    'title' => format_string($group->name, true, ['context' => $this->context]),
                 ];
             }, array_values($groups))
         );
@@ -249,7 +229,7 @@ class participants_filter implements renderable, templatable {
 
         // Get minimum lastaccess for this course and display a dropbox to filter by lastaccess going back this far.
         // We need to make it diferently for normal courses and site course.
-        if (!$this->course->id == SITEID) {
+        if (!($this->course->id == SITEID)) {
             // Regular course.
             $params = [
                 'courseid' => $this->course->id,
@@ -257,7 +237,17 @@ class participants_filter implements renderable, templatable {
             ];
             $select = 'courseid = :courseid AND timeaccess != :timeaccess';
             $minlastaccess = $DB->get_field_select('user_lastaccess', 'MIN(timeaccess)', $select, $params);
-            $lastaccess0exists = $DB->record_exists('user_lastaccess', $params);
+
+            // Determine enrolled users, who do not have accompanying lastaccess to the course.
+            [$enrolledsql, $enrolledparams] = get_enrolled_sql($this->context);
+
+            $sql = "SELECT 'x'
+                     FROM {user} u
+                     JOIN ({$enrolledsql}) je ON je.id = u.id
+                LEFT JOIN {user_lastaccess} ula ON ula.userid = je.id AND ula.courseid = :courseid
+                    WHERE COALESCE(ula.timeaccess, 0) = :timeaccess";
+
+            $lastaccess0exists = $DB->record_exists_sql($sql, array_merge($params, $enrolledparams));
         } else {
             // Front page.
             $params = ['lastaccess' => 0];
@@ -267,8 +257,6 @@ class participants_filter implements renderable, templatable {
         }
 
         $now = usergetmidnight(time());
-        $timeoptions = [];
-        $criteria = get_string('usersnoaccesssince');
 
         $getoptions = function(int $count, string $singletype, string $type) use ($now, $minlastaccess): array {
             $values = [];
@@ -302,7 +290,7 @@ class participants_filter implements renderable, templatable {
 
         if ($lastaccess0exists) {
             $values[] = [
-                'value' => time(),
+                'value' => -1,
                 'title' => get_string('never', 'moodle'),
             ];
         }
@@ -323,6 +311,34 @@ class participants_filter implements renderable, templatable {
     }
 
     /**
+     * Get data for the country filter
+     *
+     * @return stdClass|null
+     */
+    protected function get_country_filter(): ?stdClass {
+        $extrauserfields = fields::get_identity_fields($this->context, false);
+        if (array_search('country', $extrauserfields) === false) {
+            return null;
+        }
+
+        $countries = get_string_manager()->get_list_of_countries(true);
+
+        return $this->get_filter_object(
+            'country',
+            get_string('country'),
+            false,
+            true,
+            'core/datafilter/filtertypes/country',
+            array_map(function(string $code, string $name): stdClass {
+                return (object) [
+                    'value' => $code,
+                    'title' => $name,
+                ];
+            }, array_keys($countries), array_values($countries))
+        );
+    }
+
+    /**
      * Get data for the keywords filter.
      *
      * @return stdClass|null
@@ -333,7 +349,7 @@ class participants_filter implements renderable, templatable {
             get_string('filterbykeyword', 'core_user'),
             true,
             true,
-            'core_user/local/participantsfilter/filtertypes/keyword',
+            'core/datafilter/filtertypes/keyword',
             [],
             true
         );
@@ -354,42 +370,5 @@ class participants_filter implements renderable, templatable {
         ];
 
         return $data;
-    }
-
-    /**
-     * Get a standardised filter object.
-     *
-     * @param string $name
-     * @param string $title
-     * @param bool $custom
-     * @param bool $multiple
-     * @param string|null $filterclass
-     * @param array $values
-     * @param bool $allowempty
-     * @return stdClass|null
-     */
-    protected function get_filter_object(
-        string $name,
-        string $title,
-        bool $custom,
-        bool $multiple,
-        ?string $filterclass,
-        array $values,
-        bool $allowempty = false
-    ): ?stdClass {
-
-        if (!$allowempty && empty($values)) {
-            // Do not show empty filters.
-            return null;
-        }
-
-        return (object) [
-            'name' => $name,
-            'title' => $title,
-            'allowcustom' => $custom,
-            'allowmultiple' => $multiple,
-            'filtertypeclass' => $filterclass,
-            'values' => $values,
-        ];
     }
 }

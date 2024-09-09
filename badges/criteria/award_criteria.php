@@ -129,6 +129,24 @@ abstract class award_criteria {
     public $params = array();
 
     /**
+     * Criteria type.
+     * @var string
+     */
+    public $criteriatype;
+
+    /**
+     * Required parameters.
+     * @var string
+     */
+    public $required_param = '';
+
+    /**
+     * Optional parameters.
+     * @var array
+     */
+    public $optional_params = [];
+
+    /**
      * The base constructor
      *
      * @param array $params
@@ -158,7 +176,7 @@ abstract class award_criteria {
         $types = badges_list_criteria(false);
 
         if (!isset($params['criteriatype']) || !isset($types[$params['criteriatype']])) {
-            print_error('error:invalidcriteriatype', 'badges');
+            throw new \moodle_exception('error:invalidcriteriatype', 'badges');
         }
 
         $class = 'award_criteria_' . $types[$params['criteriatype']];
@@ -205,7 +223,7 @@ abstract class award_criteria {
         } else {
             $parameter[] =& $mform->createElement('advcheckbox', $prefix . $param['id'], '', $param['name'], null, array(0, $param['id']));
             $parameter[] =& $mform->createElement('static', 'break_start_' . $param['id'], null,
-                '<div class="ml-3 mt-1 w-100 align-items-center">');
+                '<div class="ms-3 mt-1 w-100 align-items-center">');
 
             if (in_array('grade', $this->optional_params)) {
                 $parameter[] =& $mform->createElement('static', 'mgrade_' . $param['id'], null, get_string('mingrade', 'badges'));

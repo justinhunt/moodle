@@ -14,25 +14,21 @@
 // You should have received a copy of the GNU General Public License
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
-/**
- * Form to allow user to set their default home page
- *
- * @package     core_user
- * @copyright   2019 Paul Holden <paulh@moodle.com>
- * @license     http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
- */
-
 namespace core_user\form;
 
-use lang_string;
+use core\di;
+use core\hook\manager;
+use core\lang_string;
+use core_user\hook\extend_default_homepage;
 
 defined('MOODLE_INTERNAL') || die;
 
 require_once($CFG->dirroot . '/lib/formslib.php');
 
 /**
- * Form class
+ * Form to allow user to set their default home page
  *
+ * @package     core_user
  * @copyright   2019 Paul Holden <paulh@moodle.com>
  * @license     http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
@@ -41,20 +37,28 @@ class defaulthomepage_form extends \moodleform {
     /**
      * Define the form.
      */
-    public function definition () {
+    public function definition() {
+        global $CFG;
+
         $mform = $this->_form;
 
         $mform->addElement('hidden', 'id');
         $mform->setType('id', PARAM_INT);
 
-        $options = [
-            HOMEPAGE_SITE => new lang_string('site'),
-            HOMEPAGE_MY => new lang_string('mymoodle', 'admin'),
-        ];
+        $options = [HOMEPAGE_SITE => new lang_string('home')];
+        if (!empty($CFG->enabledashboard)) {
+            $options[HOMEPAGE_MY] = new lang_string('mymoodle', 'admin');
+        }
+        $options[HOMEPAGE_MYCOURSES] = new lang_string('mycourses', 'admin');
+
+        // Allow hook callbacks to extend options.
+        $hook = new extend_default_homepage(true);
+        di::get(manager::class)->dispatch($hook);
+        $options += $hook->get_options();
 
         $mform->addElement('select', 'defaulthomepage', get_string('defaulthomepageuser'), $options);
         $mform->addHelpButton('defaulthomepage', 'defaulthomepageuser');
-        $mform->setDefault('defaulthomepage', HOMEPAGE_MY);
+        $mform->setDefault('defaulthomepage', get_default_home_page());
 
         $this->add_action_buttons(true, get_string('savechanges'));
     }

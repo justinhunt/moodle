@@ -14,15 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
-/**
- * Provides {@link core_user_table_participants_search_test} class.
- *
- * @package   core_user
- * @category  test
- * @copyright 2020 Andrew Nicols <andrew@nicols.co.uk>
- * @license   http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
- */
-
 declare(strict_types=1);
 
 namespace core_user\table;
@@ -41,10 +32,12 @@ use stdClass;
 /**
  * Tests for the implementation of {@link core_user_table_participants_search} class.
  *
+ * @package   core_user
+ * @category  test
  * @copyright 2020 Andrew Nicols <andrew@nicols.co.uk>
  * @license   http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
-class participants_search_test extends advanced_testcase {
+final class participants_search_test extends advanced_testcase {
 
     /**
      * Helper to convert a moodle_recordset to an array of records.
@@ -176,9 +169,11 @@ class participants_search_test extends advanced_testcase {
         $rs = $search->get_participants();
         $this->assertInstanceOf(moodle_recordset::class, $rs);
         $records = $this->convert_recordset_to_array($rs);
+        $resetrecords = reset($records);
+        $totalparticipants = $resetrecords->fullcount ?? 0;
 
         $this->assertCount($count, $records);
-        $this->assertEquals($count, $search->get_total_participants_count());
+        $this->assertEquals($count, $totalparticipants);
 
         foreach ($expectedusers as $expecteduser) {
             $this->assertArrayHasKey($users[$expecteduser]->id, $records);
@@ -190,7 +185,7 @@ class participants_search_test extends advanced_testcase {
      *
      * @return array
      */
-    public function role_provider(): array {
+    public static function role_provider(): array {
         $tests = [
             // Users who only have one role each.
             'Users in each role' => (object) [
@@ -693,16 +688,15 @@ class participants_search_test extends advanced_testcase {
                     'NONE: Filter on student, teacher' => (object) [
                         'roles' => ['student', 'teacher'],
                         'jointype' => filter::JOINTYPE_NONE,
-                        'count' => 5,
+                        'count' => 4,
                         'expectedusers' => [
                             'c',
                             'd',
-                            'e',
                             'g',
                             'h',
                         ],
                     ],
-                    'NONE: Filter on student, teacher' => (object) [
+                    'NONE: Filter on teacher, editingteacher' => (object) [
                         'roles' => ['teacher', 'editingteacher'],
                         'jointype' => filter::JOINTYPE_NONE,
                         'count' => 3,
@@ -758,6 +752,173 @@ class participants_search_test extends advanced_testcase {
     }
 
     /**
+     * Test participant search country filter
+     *
+     * @param array $usersdata
+     * @param array $countries
+     * @param int $jointype
+     * @param array $expectedusers
+     *
+     * @dataProvider country_provider
+     */
+    public function test_country_filter(array $usersdata, array $countries, int $jointype, array $expectedusers): void {
+        $this->resetAfterTest();
+
+        $course = $this->getDataGenerator()->create_course();
+        $users = [];
+
+        foreach ($usersdata as $username => $country) {
+            $users[$username] = $this->getDataGenerator()->create_and_enrol($course, 'student', (object) [
+                'username' => $username,
+                'country' => $country,
+            ]);
+        }
+
+        // Add filters (courseid is required).
+        $filterset = new participants_filterset();
+        $filterset->add_filter(new integer_filter('courseid', null, [(int) $course->id]));
+        $filterset->add_filter(new string_filter('country', $jointype, $countries));
+
+        // Run the search, assert count matches the number of expected users.
+        $search = new participants_search($course, context_course::instance($course->id), $filterset);
+        $rs = $search->get_participants();
+        $totalparticipants = $rs->current()->fullcount ?? 0;
+        $this->assertEquals(count($expectedusers), $totalparticipants);
+
+        $this->assertInstanceOf(moodle_recordset::class, $rs);
+
+        // Assert that each expected user is within the participant records.
+        $records = $this->convert_recordset_to_array($rs);
+        foreach ($expectedusers as $expecteduser) {
+            $this->assertArrayHasKey($users[$expecteduser]->id, $records);
+        }
+    }
+
+    /**
+     * Data provider for {@see test_country_filter}
+     *
+     * @return array
+     */
+    public function country_provider(): array {
+        $tests = [
+            'users' => [
+                'user1' => 'DE',
+                'user2' => 'ES',
+                'user3' => 'ES',
+                'user4' => 'GB',
+            ],
+            'expects' => [
+                // Tests for jointype: ANY.
+                'ANY: No filter' => (object) [
+                    'countries' => [],
+                    'jointype' => filter::JOINTYPE_ANY,
+                    'expectedusers' => [
+                        'user1',
+                        'user2',
+                        'user3',
+                        'user4',
+                    ],
+                ],
+                'ANY: Matching filters' => (object) [
+                    'countries' => [
+                        'DE',
+                        'GB',
+                    ],
+                    'jointype' => filter::JOINTYPE_ANY,
+                    'expectedusers' => [
+                        'user1',
+                        'user4',
+                    ],
+                ],
+                'ANY: Non-matching filters' => (object) [
+                    'countries' => [
+                        'RU',
+                    ],
+                    'jointype' => filter::JOINTYPE_ANY,
+                    'expectedusers' => [],
+                ],
+
+                // Tests for jointype: ALL.
+                'ALL: No filter' => (object) [
+                    'countries' => [],
+                    'jointype' => filter::JOINTYPE_ALL,
+                    'expectedusers' => [
+                        'user1',
+                        'user2',
+                        'user3',
+                        'user4',
+                    ],
+                ],
+                'ALL: Matching filters' => (object) [
+                    'countries' => [
+                        'DE',
+                        'GB',
+                    ],
+                    'jointype' => filter::JOINTYPE_ALL,
+                    'expectedusers' => [
+                        'user1',
+                        'user4',
+                    ],
+                ],
+                'ALL: Non-matching filters' => (object) [
+                    'countries' => [
+                        'RU',
+                    ],
+                    'jointype' => filter::JOINTYPE_ALL,
+                    'expectedusers' => [],
+                ],
+
+                // Tests for jointype: NONE.
+                'NONE: No filter' => (object) [
+                    'countries' => [],
+                    'jointype' => filter::JOINTYPE_NONE,
+                    'expectedusers' => [
+                        'user1',
+                        'user2',
+                        'user3',
+                        'user4',
+                    ],
+                ],
+                'NONE: Matching filters' => (object) [
+                    'countries' => [
+                        'DE',
+                        'GB',
+                    ],
+                    'jointype' => filter::JOINTYPE_NONE,
+                    'expectedusers' => [
+                        'user2',
+                        'user3',
+                    ],
+                ],
+                'NONE: Non-matching filters' => (object) [
+                    'countries' => [
+                        'RU',
+                    ],
+                    'jointype' => filter::JOINTYPE_NONE,
+                    'expectedusers' => [
+                        'user1',
+                        'user2',
+                        'user3',
+                        'user4',
+                    ],
+                ],
+            ],
+        ];
+
+        $finaltests = [];
+        foreach ($tests['expects'] as $testname => $test) {
+            $finaltests[$testname] = [
+                'users' => $tests['users'],
+                'countries' => $test->countries,
+                'jointype' => $test->jointype,
+                'expectedusers' => $test->expectedusers,
+            ];
+        }
+
+        return $finaltests;
+    }
+
+    /**
      * Ensure that the keywords filter works as expected with the provided test cases.
      *
      * @param array $usersdata The list of users to create
@@ -765,12 +926,21 @@ class participants_search_test extends advanced_testcase {
      * @param int $jointype The join type to use when combining filter values
      * @param int $count The expected count
      * @param array $expectedusers
+     * @param string $asuser If non-blank, uses that user account (for identify field permission checks)
      * @dataProvider keywords_provider
      */
-    public function test_keywords_filter(array $usersdata, array $keywords, int $jointype, int $count, array $expectedusers): void {
+    public function test_keywords_filter(array $usersdata, array $keywords, int $jointype, int $count,
+            array $expectedusers, string $asuser): void {
+        global $DB;
+
         $course = $this->getDataGenerator()->create_course();
         $coursecontext = context_course::instance($course->id);
         $users = [];
+
+        // Create the custom user profile field and put it into showuseridentity.
+        $this->getDataGenerator()->create_custom_profile_field(
+                ['datatype' => 'text', 'shortname' => 'frog', 'name' => 'Fave frog']);
+        set_config('showuseridentity', 'email,profile_field_frog');
 
         foreach ($usersdata as $username => $userdata) {
             // Prevent randomly generated field values that may cause false fails.
@@ -801,14 +971,20 @@ class participants_search_test extends advanced_testcase {
         }
         $keywordfilter->set_join_type($jointype);
 
+        if ($asuser) {
+            $this->setUser($DB->get_record('user', ['username' => $asuser]));
+        }
+
         // Run the search.
         $search = new participants_search($course, $coursecontext, $filterset);
         $rs = $search->get_participants();
         $this->assertInstanceOf(moodle_recordset::class, $rs);
         $records = $this->convert_recordset_to_array($rs);
+        $resetrecords = reset($records);
+        $totalparticipants = $resetrecords->fullcount ?? 0;
 
         $this->assertCount($count, $records);
-        $this->assertEquals($count, $search->get_total_participants_count());
+        $this->assertEquals($count, $totalparticipants);
 
         foreach ($expectedusers as $expecteduser) {
             $this->assertArrayHasKey($users[$expecteduser]->id, $records);
@@ -835,6 +1011,7 @@ class participants_search_test extends advanced_testcase {
                         'alternatename' => 'Babs',
                         'firstnamephonetic' => 'Barbra',
                         'lastnamephonetic' => 'Benit',
+                        'profile_field_frog' => 'Kermit',
                     ],
                     'colin.carnforth' => [
                         'firstname' => 'Colin',
@@ -845,6 +1022,7 @@ class participants_search_test extends advanced_testcase {
                         'firstname' => 'Anthony',
                         'lastname' => 'Rogers',
                         'lastnamephonetic' => 'Rowjours',
+                        'profile_field_frog' => 'Mr Toad',
                     ],
                     'sarah.rester' => [
                         'firstname' => 'Sarah',
@@ -890,6 +1068,14 @@ class participants_search_test extends advanced_testcase {
                         'expectedusers' => [
                             'adam.ant',
                             'tony.rogers',
+                        ],
+                    ],
+                    'ANY: Filter on fullname only' => (object) [
+                        'keywords' => ['Barbara Bennett'],
+                        'jointype' => filter::JOINTYPE_ANY,
+                        'count' => 1,
+                        'expectedusers' => [
+                            'barbara.bennett',
                         ],
                     ],
                     'ANY: Filter on middlename only' => (object) [
@@ -957,6 +1143,23 @@ class participants_search_test extends advanced_testcase {
                             'sarah.rester',
                             'tony.rogers',
                         ],
+                    ],
+                    'ANY: Filter on custom profile field' => (object) [
+                        'keywords' => ['Kermit', 'Mr Toad'],
+                        'jointype' => filter::JOINTYPE_ANY,
+                        'count' => 2,
+                        'expectedusers' => [
+                            'barbara.bennett',
+                            'tony.rogers',
+                        ],
+                        'asuser' => 'admin'
+                    ],
+                    'ANY: Filter on custom profile field (no permissions)' => (object) [
+                        'keywords' => ['Kermit', 'Mr Toad'],
+                        'jointype' => filter::JOINTYPE_ANY,
+                        'count' => 0,
+                        'expectedusers' => [],
+                        'asuser' => 'barbara.bennett'
                     ],
 
                     // Tests for jointype: ALL.
@@ -1064,6 +1267,22 @@ class participants_search_test extends advanced_testcase {
                         'expectedusers' => [
                             'barbara.bennett',
                         ],
+                    ],
+                    'ALL: Filter on custom profile field' => (object) [
+                        'keywords' => ['Kermit', 'Kermi'],
+                        'jointype' => filter::JOINTYPE_ALL,
+                        'count' => 1,
+                        'expectedusers' => [
+                            'barbara.bennett',
+                        ],
+                        'asuser' => 'admin',
+                    ],
+                    'ALL: Filter on custom profile field (no permissions)' => (object) [
+                        'keywords' => ['Kermit', 'Kermi'],
+                        'jointype' => filter::JOINTYPE_ALL,
+                        'count' => 0,
+                        'expectedusers' => [],
+                        'asuser' => 'barbara.bennett',
                     ],
 
                     // Tests for jointype: NONE.
@@ -1205,6 +1424,30 @@ class participants_search_test extends advanced_testcase {
                             'sarah.rester',
                         ],
                     ],
+                    'NONE: Filter on custom profile field' => (object) [
+                        'keywords' => ['Kermit', 'Mr Toad'],
+                        'jointype' => filter::JOINTYPE_NONE,
+                        'count' => 3,
+                        'expectedusers' => [
+                            'adam.ant',
+                            'colin.carnforth',
+                            'sarah.rester',
+                        ],
+                        'asuser' => 'admin',
+                    ],
+                    'NONE: Filter on custom profile field (no permissions)' => (object) [
+                        'keywords' => ['Kermit', 'Mr Toad'],
+                        'jointype' => filter::JOINTYPE_NONE,
+                        'count' => 5,
+                        'expectedusers' => [
+                            'adam.ant',
+                            'barbara.bennett',
+                            'colin.carnforth',
+                            'tony.rogers',
+                            'sarah.rester',
+                        ],
+                        'asuser' => 'barbara.bennett',
+                    ],
                 ],
             ],
         ];
@@ -1218,6 +1461,7 @@ class participants_search_test extends advanced_testcase {
                     'jointype' => $expectdata->jointype,
                     'count' => $expectdata->count,
                     'expectedusers' => $expectdata->expectedusers,
+                    'asuser' => $expectdata->asuser ?? ''
                 ];
             }
         }
@@ -1284,9 +1528,11 @@ class participants_search_test extends advanced_testcase {
         $rs = $search->get_participants();
         $this->assertInstanceOf(moodle_recordset::class, $rs);
         $records = $this->convert_recordset_to_array($rs);
+        $resetrecords = reset($records);
+        $totalparticipants = $resetrecords->fullcount ?? 0;
 
         $this->assertCount($count, $records);
-        $this->assertEquals($count, $search->get_total_participants_count());
+        $this->assertEquals($count, $totalparticipants);
 
         foreach ($expectedusers as $expecteduser) {
             $this->assertArrayHasKey($users[$expecteduser]->id, $records);
@@ -1539,9 +1785,11 @@ class participants_search_test extends advanced_testcase {
         $rs = $search->get_participants();
         $this->assertInstanceOf(moodle_recordset::class, $rs);
         $records = $this->convert_recordset_to_array($rs);
+        $resetrecords = reset($records);
+        $totalparticipants = $resetrecords->fullcount ?? 0;
 
         $this->assertCount($count, $records);
-        $this->assertEquals($count, $search->get_total_participants_count());
+        $this->assertEquals($count, $totalparticipants);
 
         foreach ($expectedusers as $expecteduser) {
             $this->assertArrayHasKey($users[$expecteduser]->id, $records);
@@ -1763,9 +2011,11 @@ class participants_search_test extends advanced_testcase {
         $rs = $search->get_participants();
         $this->assertInstanceOf(moodle_recordset::class, $rs);
         $records = $this->convert_recordset_to_array($rs);
+        $resetrecords = reset($records);
+        $totalparticipants = $resetrecords->fullcount ?? 0;
 
         $this->assertCount($count, $records);
-        $this->assertEquals($count, $search->get_total_participants_count());
+        $this->assertEquals($count, $totalparticipants);
 
         foreach ($expectedusers as $expecteduser) {
             $this->assertArrayHasKey($users[$expecteduser]->id, $records);
@@ -2101,9 +2351,11 @@ class participants_search_test extends advanced_testcase {
             $rs = $search->get_participants();
             $this->assertInstanceOf(moodle_recordset::class, $rs);
             $records = $this->convert_recordset_to_array($rs);
+            $resetrecords = reset($records);
+            $totalparticipants = $resetrecords->fullcount ?? 0;
 
             $this->assertCount($count, $records);
-            $this->assertEquals($count, $search->get_total_participants_count());
+            $this->assertEquals($count, $totalparticipants);
 
             foreach ($expectedusers as $expecteduser) {
                 $this->assertArrayHasKey($users[$expecteduser]->id, $records);
@@ -2462,9 +2714,11 @@ class participants_search_test extends advanced_testcase {
         $rs = $search->get_participants();
         $this->assertInstanceOf(moodle_recordset::class, $rs);
         $records = $this->convert_recordset_to_array($rs);
+        $resetrecords = reset($records);
+        $totalparticipants = $resetrecords->fullcount ?? 0;
 
         $this->assertCount($count, $records);
-        $this->assertEquals($count, $search->get_total_participants_count());
+        $this->assertEquals($count, $totalparticipants);
 
         foreach ($expectedusers as $expecteduser) {
             $this->assertArrayHasKey($users[$expecteduser]->id, $records);
@@ -2867,9 +3121,11 @@ class participants_search_test extends advanced_testcase {
         $rs = $search->get_participants();
         $this->assertInstanceOf(moodle_recordset::class, $rs);
         $records = $this->convert_recordset_to_array($rs);
+        $resetrecords = reset($records);
+        $totalparticipants = $resetrecords->fullcount ?? 0;
 
         $this->assertCount($count, $records);
-        $this->assertEquals($count, $search->get_total_participants_count());
+        $this->assertEquals($count, $totalparticipants);
 
         foreach ($expectedusers as $expecteduser) {
             $this->assertArrayHasKey($users[$expecteduser]->id, $records);

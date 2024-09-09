@@ -14,8 +14,17 @@
 // You should have received a copy of the GNU General Public License
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
+namespace search_solr;
+
+defined('MOODLE_INTERNAL') || die();
+
+global $CFG;
+require_once($CFG->dirroot . '/search/tests/fixtures/testable_core_search.php');
+require_once($CFG->dirroot . '/search/tests/fixtures/mock_search_area.php');
+require_once($CFG->dirroot . '/search/engine/solr/tests/fixtures/testable_engine.php');
+
 /**
- * Solr earch engine base unit tests.
+ * Solr search engine base unit tests.
  *
  * Required params:
  * - define('TEST_SEARCH_SOLR_HOSTNAME', '127.0.0.1');
@@ -31,27 +40,13 @@
  * - define('TEST_SEARCH_SOLR_CAINFOCERT', '');
  *
  * @package     search_solr
- * @category    phpunit
+ * @category    test
  * @copyright   2015 David Monllao {@link http://www.davidmonllao.com}
  * @license     http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
- */
-
-defined('MOODLE_INTERNAL') || die();
-
-global $CFG;
-require_once($CFG->dirroot . '/search/tests/fixtures/testable_core_search.php');
-require_once($CFG->dirroot . '/search/tests/fixtures/mock_search_area.php');
-require_once($CFG->dirroot . '/search/engine/solr/tests/fixtures/testable_engine.php');
-
-/**
- * Solr search engine base unit tests.
  *
- * @package     search_solr
- * @category    phpunit
- * @copyright   2015 David Monllao {@link http://www.davidmonllao.com}
- * @license     http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
+ * @runTestsInSeparateProcesses
  */
-class search_solr_engine_testcase extends advanced_testcase {
+class engine_test extends \advanced_testcase {
 
     /**
      * @var \core_search\manager
@@ -68,7 +63,8 @@ class search_solr_engine_testcase extends advanced_testcase {
      */
     protected $engine = null;
 
-    public function setUp() {
+    public function setUp(): void {
+        parent::setUp();
         $this->resetAfterTest();
         set_config('enableglobalsearch', true);
         set_config('searchengine', 'solr');
@@ -122,9 +118,9 @@ class search_solr_engine_testcase extends advanced_testcase {
         // Inject search solr engine into the testable core search as we need to add the mock
         // search component to it.
         $this->engine = new \search_solr\testable_engine();
-        $this->search = testable_core_search::instance($this->engine);
+        $this->search = \testable_core_search::instance($this->engine);
         $areaid = \core_search\manager::generate_areaid('core_mocksearch', 'mock_search_area');
-        $this->search->add_search_area($areaid, new core_mocksearch\search\mock_search_area());
+        $this->search->add_search_area($areaid, new \core_mocksearch\search\mock_search_area());
 
         $this->setAdminUser();
 
@@ -132,17 +128,18 @@ class search_solr_engine_testcase extends advanced_testcase {
         $this->search->delete_index();
 
         // Add moodle fields if they don't exist.
-        $schema = new \search_solr\schema();
+        $schema = new \search_solr\schema($this->engine);
         $schema->setup(false);
     }
 
-    public function tearDown() {
+    public function tearDown(): void {
         // For unit tests before PHP 7, teardown is called even on skip. So only do our teardown if we did setup.
         if ($this->generator) {
             // Moodle DML freaks out if we don't teardown the temp table after each run.
             $this->generator->teardown();
             $this->generator = null;
         }
+        parent::tearDown();
     }
 
     /**
@@ -155,14 +152,53 @@ class search_solr_engine_testcase extends advanced_testcase {
         );
     }
 
-    public function test_connection() {
+    public function test_connection(): void {
         $this->assertTrue($this->engine->is_server_ready());
+    }
+
+    /**
+     * Tests that the alternate settings are used when configured.
+     */
+    public function test_alternate_settings(): void {
+        // Index a couple of things.
+        $this->generator->create_record();
+        $this->generator->create_record();
+        $this->search->index();
+
+        // By default settings, alternates are not set.
+        $this->assertFalse($this->engine->has_alternate_configuration());
+
+        // Set up all the config the same as normal.
+        foreach (['server_hostname', 'indexname', 'secure', 'server_port',
+                'server_username', 'server_password'] as $setting) {
+            set_config('alternate' . $setting, get_config('search_solr', $setting), 'search_solr');
+        }
+        // Also mess up the normal config.
+        set_config('indexname', 'not_the_right_index_name', 'search_solr');
+
+        // Construct a new engine using normal settings.
+        $engine = new engine();
+
+        // Now alternates are available.
+        $this->assertTrue($engine->has_alternate_configuration());
+
+        // But it won't actually work because of the bogus index name.
+        $this->assertFalse($engine->is_server_ready() === true);
+        $this->assertDebuggingCalled();
+
+        // But if we construct one using alternate settings, it will work as normal.
+        $engine = new engine(true);
+        $this->assertTrue($engine->is_server_ready());
+
+        // Including finding the search results.
+        $this->assertCount(2, $engine->execute_query(
+                (object)['q' => 'message'], (object)['everything' => true]));
     }
 
     /**
      * @dataProvider file_indexing_provider
      */
-    public function test_index($fileindexing) {
+    public function test_index($fileindexing): void {
         global $DB;
 
         $this->engine->test_set_config('fileindexing', $fileindexing);
@@ -191,7 +227,7 @@ class search_solr_engine_testcase extends advanced_testcase {
      *
      * @return void
      */
-    public function test_search($fileindexing) {
+    public function test_search($fileindexing): void {
         global $USER, $DB;
 
         $this->engine->test_set_config('fileindexing', $fileindexing);
@@ -203,7 +239,7 @@ class search_solr_engine_testcase extends advanced_testcase {
 
         $this->search->index();
 
-        $querydata = new stdClass();
+        $querydata = new \stdClass();
         $querydata->q = 'message';
         $results = $this->search->search($querydata);
         $this->assertCount(2, $results);
@@ -273,14 +309,14 @@ class search_solr_engine_testcase extends advanced_testcase {
     /**
      * @dataProvider file_indexing_provider
      */
-    public function test_delete($fileindexing) {
+    public function test_delete($fileindexing): void {
         $this->engine->test_set_config('fileindexing', $fileindexing);
 
         $this->generator->create_record();
         $this->generator->create_record();
         $this->search->index();
 
-        $querydata = new stdClass();
+        $querydata = new \stdClass();
         $querydata->q = 'message';
 
         $this->assertCount(2, $this->search->search($querydata));
@@ -293,10 +329,10 @@ class search_solr_engine_testcase extends advanced_testcase {
     /**
      * @dataProvider file_indexing_provider
      */
-    public function test_alloweduserid($fileindexing) {
+    public function test_alloweduserid($fileindexing): void {
         $this->engine->test_set_config('fileindexing', $fileindexing);
 
-        $area = new core_mocksearch\search\mock_search_area();
+        $area = new \core_mocksearch\search\mock_search_area();
 
         $record = $this->generator->create_record();
 
@@ -322,7 +358,7 @@ class search_solr_engine_testcase extends advanced_testcase {
 
         $this->engine->area_index_complete($area->get_area_id());
 
-        $querydata = new stdClass();
+        $querydata = new \stdClass();
         $querydata->q = 'message';
         $querydata->title = $doc->get('title');
 
@@ -368,7 +404,7 @@ class search_solr_engine_testcase extends advanced_testcase {
     /**
      * @dataProvider file_indexing_provider
      */
-    public function test_highlight($fileindexing) {
+    public function test_highlight($fileindexing): void {
         global $PAGE;
 
         $this->engine->test_set_config('fileindexing', $fileindexing);
@@ -376,7 +412,7 @@ class search_solr_engine_testcase extends advanced_testcase {
         $this->generator->create_record();
         $this->search->index();
 
-        $querydata = new stdClass();
+        $querydata = new \stdClass();
         $querydata->q = 'message';
 
         $results = $this->search->search($querydata);
@@ -385,16 +421,16 @@ class search_solr_engine_testcase extends advanced_testcase {
         $result = reset($results);
 
         $regex = '|'.\search_solr\engine::HIGHLIGHT_START.'message'.\search_solr\engine::HIGHLIGHT_END.'|';
-        $this->assertRegExp($regex, $result->get('content'));
+        $this->assertMatchesRegularExpression($regex, $result->get('content'));
 
         $searchrenderer = $PAGE->get_renderer('core_search');
         $exported = $result->export_for_template($searchrenderer);
 
         $regex = '|<span class="highlight">message</span>|';
-        $this->assertRegExp($regex, $exported['content']);
+        $this->assertMatchesRegularExpression($regex, $exported['content']);
     }
 
-    public function test_export_file_for_engine() {
+    public function test_export_file_for_engine(): void {
         // Get area to work with.
         $areaid = \core_search\manager::generate_areaid('core_mocksearch', 'mock_search_area');
         $area = \core_search\manager::get_search_area($areaid);
@@ -402,7 +438,7 @@ class search_solr_engine_testcase extends advanced_testcase {
         $record = $this->generator->create_record();
 
         $doc = $area->get_document($record);
-        $filerecord = new stdClass();
+        $filerecord = new \stdClass();
         $filerecord->timemodified  = 978310800;
         $file = $this->generator->create_file($filerecord);
         $doc->add_stored_file($file);
@@ -417,7 +453,7 @@ class search_solr_engine_testcase extends advanced_testcase {
         $this->assertEquals(978310800, \search_solr\document::import_time_from_engine($filearray['modified']));
     }
 
-    public function test_index_file() {
+    public function test_index_file(): void {
         // Very simple test.
         $file = $this->generator->create_file();
 
@@ -426,13 +462,13 @@ class search_solr_engine_testcase extends advanced_testcase {
         $this->generator->create_record($record);
 
         $this->search->index();
-        $querydata = new stdClass();
+        $querydata = new \stdClass();
         $querydata->q = '"File contents"';
 
         $this->assertCount(1, $this->search->search($querydata));
     }
 
-    public function test_reindexing_files() {
+    public function test_reindexing_files(): void {
         // Get area to work with.
         $areaid = \core_search\manager::generate_areaid('core_mocksearch', 'mock_search_area');
         $area = \core_search\manager::get_search_area($areaid);
@@ -479,7 +515,7 @@ class search_solr_engine_testcase extends advanced_testcase {
             ((int)($boundary * 1.05)) => 1
         );
 
-        $querydata = new stdClass();
+        $querydata = new \stdClass();
 
         // First, check that all the files are currently there.
         foreach ($checkfiles as $key => $unused) {
@@ -527,7 +563,7 @@ class search_solr_engine_testcase extends advanced_testcase {
     /**
      * Test indexing a file we don't consider indexable.
      */
-    public function test_index_filtered_file() {
+    public function test_index_filtered_file(): void {
         // Get area to work with.
         $areaid = \core_search\manager::generate_areaid('core_mocksearch', 'mock_search_area');
         $area = \core_search\manager::get_search_area($areaid);
@@ -562,7 +598,7 @@ class search_solr_engine_testcase extends advanced_testcase {
         $this->engine->add_document($doc, true);
         $this->engine->area_index_complete($area->get_area_id());
 
-        $querydata = new stdClass();
+        $querydata = new \stdClass();
         // We shouldn't be able to find the large file contents.
         $querydata->q = 'LargeFindContent';
         $this->assertCount(0, $this->search->search($querydata));
@@ -580,7 +616,7 @@ class search_solr_engine_testcase extends advanced_testcase {
         $this->assertCount(1, $this->search->search($querydata));
     }
 
-    public function test_delete_by_id() {
+    public function test_delete_by_id(): void {
         // First get files in the index.
         $file = $this->generator->create_file();
         $record = new \stdClass();
@@ -589,7 +625,7 @@ class search_solr_engine_testcase extends advanced_testcase {
         $this->generator->create_record($record);
         $this->search->index();
 
-        $querydata = new stdClass();
+        $querydata = new \stdClass();
 
         // Then search to make sure they are there.
         $querydata->q = '"File contents"';
@@ -613,7 +649,7 @@ class search_solr_engine_testcase extends advanced_testcase {
      *
      * @dataProvider file_indexing_provider
      */
-    public function test_solr_filling($fileindexing) {
+    public function test_solr_filling($fileindexing): void {
         $this->engine->test_set_config('fileindexing', $fileindexing);
 
         $user1 = self::getDataGenerator()->create_user();
@@ -645,7 +681,7 @@ class search_solr_engine_testcase extends advanced_testcase {
 
         // Check that user 1 sees all their results.
         $this->setUser($user1);
-        $querydata = new stdClass();
+        $querydata = new \stdClass();
         $querydata->q = 'Something1 Something2';
         $results = $this->search->search($querydata);
         $this->assertCount($maxresults, $results);
@@ -696,7 +732,7 @@ class search_solr_engine_testcase extends advanced_testcase {
      *
      * @dataProvider file_indexing_provider
      */
-    public function test_get_query_total_count($fileindexing) {
+    public function test_get_query_total_count($fileindexing): void {
         $this->engine->test_set_config('fileindexing', $fileindexing);
 
         $user = self::getDataGenerator()->create_user();
@@ -704,7 +740,7 @@ class search_solr_engine_testcase extends advanced_testcase {
         $this->search->index();
 
         $this->setUser($user);
-        $querydata = new stdClass();
+        $querydata = new \stdClass();
         $querydata->q = 'Something1 Something2 Something3 Something4';
 
         // In this first set, it should have determined the first 10 of 40 are bad, so there could be up to 30 left.
@@ -729,7 +765,7 @@ class search_solr_engine_testcase extends advanced_testcase {
      *
      * @dataProvider file_indexing_provider
      */
-    public function test_manager_paged_search($fileindexing) {
+    public function test_manager_paged_search($fileindexing): void {
         $this->engine->test_set_config('fileindexing', $fileindexing);
 
         $user = self::getDataGenerator()->create_user();
@@ -738,7 +774,7 @@ class search_solr_engine_testcase extends advanced_testcase {
 
         // Check that user 1 sees all their results.
         $this->setUser($user);
-        $querydata = new stdClass();
+        $querydata = new \stdClass();
         $querydata->q = 'Something1 Something2 Something3 Something4';
 
         // On this first page, it should have determined the first 10 of 40 are bad, so there could be up to 30 left.
@@ -763,7 +799,7 @@ class search_solr_engine_testcase extends advanced_testcase {
     /**
      * Tests searching for results restricted to context id.
      */
-    public function test_context_restriction() {
+    public function test_context_restriction(): void {
         // Use real search areas.
         $this->search->clear_static();
         $this->search->add_core_search_areas();
@@ -788,7 +824,7 @@ class search_solr_engine_testcase extends advanced_testcase {
         $this->search->index();
 
         // Search as admin user should find everything.
-        $querydata = new stdClass();
+        $querydata = new \stdClass();
         $querydata->q = 'xyzzy';
         $results = $this->search->search($querydata);
         $this->assert_result_titles(
@@ -835,7 +871,7 @@ class search_solr_engine_testcase extends advanced_testcase {
      * Tests searching for results in groups, either by specified group ids or based on user
      * access permissions.
      */
-    public function test_groups() {
+    public function test_groups(): void {
         global $USER;
 
         // Use real search areas.
@@ -883,7 +919,7 @@ class search_solr_engine_testcase extends advanced_testcase {
         $this->search->index();
 
         // Search as admin user should find everything.
-        $querydata = new stdClass();
+        $querydata = new \stdClass();
         $querydata->q = 'xyzzy';
         $results = $this->search->search($querydata);
         $this->assert_result_titles(
@@ -939,7 +975,7 @@ class search_solr_engine_testcase extends advanced_testcase {
     /**
      * Tests searching for results restricted to specific user id(s).
      */
-    public function test_user_restriction() {
+    public function test_user_restriction(): void {
         // Use real search areas.
         $this->search->clear_static();
         $this->search->add_core_search_areas();
@@ -978,7 +1014,7 @@ class search_solr_engine_testcase extends advanced_testcase {
         $this->search->index();
 
         // Search without user restriction should find everything.
-        $querydata = new stdClass();
+        $querydata = new \stdClass();
         $querydata->q = 'plugh';
         $results = $this->search->search($querydata);
         $this->assert_result_titles(
@@ -997,7 +1033,7 @@ class search_solr_engine_testcase extends advanced_testcase {
                 ['Entry1', 'Post1', 'Post2'], $results);
 
         // Restriction to users 1 and 2 combined with context restriction.
-        $querydata->contextids = [context_module::instance($glossary->cmid)->id];
+        $querydata->contextids = [\context_module::instance($glossary->cmid)->id];
         $results = $this->search->search($querydata);
         $this->assert_result_titles(
                 ['Entry1'], $results);
@@ -1013,7 +1049,7 @@ class search_solr_engine_testcase extends advanced_testcase {
     /**
      * Tests searching for results containing words in italic text. (This used to fail.)
      */
-    public function test_italics() {
+    public function test_italics(): void {
         global $USER;
 
         // Use real search areas.
@@ -1045,7 +1081,7 @@ class search_solr_engine_testcase extends advanced_testcase {
         $this->search->index();
 
         // Search for 'frogs' should find the post.
-        $querydata = new stdClass();
+        $querydata = new \stdClass();
         $querydata->q = 'frogs';
         $results = $this->search->search($querydata);
         $this->assert_result_titles(['Post1'], $results);
@@ -1092,7 +1128,7 @@ class search_solr_engine_testcase extends advanced_testcase {
      * Tests the get_supported_orders function for contexts where we can only use relevance
      * (system, category).
      */
-    public function test_get_supported_orders_relevance_only() {
+    public function test_get_supported_orders_relevance_only(): void {
         global $DB;
 
         // System or category context: relevance only.
@@ -1110,7 +1146,7 @@ class search_solr_engine_testcase extends advanced_testcase {
      * Tests the get_supported_orders function for contexts where we support location as well
      * (course, activity, block).
      */
-    public function test_get_supported_orders_relevance_and_location() {
+    public function test_get_supported_orders_relevance_and_location(): void {
         global $DB;
 
         // Test with course context.
@@ -1122,7 +1158,7 @@ class search_solr_engine_testcase extends advanced_testcase {
         $this->assertCount(2, $orders);
         $this->assertArrayHasKey('relevance', $orders);
         $this->assertArrayHasKey('location', $orders);
-        $this->assertContains('Course: Frogs', $orders['location']);
+        $this->assertStringContainsString('Course: Frogs', $orders['location']);
 
         // Test with activity context.
         $page = $generator->create_module('page', ['course' => $course->id, 'name' => 'Toads']);
@@ -1131,7 +1167,7 @@ class search_solr_engine_testcase extends advanced_testcase {
         $this->assertCount(2, $orders);
         $this->assertArrayHasKey('relevance', $orders);
         $this->assertArrayHasKey('location', $orders);
-        $this->assertContains('Page: Toads', $orders['location']);
+        $this->assertStringContainsString('Page: Toads', $orders['location']);
 
         // Test with block context.
         $instance = (object)['blockname' => 'html', 'parentcontextid' => $coursecontext->id,
@@ -1145,13 +1181,13 @@ class search_solr_engine_testcase extends advanced_testcase {
         $this->assertCount(2, $orders);
         $this->assertArrayHasKey('relevance', $orders);
         $this->assertArrayHasKey('location', $orders);
-        $this->assertContains('Block: HTML', $orders['location']);
+        $this->assertStringContainsString('Block: Text', $orders['location']);
     }
 
     /**
      * Tests ordering by relevance vs location.
      */
-    public function test_ordering() {
+    public function test_ordering(): void {
         // Create 2 courses and 2 activities.
         $generator = $this->getDataGenerator();
         $course1 = $generator->create_course(['fullname' => 'Course 1']);
@@ -1171,7 +1207,7 @@ class search_solr_engine_testcase extends advanced_testcase {
         $this->search->index();
 
         // Default search works by relevance so the one with both words should be top.
-        $querydata = new stdClass();
+        $querydata = new \stdClass();
         $querydata->q = 'xyzzy plugh';
         $results = $this->search->search($querydata);
         $this->assertCount(4, $results);
@@ -1200,7 +1236,7 @@ class search_solr_engine_testcase extends advanced_testcase {
     /**
      * Tests with bogus content (that can be entered into Moodle) to see if it crashes.
      */
-    public function test_bogus_content() {
+    public function test_bogus_content(): void {
         $generator = $this->getDataGenerator();
         $course1 = $generator->create_course(['fullname' => 'Course 1']);
         $course1context = \context_course::instance($course1->id);
@@ -1208,27 +1244,27 @@ class search_solr_engine_testcase extends advanced_testcase {
         // It is possible to enter into a Moodle database content containing these characters,
         // which are Unicode non-characters / byte order marks. If sent to Solr, these cause
         // failures.
-        $boguscontent = html_entity_decode('&#xfffe;') . 'frog';
+        $boguscontent = html_entity_decode('&#xfffe;', ENT_COMPAT) . 'frog';
         $this->create_search_record($course1->id, $course1context->id, 'C1', $boguscontent);
-        $boguscontent = html_entity_decode('&#xffff;') . 'frog';
+        $boguscontent = html_entity_decode('&#xffff;', ENT_COMPAT) . 'frog';
         $this->create_search_record($course1->id, $course1context->id, 'C1', $boguscontent);
 
         // Unicode Standard Version 9.0 - Core Specification, section 23.7, lists 66 non-characters
         // in total. Here are some of them - these work OK for me but it may depend on platform.
-        $boguscontent = html_entity_decode('&#xfdd0;') . 'frog';
+        $boguscontent = html_entity_decode('&#xfdd0;', ENT_COMPAT) . 'frog';
         $this->create_search_record($course1->id, $course1context->id, 'C1', $boguscontent);
-        $boguscontent = html_entity_decode('&#xfdef;') . 'frog';
+        $boguscontent = html_entity_decode('&#xfdef;', ENT_COMPAT) . 'frog';
         $this->create_search_record($course1->id, $course1context->id, 'C1', $boguscontent);
-        $boguscontent = html_entity_decode('&#x1fffe;') . 'frog';
+        $boguscontent = html_entity_decode('&#x1fffe;', ENT_COMPAT) . 'frog';
         $this->create_search_record($course1->id, $course1context->id, 'C1', $boguscontent);
-        $boguscontent = html_entity_decode('&#x10ffff;') . 'frog';
+        $boguscontent = html_entity_decode('&#x10ffff;', ENT_COMPAT) . 'frog';
         $this->create_search_record($course1->id, $course1context->id, 'C1', $boguscontent);
 
         // Do the indexing (this will check it doesn't throw warnings).
         $this->search->index();
 
         // Confirm that all 6 documents are found in search.
-        $querydata = new stdClass();
+        $querydata = new \stdClass();
         $querydata->q = 'frog';
         $results = $this->search->search($querydata);
         $this->assertCount(6, $results);
@@ -1253,11 +1289,8 @@ class search_solr_engine_testcase extends advanced_testcase {
 
     /**
      * Tries out deleting data for a context or a course.
-     *
-     * @throws coding_exception
-     * @throws moodle_exception
      */
-    public function test_deleted_contexts_and_courses() {
+    public function test_deleted_contexts_and_courses(): void {
         // Create some courses and activities.
         $generator = $this->getDataGenerator();
         $course1 = $generator->create_course(['fullname' => 'Course 1']);
@@ -1300,9 +1333,9 @@ class search_solr_engine_testcase extends advanced_testcase {
     /**
      * Specific test of the add_document_batch function (also used in many other tests).
      */
-    public function test_add_document_batch() {
+    public function test_add_document_batch(): void {
         // Get a default document.
-        $area = new core_mocksearch\search\mock_search_area();
+        $area = new \core_mocksearch\search\mock_search_area();
         $record = $this->generator->create_record();
         $doc = $area->get_document($record);
         $originalid = $doc->get('id');
@@ -1328,7 +1361,7 @@ class search_solr_engine_testcase extends advanced_testcase {
         $this->engine->area_index_complete($area->get_area_id());
 
         // Check all documents were indexed.
-        $querydata = new stdClass();
+        $querydata = new \stdClass();
         $querydata->q = 'Batch';
         $results = $this->search->search($querydata);
         $this->assertCount(5, $results);
@@ -1343,8 +1376,8 @@ class search_solr_engine_testcase extends advanced_testcase {
      * Tests the batching logic, specifically the limit to 100 documents per
      * batch, and not batching very large documents.
      */
-    public function test_batching() {
-        $area = new core_mocksearch\search\mock_search_area();
+    public function test_batching(): void {
+        $area = new \core_mocksearch\search\mock_search_area();
         $record = $this->generator->create_record();
         $doc = $area->get_document($record);
         $originalid = $doc->get('id');
@@ -1357,7 +1390,7 @@ class search_solr_engine_testcase extends advanced_testcase {
             $docs[$i] = $doc;
         }
         [, , , , , $batches] = $this->engine->add_documents(
-                new ArrayIterator($docs), $area, ['indexfiles' => true]);
+                new \ArrayIterator($docs), $area, ['indexfiles' => true]);
         $this->assertEquals(1, $batches);
 
         // More than 100 needs 2 batches.
@@ -1368,7 +1401,7 @@ class search_solr_engine_testcase extends advanced_testcase {
             $docs[$i] = $doc;
         }
         [, , , , , $batches] = $this->engine->add_documents(
-                new ArrayIterator($docs), $area, ['indexfiles' => true]);
+                new \ArrayIterator($docs), $area, ['indexfiles' => true]);
         $this->assertEquals(2, $batches);
 
         // Small number but with some large documents that aren't batched.
@@ -1384,12 +1417,12 @@ class search_solr_engine_testcase extends advanced_testcase {
         $docs[5]->set('content', str_pad('xyzzy ', 1024 * 1024 + 1, 'x'));
         $docs[6]->set('content', str_pad('xyzzy ', 1024 * 1024 + 1, 'x'));
         [, , , , , $batches] = $this->engine->add_documents(
-                new ArrayIterator($docs), $area, ['indexfiles' => true]);
+                new \ArrayIterator($docs), $area, ['indexfiles' => true]);
         $this->assertEquals(3, $batches);
 
         // Check that all 3 of the large documents (added as batch or not) show up in results.
         $this->engine->area_index_complete($area->get_area_id());
-        $querydata = new stdClass();
+        $querydata = new \stdClass();
         $querydata->q = 'xyzzy';
         $results = $this->search->search($querydata);
         $this->assertCount(3, $results);
@@ -1400,14 +1433,14 @@ class search_solr_engine_testcase extends advanced_testcase {
      * documents if they are bigger than 1MB, and the maximum batch count is 100,
      * so the maximum size batch will be about 100 1MB documents.
      */
-    public function test_add_document_batch_large() {
+    public function test_add_document_batch_large(): void {
         // This test is a bit slow and not that important to run every time...
         if (!PHPUNIT_LONGTEST) {
             $this->markTestSkipped('PHPUNIT_LONGTEST is not defined');
         }
 
         // Get a default document.
-        $area = new core_mocksearch\search\mock_search_area();
+        $area = new \core_mocksearch\search\mock_search_area();
         $record = $this->generator->create_record();
         $doc = $area->get_document($record);
         $originalid = $doc->get('id');
@@ -1428,7 +1461,7 @@ class search_solr_engine_testcase extends advanced_testcase {
         $this->engine->area_index_complete($area->get_area_id());
 
         // Check all documents were indexed, searching for text at end.
-        $querydata = new stdClass();
+        $querydata = new \stdClass();
         $querydata->q = 'xyzzy';
         $results = $this->search->search($querydata);
         $this->assertCount(100, $results);
@@ -1449,7 +1482,7 @@ class search_solr_engine_testcase extends advanced_testcase {
      */
     protected function assert_raw_solr_query_result(string $q, array $expected) {
         $solr = $this->engine->get_search_client_public();
-        $query = new SolrQuery($q);
+        $query = new \SolrQuery($q);
         $results = $solr->query($query)->getResponse()->response->docs;
         if ($results) {
             $titles = array_map(function($x) {

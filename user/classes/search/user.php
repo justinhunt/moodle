@@ -44,7 +44,7 @@ class user extends \core_search\base {
      * @param \context|null $context Optional context to restrict scope of returned results
      * @return \moodle_recordset|null Recordset (or null if no results)
      */
-    public function get_document_recordset($modifiedfrom = 0, \context $context = null) {
+    public function get_document_recordset($modifiedfrom = 0, ?\context $context = null) {
         global $DB;
 
         // Prepare query conditions.
@@ -94,7 +94,7 @@ class user extends \core_search\base {
         $doc = \core_search\document_factory::instance($record->id, $this->componentname, $this->areaname);
         // Include all alternate names in title.
         $array = [];
-        foreach (get_all_user_name_fields(false, null, null, null, true) as $field) {
+        foreach (\core_user\fields::get_name_fields(true) as $field) {
             $array[$field] = $record->$field;
         }
         $fullusername = join(' ', $array);
@@ -212,7 +212,7 @@ class user extends \core_search\base {
      *
      * @return \core_search\document_icon
      */
-    public function get_doc_icon(\core_search\document $doc) : \core_search\document_icon {
+    public function get_doc_icon(\core_search\document $doc): \core_search\document_icon {
         return new \core_search\document_icon('i/user');
     }
 

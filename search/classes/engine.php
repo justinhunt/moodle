@@ -84,9 +84,13 @@ abstract class engine {
      *
      * Search engine availability should be checked separately.
      *
+     * The alternate configuration option is only used to construct a special second copy of the
+     * search engine object, as described in {@see has_alternate_configuration}.
+     *
+     * @param bool $alternateconfiguration If true, use alternate configuration settings
      * @return void
      */
-    public function __construct() {
+    public function __construct(bool $alternateconfiguration = false) {
 
         $classname = get_class($this);
         if (strpos($classname, '\\') === false) {
@@ -102,6 +106,19 @@ abstract class engine {
         } else {
             $this->config = new stdClass();
         }
+
+        // For alternate configuration, automatically replace normal configuration values with
+        // those beginning with 'alternate'.
+        if ($alternateconfiguration) {
+            foreach ((array)$this->config as $key => $value) {
+                if (preg_match('~^alternate(.*)$~', $key, $matches)) {
+                    $this->config->{$matches[1]} = $value;
+                }
+            }
+        }
+
+        // Flag just in case engine needs to know it is using the alternate configuration.
+        $this->config->alternateconfiguration = $alternateconfiguration;
     }
 
     /**
@@ -133,7 +150,8 @@ abstract class engine {
         global $DB;
 
         if (empty(self::$cachedusers[$userid])) {
-            $fields = get_all_user_name_fields(true);
+            $userfieldsapi = \core_user\fields::for_name();
+            $fields = $userfieldsapi->get_sql('', false, '', '', false)->selects;
             self::$cachedusers[$userid] = $DB->get_record('user', array('id' => $userid), 'id, ' . $fields);
         }
         return self::$cachedusers[$userid];
@@ -288,8 +306,8 @@ abstract class engine {
                 $now = manager::get_current_time();
                 if ($now - $lastprogress >= manager::DISPLAY_INDEXING_PROGRESS_EVERY) {
                     $lastprogress = $now;
-                    // The first date format is the same used in cron_trace_time_and_memory().
-                    $options['progress']->output(date('H:i:s', $now) . ': Done to ' . userdate(
+                    // The first date format is the same used in \core\cron::trace_time_and_memory().
+                    $options['progress']->output(date('H:i:s', (int)$now) . ': Done to ' . userdate(
                             $lastindexeddoc, get_string('strftimedatetimeshort', 'langconfig')), 1);
                 }
             }
@@ -558,7 +576,7 @@ abstract class engine {
      * @param  int      $limit The maximum number of results to return. If empty, limit to manager::MAX_RESULTS.
      * @return \core_search\document[] Results or false if no results
      */
-    public abstract function execute_query($filters, $accessinfo, $limit = 0);
+    abstract public function execute_query($filters, $accessinfo, $limit = 0);
 
     /**
      * Delete all documents.
@@ -739,5 +757,25 @@ abstract class engine {
      */
     public function get_batch_max_content(): int {
         return 1024 * 1024;
+    }
+
+    /**
+     * Checks if the search engine has an alternate configuration.
+     *
+     * This is used where the same search engine class supports two different configurations,
+     * which are both shown on the settings screen. The alternate configuration is selected by
+     * passing 'true' parameter to the constructor.
+     *
+     * The feature is used when a different connection is in use for indexing vs. querying
+     * the search engine.
+     *
+     * This function should only return true if the engine supports an alternate configuration
+     * and the user has filled in the settings. (We do not need to test they are valid, that will
+     * happen as normal.)
+     *
+     * @return bool True if an alternate configuration is defined
+     */
+    public function has_alternate_configuration(): bool {
+        return false;
     }
 }

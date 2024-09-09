@@ -42,7 +42,7 @@ class restore_structure_parser_processor_test extends advanced_testcase {
     /**
      * Initial set up.
      */
-    public function setUp() {
+    public function setUp(): void {
         parent::setUp();
 
         $this->resetAfterTest(true);
@@ -123,7 +123,7 @@ class restore_structure_parser_processor_test extends advanced_testcase {
      * @param string $expected Expected result.
      * @param bool $slasharguments A value for $CFG->slasharguments setting.
      */
-    public function test_process_cdata($content, $expected, $slasharguments) {
+    public function test_process_cdata($content, $expected, $slasharguments): void {
         global $CFG;
 
         $CFG->slasharguments = $slasharguments;

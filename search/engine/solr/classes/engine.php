@@ -116,10 +116,11 @@ class engine extends \core_search\engine {
     /**
      * Initialises the search engine configuration.
      *
+     * @param bool $alternateconfiguration If true, use alternate configuration settings
      * @return void
      */
-    public function __construct() {
-        parent::__construct();
+    public function __construct(bool $alternateconfiguration = false) {
+        parent::__construct($alternateconfiguration);
 
         $curlversion = curl_version();
         if (isset($curlversion['version']) && stripos($curlversion['version'], '7.35.') === 0) {
@@ -1094,8 +1095,10 @@ class engine extends \core_search\engine {
 
         // A giant block of code that is really just error checking around the curl request.
         try {
-            // Now actually do the request.
-            $result = $curl->post($url->out(false), array('myfile' => $storedfile));
+            // We have to post the file directly in binary data (not using multipart) to avoid
+            // Solr bug SOLR-15039 which can cause incorrect data when you use multipart upload.
+            // Note this loads the whole file into memory; see limit in file_is_indexable().
+            $result = $curl->post($url->out(false), $storedfile->get_content());
 
             $code = $curl->get_errno();
             $info = $curl->get_info();
@@ -1157,6 +1160,18 @@ class engine extends \core_search\engine {
         if (!empty($this->config->maxindexfilekb) && ($file->get_filesize() > ($this->config->maxindexfilekb * 1024))) {
             // The file is too big to index.
             return false;
+        }
+
+        // Because we now load files into memory to index them in Solr, we also have to ensure that
+        // we don't try to index anything bigger than the memory limit (less 100MB for safety).
+        // Memory limit in cron is MEMORY_EXTRA which is usually 256 or 384MB but can be increased
+        // in config, so this will allow files over 100MB to be indexed.
+        $limit = ini_get('memory_limit');
+        if ($limit && $limit != -1) {
+            $limitbytes = get_real_size($limit);
+            if ($file->get_filesize() > $limitbytes) {
+                return false;
+            }
         }
 
         $mime = $file->get_mimetype();
@@ -1256,7 +1271,7 @@ class engine extends \core_search\engine {
 
         // Check that the schema is already set up.
         try {
-            $schema = new \search_solr\schema();
+            $schema = new schema($this);
             $schema->validate_setup();
         } catch (\moodle_exception $e) {
             return $e->getMessage();
@@ -1466,7 +1481,7 @@ class engine extends \core_search\engine {
 
     protected function update_schema($oldversion, $newversion) {
         // Construct schema.
-        $schema = new schema();
+        $schema = new schema($this);
         $cansetup = $schema->can_setup_server();
         if ($cansetup !== true) {
             return $cansetup;
@@ -1563,5 +1578,16 @@ class engine extends \core_search\engine {
         } catch (\Exception $e) {
             throw new \core_search\engine_exception('error_solr', 'search_solr', '', $e->getMessage());
         }
+    }
+
+    /**
+     * Checks if an alternate configuration has been defined.
+     *
+     * @return bool True if alternate configuration is available
+     */
+    public function has_alternate_configuration(): bool {
+        return !empty($this->config->alternateserver_hostname) &&
+                !empty($this->config->alternateindexname) &&
+                !empty($this->config->alternateserver_port);
     }
 }

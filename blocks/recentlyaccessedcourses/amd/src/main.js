@@ -16,8 +16,7 @@
 /**
  * Javascript to initialise the Recently accessed courses block.
  *
- * @module     block_recentlyaccessedcourses/main.js
- * @package    block_recentlyaccessedcourses
+ * @module     block_recentlyaccessedcourses/main
  * @copyright  2018 Victor Deniz <victor@moodle.com>
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
@@ -208,6 +207,11 @@ define(
                 var overflow = (viewIndex + availableVisibleCards) - numberOfCourses;
                 start = viewIndex - overflow;
                 start = start >= 0 ? start : 0;
+            }
+
+            // At least show one card.
+            if (availableVisibleCards === 0) {
+                availableVisibleCards = 1;
             }
 
             var coursesToShow = allCourses.slice(start, start + availableVisibleCards);

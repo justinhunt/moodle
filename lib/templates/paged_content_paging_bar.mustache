@@ -56,7 +56,7 @@
             data-region="paging-control-limit-container"
             class="d-inline-flex align-items-center"
         >
-            <span class="mr-1">{{#str}} show {{/str}}</span>
+            <span class="me-1">{{#str}} show {{/str}}</span>
             <div class="btn-group">
                 <button
                     type="button"
@@ -83,6 +83,7 @@
                     role="menu"
                     class="dropdown-menu"
                     data-show-active-item
+                    data-skip-active-class="true"
                     {{#arialabels.itemsperpagecomponents}}
                         data-active-item-button-aria-label-components="{{.}}"
                     {{/arialabels.itemsperpagecomponents}}
@@ -109,7 +110,7 @@
 
     <nav
         id="{{$pagingbarid}}paging-bar-{{uniqid}}{{/pagingbarid}}"
-        class="{{#showitemsperpageselector}}ml-auto{{/showitemsperpageselector}}"
+        class="{{#showitemsperpageselector}}ms-auto{{/showitemsperpageselector}}"
         data-region="paging-bar"
         data-ignore-control-while-loading="{{ignorecontrolwhileloading}}"
         data-hide-control-on-single-page="{{hidecontrolonsinglepage}}"
@@ -119,16 +120,11 @@
         {{^activepagenumber}}
             data-active-page-number="1"
         {{/activepagenumber}}
-        {{#showitemsperpageselector}}
-            {{#itemsperpage}}
-                {{#active}}
-                    data-items-per-page="{{value}}"
-                {{/active}}
-            {{/itemsperpage}}
-        {{/showitemsperpageselector}}
-        {{^showitemsperpageselector}}
-            data-items-per-page="{{itemsperpage}}"
-        {{/showitemsperpageselector}}
+        {{#itemsperpage}}
+            {{#active}}
+                data-items-per-page="{{value}}"
+            {{/active}}
+        {{/itemsperpage}}
         {{#arialabels.paginationnav}}
             aria-label="{{.}}"
         {{/arialabels.paginationnav}}

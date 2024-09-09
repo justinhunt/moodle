@@ -31,6 +31,7 @@ use advanced_testcase;
 use core_h5p\local\library\autoloader;
 use MoodleQuickForm;
 use page_requirements_manager;
+use Moodle\H5PCore;
 
 /**
  *
@@ -42,7 +43,7 @@ use page_requirements_manager;
  *
  * @runTestsInSeparateProcesses
  */
-class editor_testcase extends advanced_testcase {
+class editor_test extends advanced_testcase {
 
     /**
      * Form object to be used in test case.
@@ -75,7 +76,7 @@ class editor_testcase extends advanced_testcase {
     /**
      * Test that existing content is properly set.
      */
-    public function test_set_content() {
+    public function test_set_content(): void {
         $this->resetAfterTest();
 
         autoloader::register();
@@ -112,7 +113,6 @@ class editor_testcase extends advanced_testcase {
         // Call the method. We need the id of the new H5P content.
         $rc = new \ReflectionClass(player::class);
         $rcp = $rc->getProperty('h5pid');
-        $rcp->setAccessible(true);
         $h5pid = $rcp->getValue($h5pplayer);
 
         $editor = new editor();
@@ -121,7 +121,6 @@ class editor_testcase extends advanced_testcase {
         // Check we get the H5P content.
         $rc = new \ReflectionClass(editor::class);
         $rcp = $rc->getProperty('oldcontent');
-        $rcp->setAccessible(true);
         $oldcontent = $rcp->getValue($editor);
 
         $core = (new factory)->get_core();
@@ -129,7 +128,6 @@ class editor_testcase extends advanced_testcase {
 
         // Check we get the file of the H5P content.
         $rcp = $rc->getProperty('oldfile');
-        $rcp->setAccessible(true);
         $oldfile = $rcp->getValue($editor);
 
         $this->assertSame($file->get_contenthash(), $oldfile->get_contenthash());
@@ -138,7 +136,7 @@ class editor_testcase extends advanced_testcase {
     /**
      * Tests that library and file area are properly set.
      */
-    public function test_set_library() {
+    public function test_set_library(): void {
         global $USER;
 
         $library = 'H5P.Accordion 1.5';
@@ -153,7 +151,6 @@ class editor_testcase extends advanced_testcase {
         // Check that the library has the right value.
         $rc = new \ReflectionClass(editor::class);
         $rcp = $rc->getProperty('library');
-        $rcp->setAccessible(true);
         $actual = $rcp->getValue($editor);
 
         $this->assertSame($library, $actual);
@@ -170,7 +167,6 @@ class editor_testcase extends advanced_testcase {
         ];
 
         $rcp = $rc->getProperty('filearea');
-        $rcp->setAccessible(true);
         $actual = $rcp->getValue($editor);
 
         $this->assertEquals($expected, $actual);
@@ -179,8 +175,11 @@ class editor_testcase extends advanced_testcase {
     /**
      * Test that required assets (js and css) and form will be loaded in page.
      */
-    public function test_add_editor_to_form() {
+    public function test_add_editor_to_form(): void {
         global $PAGE, $CFG;
+
+        $this->resetAfterTest();
+        $this->setAdminUser();
 
         // Get form data.
         $form = $this->get_test_form();
@@ -194,16 +193,14 @@ class editor_testcase extends advanced_testcase {
         $rc = new \ReflectionClass(page_requirements_manager::class);
         $rcp = $rc->getProperty('cssurls');
         $rcp2 = $rc->getProperty('jsincludes');
-        $rcp->setAccessible(true);
-        $rcp2->setAccessible(true);
         $actualcss = array_keys($rcp->getValue($PAGE->requires));
         $actualjs = array_keys($rcp2->getValue($PAGE->requires)['head']);
         $cachebuster = helper::get_cache_buster();
 
         $h5pcorepath = autoloader::get_h5p_core_library_url()->out();
 
-        $expectedcss = \H5PCore::$styles;
-        $expectedjs = \H5PCore::$scripts;
+        $expectedcss = H5PCore::$styles;
+        $expectedjs = H5PCore::$scripts;
 
         array_walk($expectedcss, function(&$item, $key) use ($h5pcorepath, $cachebuster) {
             $item = $h5pcorepath . $item. $cachebuster;
@@ -236,7 +233,7 @@ class editor_testcase extends advanced_testcase {
     /**
      * Test new content creation.
      */
-    public function test_save_content() {
+    public function test_save_content(): void {
         global $DB;
 
         $this->resetAfterTest();

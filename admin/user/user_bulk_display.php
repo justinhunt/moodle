@@ -8,7 +8,8 @@ $dir  = optional_param('dir', 'asc', PARAM_ALPHA);
 
 admin_externalpage_setup('userbulk');
 
-$return = $CFG->wwwroot.'/'.$CFG->admin.'/user/user_bulk.php';
+$returnurl = optional_param('returnurl', '', PARAM_LOCALURL);
+$return = new moodle_url($returnurl ?: '/admin/user/user_bulk.php');
 
 if (empty($SESSION->bulk_users)) {
     redirect($return);
@@ -20,11 +21,15 @@ $usercount = count($users);
 
 $strnever = get_string('never');
 
+$PAGE->set_primary_active_tab('siteadminnode');
+$PAGE->set_secondary_active_tab('users');
+
 echo $OUTPUT->header();
 
 $countries = get_string_manager()->get_list_of_countries(true);
 
-$namefields = get_all_user_name_fields(true);
+$userfieldsapi = \core_user\fields::for_name();
+$namefields = $userfieldsapi->get_sql('', false, '', '', false)->selects;
 foreach ($users as $key => $id) {
     $user = $DB->get_record('user', array('id'=>$id), 'id, ' . $namefields . ', username, email, country, lastaccess, city');
     $user->fullname = fullname($user, true);

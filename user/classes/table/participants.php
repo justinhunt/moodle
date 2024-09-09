@@ -124,26 +124,24 @@ class participants extends \table_sql implements dynamic_table {
         $headers = [];
         $columns = [];
 
-        $bulkoperations = has_capability('moodle/course:bulkmessaging', $this->context);
-        if ($bulkoperations) {
-            $mastercheckbox = new \core\output\checkbox_toggleall('participants-table', true, [
-                'id' => 'select-all-participants',
-                'name' => 'select-all-participants',
-                'label' => get_string('selectall'),
-                'labelclasses' => 'sr-only',
-                'classes' => 'm-1',
-                'checked' => false,
-            ]);
-            $headers[] = $OUTPUT->render($mastercheckbox);
-            $columns[] = 'select';
-        }
+        // At the very least, the user viewing this table will be able to use bulk actions to export it, so add 'select' column.
+        $mastercheckbox = new \core\output\checkbox_toggleall('participants-table', true, [
+            'id' => 'select-all-participants',
+            'name' => 'select-all-participants',
+            'label' => get_string('selectall'),
+            'labelclasses' => 'sr-only',
+            'classes' => 'm-1',
+            'checked' => false,
+        ]);
+        $headers[] = $OUTPUT->render($mastercheckbox);
+        $columns[] = 'select';
 
         $headers[] = get_string('fullname');
         $columns[] = 'fullname';
 
-        $extrafields = get_extra_user_fields($this->context);
+        $extrafields = \core_user\fields::get_identity_fields($this->context);
         foreach ($extrafields as $field) {
-            $headers[] = get_user_field_name($field);
+            $headers[] = \core_user\fields::get_display_name($field);
             $columns[] = $field;
         }
 
@@ -195,6 +193,8 @@ class participants extends \table_sql implements dynamic_table {
             $this->no_sorting('groups');
         }
 
+        $this->set_default_per_page(20);
+
         $this->set_attribute('id', 'participants');
 
         $this->countries = get_string_manager()->get_list_of_countries(true);
@@ -202,8 +202,11 @@ class participants extends \table_sql implements dynamic_table {
         if ($canseegroups) {
             $this->groups = groups_get_all_groups($this->courseid, 0, 0, 'g.*', true);
         }
-        $this->allroles = role_fix_names(get_all_roles($this->context), $this->context);
-        $this->assignableroles = get_assignable_roles($this->context, ROLENAME_ALIAS, false);
+
+        // If user has capability to review enrol, show them both role names.
+        $allrolesnamedisplay = ($canreviewenrol ? ROLENAME_BOTH : ROLENAME_ALIAS);
+        $this->allroles = role_fix_names(get_all_roles($this->context), $this->context, $allrolesnamedisplay);
+        $this->assignableroles = get_assignable_roles($this->context, ROLENAME_BOTH, false);
         $this->profileroles = get_profile_roles($this->context);
         $this->viewableroles = get_viewable_roles($this->context);
 
@@ -247,8 +250,8 @@ class participants extends \table_sql implements dynamic_table {
      */
     public function col_fullname($data) {
         global $OUTPUT;
-
-        return $OUTPUT->user_picture($data, array('size' => 35, 'courseid' => $this->course->id, 'includefullname' => true));
+        return $OUTPUT->render(\core_user::get_profile_picture($data, null,
+            ['courseid' => $this->course->id, 'includefullname' => true]));
     }
 
     /**
@@ -332,7 +335,7 @@ class participants extends \table_sql implements dynamic_table {
         $canreviewenrol = has_capability('moodle/course:enrolreview', $this->context);
         if ($canreviewenrol) {
             $canviewfullnames = has_capability('moodle/site:viewfullnames', $this->context);
-            $fullname = fullname($data, $canviewfullnames);
+            $fullname = htmlspecialchars(fullname($data, $canviewfullnames), ENT_QUOTES, 'utf-8');
             $coursename = format_string($this->course->fullname, true, array('context' => $this->context));
             require_once($CFG->dirroot . '/enrol/locallib.php');
             $manager = new \course_enrolment_manager($PAGE, $this->course);
@@ -401,19 +404,17 @@ class participants extends \table_sql implements dynamic_table {
      * @param bool $useinitialsbar do you want to use the initials bar.
      */
     public function query_db($pagesize, $useinitialsbar = true) {
+        global $DB;
+
         list($twhere, $tparams) = $this->get_sql_where();
         $psearch = new participants_search($this->course, $this->context, $this->filterset);
 
-        $total = $psearch->get_total_participants_count($twhere, $tparams);
-
-        $this->pagesize($pagesize, $total);
-
         $sort = $this->get_sql_sort();
-        if ($sort) {
-            $sort = 'ORDER BY ' . $sort;
-        }
 
+        $this->use_pages = true;
         $rawdata = $psearch->get_participants($twhere, $tparams, $sort, $this->get_page_start(), $this->get_page_size());
+        $total = $rawdata->current()->fullcount ?? 0;
+        $this->pagesize($pagesize, $total);
 
         $this->rawdata = [];
         foreach ($rawdata as $user) {
@@ -479,5 +480,18 @@ class participants extends \table_sql implements dynamic_table {
      */
     public function get_context(): context {
         return $this->context;
+    }
+
+    /**
+     * Check if the user has the capability to access this table.
+     *
+     * @return bool Return true if capability check passed.
+     */
+    public function has_capability(): bool {
+        global $CFG;
+        require_once($CFG->dirroot . '/course/lib.php');
+
+        $context = $this->course->id == SITEID ? \context_system::instance() : $this->get_context();
+        return course_can_view_participants($context);
     }
 }

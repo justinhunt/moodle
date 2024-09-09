@@ -16,37 +16,26 @@
 /**
  * This module is responsible for handle calendar day and upcoming view.
  *
- * @module     core_calendar/calendar
- * @package    core_calendar
+ * @module     core_calendar/calendar_view
  * @copyright  2017 Simey Lameze <simey@moodle.com>
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 define([
-        'jquery',
-        'core/str',
-        'core/notification',
-        'core_calendar/selectors',
-        'core_calendar/events',
-        'core_calendar/view_manager',
-        'core_calendar/repository',
-        'core/modal_factory',
-        'core_calendar/modal_event_form',
-        'core/modal_events',
-        'core_calendar/crud'
-    ],
-    function(
-        $,
-        Str,
-        Notification,
-        CalendarSelectors,
-        CalendarEvents,
-        CalendarViewManager,
-        CalendarRepository,
-        ModalFactory,
-        ModalEventForm,
-        ModalEvents,
-        CalendarCrud
-    ) {
+    'jquery',
+    'core/notification',
+    'core_calendar/selectors',
+    'core_calendar/events',
+    'core_calendar/view_manager',
+    'core_calendar/crud'
+],
+function(
+    $,
+    Notification,
+    CalendarSelectors,
+    CalendarEvents,
+    CalendarViewManager,
+    CalendarCrud
+) {
 
         var registerEventListeners = function(root, type) {
             var body = $('body');
@@ -68,14 +57,15 @@ define([
             root.on('change', CalendarSelectors.courseSelector, function() {
                 var selectElement = $(this);
                 var courseId = selectElement.val();
+                const courseName = $("option:selected", selectElement).text();
                 CalendarViewManager[reloadFunction](root, courseId, null)
                     .then(function() {
                         // We need to get the selector again because the content has changed.
                         return root.find(CalendarSelectors.courseSelector).val(courseId);
                     })
                     .then(function() {
-                        window.history.pushState({}, '', '?view=upcoming&course=' + courseId);
-
+                        CalendarViewManager.updateUrl('?view=' + type + '&course=' + courseId);
+                        CalendarViewManager.handleCourseChange(Number(courseId), courseName);
                         return;
                     })
                     .fail(Notification.exception);
@@ -88,6 +78,7 @@ define([
                 } else {
                     daysWithEvent.removeClass('hidden');
                 }
+                CalendarViewManager.foldDayEvents(root);
             });
 
             var eventFormPromise = CalendarCrud.registerEventFormModal(root);
@@ -95,11 +86,11 @@ define([
         };
 
         return {
-            init: function(root, type) {
+            init: function(root, type, isCalendarBlock = false) {
                 root = $(root);
 
-                CalendarViewManager.init(root, type);
-                registerEventListeners(root, type);
+                CalendarViewManager.init(root, type, isCalendarBlock);
+                registerEventListeners(root, type, isCalendarBlock);
             }
         };
     });

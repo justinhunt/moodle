@@ -17,7 +17,6 @@
  * A module to handle CRUD operations within the UI.
  *
  * @module     core_calendar/crud
- * @package    core_calendar
  * @copyright  2017 Andrew Nicols <andrew@nicols.co.uk>
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
@@ -25,10 +24,6 @@ define([
     'jquery',
     'core/str',
     'core/notification',
-    'core/custom_interaction_events',
-    'core/modal',
-    'core/modal_registry',
-    'core/modal_factory',
     'core/modal_events',
     'core_calendar/modal_event_form',
     'core_calendar/repository',
@@ -36,22 +31,22 @@ define([
     'core_calendar/modal_delete',
     'core_calendar/selectors',
     'core/pending',
+    'core/modal_save_cancel',
+    'core/config',
 ],
 function(
     $,
     Str,
     Notification,
-    CustomEvents,
-    Modal,
-    ModalRegistry,
-    ModalFactory,
     ModalEvents,
     ModalEventForm,
     CalendarRepository,
     CalendarEvents,
-    ModalDelete,
+    CalendarModalDelete,
     CalendarSelectors,
-    Pending
+    Pending,
+    ModalSaveCancel,
+    Config,
 ) {
 
     /**
@@ -84,11 +79,7 @@ function(
                 },
             });
 
-            deletePromise = ModalFactory.create(
-                {
-                    type: ModalDelete.TYPE
-                }
-            );
+            deletePromise = CalendarModalDelete.create();
         } else {
             deleteStrings.push({
                 key: 'confirmeventdelete',
@@ -97,9 +88,7 @@ function(
             });
 
 
-            deletePromise = ModalFactory.create({
-                type: ModalFactory.types.SAVE_CANCEL,
-            });
+            deletePromise = ModalSaveCancel.create();
         }
 
         var stringsPromise = Str.get_strings(deleteStrings);
@@ -158,10 +147,7 @@ function(
      * @return {object} The create modal promise
      */
     var registerEventFormModal = function(root) {
-        var eventFormPromise = ModalFactory.create({
-            type: ModalEventForm.TYPE,
-            large: true
-        });
+        var eventFormPromise = ModalEventForm.create();
 
         // Bind click event on the new event button.
         root.on('click', CalendarSelectors.actions.create, function(e) {
@@ -169,7 +155,8 @@ function(
                 var wrapper = root.find(CalendarSelectors.wrapper);
 
                 var categoryId = wrapper.data('categoryid');
-                if (typeof categoryId !== 'undefined') {
+                const courseId = wrapper.data('courseid');
+                if (typeof categoryId !== 'undefined' && courseId != Config.siteId) {
                     modal.setCategoryId(categoryId);
                 }
 
@@ -186,7 +173,7 @@ function(
                 modal.show();
                 return;
             })
-            .fail(Notification.exception);
+            .catch(Notification.exception);
 
             e.preventDefault();
         });
@@ -203,11 +190,12 @@ function(
                 modal.setEventId(eventWrapper.data('eventId'));
 
                 modal.setContextId(calendarWrapper.data('contextId'));
+                modal.setCourseId(eventWrapper.data('courseId'));
                 modal.show();
 
                 e.stopImmediatePropagation();
                 return;
-            }).fail(Notification.exception);
+            }).catch(Notification.exception);
         });
 
 
@@ -246,9 +234,12 @@ function(
             // When something within the calendar tells us the user wants
             // to edit an event then show the event form modal.
             $('body').on(CalendarEvents.editEvent, function(e, eventId) {
-                var calendarWrapper = root.find(CalendarSelectors.wrapper);
+                var target = root.find(`[data-event-id=${eventId}]`),
+                    calendarWrapper = root.find(CalendarSelectors.wrapper);
+
                 modal.setEventId(eventId);
                 modal.setContextId(calendarWrapper.data('contextId'));
+                modal.setReturnElement(target);
                 modal.show();
 
                 e.stopImmediatePropagation();

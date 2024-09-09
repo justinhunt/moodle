@@ -26,8 +26,8 @@ namespace core_h5p;
 
 use core_h5p\local\library\autoloader;
 use core_h5p\output\h5peditor as editor_renderer;
-use H5PCore;
-use H5peditor;
+use Moodle\H5PCore;
+use Moodle\H5peditor;
 use stdClass;
 use coding_exception;
 use MoodleQuickForm;
@@ -104,7 +104,7 @@ class editor {
         // Load the present content.
         $this->oldcontent = $this->core->loadContent($id);
         if ($this->oldcontent === null) {
-            print_error('invalidelementid');
+            throw new \moodle_exception('invalidelementid');
         }
 
         // Identify the content type library.
@@ -115,7 +115,7 @@ class editor {
         $fs = get_file_storage();
         $oldfile = $fs->get_file_by_hash($pathnamehash);
         if (!$oldfile) {
-            print_error('invalidelementid');
+            throw new \moodle_exception('invalidelementid');
         }
         $this->set_filearea(
             $oldfile->get_contextid(),
@@ -382,7 +382,7 @@ class editor {
 
         // Add JavaScript settings.
         $root = $CFG->wwwroot;
-        $filespathbase = "{$root}/pluginfile.php/{$context->id}/core_h5p/";
+        $filespathbase = \moodle_url::make_draftfile_url(0, '', '');
 
         $factory = new factory();
         $contentvalidator = $factory->get_content_validator();
@@ -390,7 +390,7 @@ class editor {
         $editorajaxtoken = core::createToken(editor_ajax::EDITOR_AJAX_TOKEN);
         $sesskey = sesskey();
         $settings['editor'] = [
-            'filesPath' => $filespathbase . 'editor',
+            'filesPath' => $filespathbase->out(),
             'fileIcon' => [
                 'path' => $url . 'images/binary-file.png',
                 'width' => 50,

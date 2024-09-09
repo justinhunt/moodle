@@ -14,15 +14,10 @@
 // You should have received a copy of the GNU General Public License
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
-/**
- * This file contains tests that walks a question through the interactive
- * behaviour.
- *
- * @package   qtype_randomsamatch
- * @copyright 2013 Jean-Michel Vedrine
- * @license   http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
- */
+namespace qtype_randomsamatch;
 
+use question_hint_with_parts;
+use question_state;
 
 defined('MOODLE_INTERNAL') || die();
 
@@ -33,15 +28,16 @@ require_once($CFG->dirroot . '/question/engine/tests/helpers.php');
 /**
  * Unit tests for the randomsamatch question type.
  *
+ * @package   qtype_randomsamatch
  * @copyright 2013 Jean-Michel Vedrine
  * @license   http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
-class qtype_randomsamatch_walkthrough_test extends qbehaviour_walkthrough_test_base {
+class walkthrough_test extends \qbehaviour_walkthrough_test_base {
 
-    public function test_deferred_feedback_unanswered() {
+    public function test_deferred_feedback_unanswered(): void {
 
         // Create a randomsamatch question.
-        $m = test_question_maker::make_question('randomsamatch');
+        $m = \test_question_maker::make_question('randomsamatch');
         $this->start_attempt_at_question($m, 'deferredfeedback', 4);
 
         $choiceorder = $m->get_choice_order();
@@ -94,10 +90,10 @@ class qtype_randomsamatch_walkthrough_test extends qbehaviour_walkthrough_test_b
                 $this->get_contains_select_expectation('sub3', $choices, null, false));
     }
 
-    public function test_deferred_feedback_partial_answer() {
+    public function test_deferred_feedback_partial_answer(): void {
 
         // Create a randomsamatching question.
-        $m = test_question_maker::make_question('randomsamatch');
+        $m = \test_question_maker::make_question('randomsamatch');
         $m->shufflestems = false;
         $this->start_attempt_at_question($m, 'deferredfeedback', 4);
 
@@ -151,10 +147,10 @@ class qtype_randomsamatch_walkthrough_test extends qbehaviour_walkthrough_test_b
                 $this->get_contains_select_expectation('sub3', $choices, null, false));
     }
 
-    public function test_interactive_correct_no_submit() {
+    public function test_interactive_correct_no_submit(): void {
 
         // Create a randomsamatching question.
-        $m = test_question_maker::make_question('randomsamatch');
+        $m = \test_question_maker::make_question('randomsamatch');
         $m->hints = array(
             new question_hint_with_parts(11, 'This is the first hint.', FORMAT_HTML, false, false),
             new question_hint_with_parts(12, 'This is the second hint.', FORMAT_HTML, true, true),
@@ -205,10 +201,10 @@ class qtype_randomsamatch_walkthrough_test extends qbehaviour_walkthrough_test_b
                 $this->get_contains_select_expectation('sub3', $choices, $orderforchoice[13], false));
     }
 
-    public function test_interactive_partial_no_submit() {
+    public function test_interactive_partial_no_submit(): void {
 
         // Create a randomsamatching question.
-        $m = test_question_maker::make_question('randomsamatch');
+        $m = \test_question_maker::make_question('randomsamatch');
         $m->hints = array(
             new question_hint_with_parts(11, 'This is the first hint.', FORMAT_HTML, false, false),
             new question_hint_with_parts(12, 'This is the second hint.', FORMAT_HTML, true, true),
@@ -259,10 +255,10 @@ class qtype_randomsamatch_walkthrough_test extends qbehaviour_walkthrough_test_b
                 $this->get_contains_select_expectation('sub3', $choices, null, false));
     }
 
-    public function test_interactive_with_invalid() {
+    public function test_interactive_with_invalid(): void {
 
         // Create a randomsamatching question.
-        $m = test_question_maker::make_question('randomsamatch');
+        $m = \test_question_maker::make_question('randomsamatch');
         $m->hints = array(
             new question_hint_with_parts(11, 'This is the first hint.', FORMAT_HTML, false, false),
             new question_hint_with_parts(12, 'This is the second hint.', FORMAT_HTML, true, true),
@@ -329,10 +325,10 @@ class qtype_randomsamatch_walkthrough_test extends qbehaviour_walkthrough_test_b
                 $this->get_contains_select_expectation('sub3', $choices, $orderforchoice[13], false));
     }
 
-    public function test_randomsamatch_clear_wrong() {
+    public function test_randomsamatch_clear_wrong(): void {
 
         // Create a randomsamatching question.
-        $m = test_question_maker::make_question('randomsamatch');
+        $m = \test_question_maker::make_question('randomsamatch');
         $m->hints = array(
             new question_hint_with_parts(11, 'This is the first hint.', FORMAT_HTML, false, true),
             new question_hint_with_parts(12, 'This is the second hint.', FORMAT_HTML, true, true),

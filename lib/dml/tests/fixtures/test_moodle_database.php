@@ -23,6 +23,10 @@
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
+namespace core;
+
+use Exception;
+
 defined('MOODLE_INTERNAL') || die();
 
 require_once(__DIR__.'/../../moodle_database.php');
@@ -38,7 +42,7 @@ require_once(__DIR__.'/test_sql_generator.php');
  * @copyright  2018 Catalyst IT
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
-abstract class test_moodle_database extends moodle_database {
+abstract class test_moodle_database extends \moodle_database {
 
     /** @var string */
     private $error;
@@ -53,7 +57,7 @@ abstract class test_moodle_database extends moodle_database {
     public function __construct($external = false) {
         parent::__construct($external);
 
-        $this->temptables = new moodle_temptables($this);
+        $this->temptables = new \moodle_temptables($this);
     }
 
     /**
@@ -160,13 +164,13 @@ abstract class test_moodle_database extends moodle_database {
      * @param string $table
      * @return array database_column_info[] of database_column_info objects indexed with column names
      */
-    public function fetch_columns($table) : array {
+    public function fetch_columns($table): array {
         return $this->_tables[$table]['columns'];
     }
 
     /**
      * Default implementation
-     * @param StdClass $column metadata
+     * @param \stdClass $column metadata
      * @param mixed $value
      * @return mixed $value
      */
@@ -191,7 +195,7 @@ abstract class test_moodle_database extends moodle_database {
      * @return bool true
      * @throws Exception
      */
-    public function execute($sql, array $params = null) {
+    public function execute($sql, ?array $params = null) {
         throw new Exception("execute() not implemented");
     }
 
@@ -204,7 +208,7 @@ abstract class test_moodle_database extends moodle_database {
      * @return bool true
      * @throws Exception
      */
-    public function get_recordset_sql($sql, array $params = null, $limitfrom = 0, $limitnum = 0) {
+    public function get_recordset_sql($sql, ?array $params = null, $limitfrom = 0, $limitnum = 0) {
         throw new Exception("get_recordset_sql() not implemented");
     }
 
@@ -217,7 +221,7 @@ abstract class test_moodle_database extends moodle_database {
      * @return bool true
      * @throws Exception
      */
-    public function get_records_sql($sql, array $params = null, $limitfrom = 0, $limitnum = 0) {
+    public function get_records_sql($sql, ?array $params = null, $limitfrom = 0, $limitnum = 0) {
         throw new Exception("get_records_sql() not implemented");
     }
 
@@ -228,7 +232,7 @@ abstract class test_moodle_database extends moodle_database {
      * @return bool true
      * @throws Exception
      */
-    public function get_fieldset_sql($sql, array $params = null) {
+    public function get_fieldset_sql($sql, ?array $params = null) {
         throw new Exception("get_fieldset_sql() not implemented");
     }
 
@@ -249,7 +253,7 @@ abstract class test_moodle_database extends moodle_database {
     /**
      * Default implementation, throws Exception
      * @param string $table
-     * @param StdObject $dataobject
+     * @param object|array $dataobject
      * @param bool $returnid
      * @param bool $bulk
      * @return bool|int true or new id
@@ -304,7 +308,7 @@ abstract class test_moodle_database extends moodle_database {
      * @return bool true
      * @throws Exception
      */
-    public function set_field_select($table, $newfield, $newvalue, $select, array $params = null) {
+    public function set_field_select($table, $newfield, $newvalue, $select, ?array $params = null) {
         throw new Exception("set_field_select() not implemented");
     }
 
@@ -316,16 +320,16 @@ abstract class test_moodle_database extends moodle_database {
      * @return bool true
      * @throws Exception
      */
-    public function delete_records_select($table, $select, array $params = null) {
+    public function delete_records_select($table, $select, ?array $params = null) {
         throw new Exception("delete_records_select() not implemented");
     }
 
     /**
      * Default implementation, throws Exception
-     * @return string $sql
+     * @return string $arr,...
      * @throws Exception
      */
-    public function sql_concat() {
+    public function sql_concat(...$arr) {
         throw new Exception("sql_concat() not implemented");
     }
 
@@ -338,6 +342,19 @@ abstract class test_moodle_database extends moodle_database {
      */
     public function sql_concat_join($separator = "' '", $elements = []) {
         throw new Exception("sql_concat_join() not implemented");
+    }
+
+    /**
+     * Default implementation, throws Exception
+     *
+     * @param string $field
+     * @param string $separator
+     * @param string $sort
+     * @return string
+     * @throws Exception
+     */
+    public function sql_group_concat(string $field, string $separator = ', ', string $sort = ''): string {
+        throw new Exception('sql_group_concat() not implemented');
     }
 
     /**

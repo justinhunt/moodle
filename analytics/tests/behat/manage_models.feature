@@ -5,8 +5,10 @@ Feature: Manage analytics models
   I need to create and use a model
 
   Background:
+    # Turn off the course welcome message, so we can easily test other messages.
     Given the following config values are set as admin:
-      | onlycli  | 0 | analytics |
+      | onlycli                  | 0 | analytics    |
+      | sendcoursewelcomemessage | 0 | enrol_manual |
     And the following "users" exist:
       | username | firstname | lastname | email                |
       | teacher1 | Teacher   | 1        | teacher1@example.com |
@@ -55,10 +57,7 @@ Feature: Manage analytics models
     And I choose "Create model" in the open action menu
     And I set the field "Enabled" to "Enable"
     And I select "__core_course__analytics__target__course_completion" from the "target" singleselect
-    And I open the autocomplete suggestions list
-    And I click on "Read actions amount" item in the autocomplete list
-    And I open the autocomplete suggestions list
-    And I click on "Any write action in the course" item in the autocomplete list
+    And I set the field "Indicators" to "Read actions amount, Any write action in the course"
     And I select "__core__analytics__time_splitting__single_range" from the "timesplitting" singleselect
     And I press "Save changes"
     Then I should see "No predictions available yet" in the "Students at risk of not meeting the course completion conditions" "table_row"
@@ -95,8 +94,8 @@ Feature: Manage analytics models
     And I should see "Configuration"
     And I click on "View" "link"
     And I should see "Log extra info"
-    And I click on "Close" "button"
-    And I click on "Analytics models" "link"
+    And I click on "Close" "button" in the "Log extra info" "dialogue"
+    And I navigate to "Analytics > Analytics models" in site administration
     # Execute scheduled analysis
     And I open the action menu in "Students at risk of not meeting the course completion conditions" "table_row"
     And I choose "Execute scheduled analysis" in the open action menu
@@ -117,6 +116,7 @@ Feature: Manage analytics models
     And I should see "Read actions amount"
     And I click on "Select Student 6 for bulk action" "checkbox" in the "Student 6" "table_row"
     And I click on "Accept" "button"
+    And I wait until "Confirm" "button" exists
     And I click on "Confirm" "button" in the "Accept" "dialogue"
     And I click on "View prediction details" "icon" in the "Student 5" "table_row"
     And I click on "Select Student 5 for bulk action" "checkbox" in the "Student 5" "table_row"
@@ -148,7 +148,8 @@ Feature: Manage analytics models
     When I open the action menu in "Students at risk of not meeting the course completion conditions" "table_row"
     And I choose "Export" in the open action menu
     And I click on "Actions" "link" in the "Students at risk of not meeting the course completion conditions" "table_row"
-    And following "Export" should download between "100" and "500" bytes
+    And following "Export" should download a file that:
+       | Contains file in zip | model-config.json |
 
   Scenario: Check invalid site elements
     When I open the action menu in "Students at risk of not meeting the course completion conditions" "table_row"

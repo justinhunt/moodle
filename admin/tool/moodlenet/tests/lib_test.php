@@ -21,6 +21,7 @@
  * @copyright  2020 Peter Dias
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
+namespace tool_moodlenet;
 
 defined('MOODLE_INTERNAL') || die();
 
@@ -30,7 +31,7 @@ require_once($CFG->dirroot . '/admin/tool/moodlenet/lib.php');
 /**
  * Test moodlenet functions
  */
-class tool_moodlenet_lib_testcase extends advanced_testcase {
+class lib_test extends \advanced_testcase {
 
     /**
      * Test the generate_mnet_endpoint function
@@ -41,7 +42,7 @@ class tool_moodlenet_lib_testcase extends advanced_testcase {
      * @param int $section
      * @param string $expected
      */
-    public function test_generate_mnet_endpoint($profileurl, $course, $section, $expected) {
+    public function test_generate_mnet_endpoint($profileurl, $course, $section, $expected): void {
         $endpoint = generate_mnet_endpoint($profileurl, $course, $section);
         $this->assertEquals($expected, $endpoint);
     }

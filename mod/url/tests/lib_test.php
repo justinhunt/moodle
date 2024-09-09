@@ -22,6 +22,7 @@
  * @copyright  2012 Petr Skoda {@link http://skodak.org}
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
+namespace mod_url;
 
 defined('MOODLE_INTERNAL') || die();
 
@@ -34,23 +35,24 @@ defined('MOODLE_INTERNAL') || die();
  * @copyright  2011 Petr Skoda {@link http://skodak.org}
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
-class mod_url_lib_testcase extends advanced_testcase {
+class lib_test extends \advanced_testcase {
 
     /**
      * Prepares things before this test case is initialised
      * @return void
      */
-    public static function setUpBeforeClass() {
+    public static function setUpBeforeClass(): void {
         global $CFG;
         require_once($CFG->dirroot . '/mod/url/lib.php');
         require_once($CFG->dirroot . '/mod/url/locallib.php');
+        parent::setUpBeforeClass();
     }
 
     /**
      * Tests the url_appears_valid_url function
      * @return void
      */
-    public function test_url_appears_valid_url() {
+    public function test_url_appears_valid_url(): void {
         $this->assertTrue(url_appears_valid_url('http://example'));
         $this->assertTrue(url_appears_valid_url('http://www.example.com'));
         $this->assertTrue(url_appears_valid_url('http://www.examplé.com'));
@@ -97,7 +99,7 @@ class mod_url_lib_testcase extends advanced_testcase {
      * Test url_view
      * @return void
      */
-    public function test_url_view() {
+    public function test_url_view(): void {
         global $CFG;
 
         $CFG->enablecompletion = 1;
@@ -107,7 +109,7 @@ class mod_url_lib_testcase extends advanced_testcase {
         $course = $this->getDataGenerator()->create_course(array('enablecompletion' => 1));
         $url = $this->getDataGenerator()->create_module('url', array('course' => $course->id),
                                                             array('completion' => 2, 'completionview' => 1));
-        $context = context_module::instance($url->cmid);
+        $context = \context_module::instance($url->cmid);
         $cm = get_coursemodule_from_instance('url', $url->id);
 
         // Trigger and capture the event.
@@ -130,7 +132,7 @@ class mod_url_lib_testcase extends advanced_testcase {
         $this->assertNotEmpty($event->get_name());
 
         // Check completion status.
-        $completion = new completion_info($course);
+        $completion = new \completion_info($course);
         $completiondata = $completion->get_data($cm);
         $this->assertEquals(1, $completiondata->completionstate);
     }
@@ -138,7 +140,7 @@ class mod_url_lib_testcase extends advanced_testcase {
     /**
      * Test mod_url_core_calendar_provide_event_action with user override
      */
-    public function test_url_core_calendar_provide_event_action_user_override() {
+    public function test_url_core_calendar_provide_event_action_user_override(): void {
         global $CFG, $USER;
 
         $this->resetAfterTest();
@@ -159,7 +161,7 @@ class mod_url_lib_testcase extends advanced_testcase {
             \core_completion\api::COMPLETION_EVENT_TYPE_DATE_COMPLETION_EXPECTED);
 
         // Mark the activity as completed.
-        $completion = new completion_info($course);
+        $completion = new \completion_info($course);
         $completion->set_module_viewed($cm);
 
         // Create an action factory.
@@ -184,7 +186,7 @@ class mod_url_lib_testcase extends advanced_testcase {
         $this->assertTrue($actionevent2->is_actionable());
     }
 
-    public function test_url_core_calendar_provide_event_action() {
+    public function test_url_core_calendar_provide_event_action(): void {
         $this->resetAfterTest();
         $this->setAdminUser();
 
@@ -210,7 +212,7 @@ class mod_url_lib_testcase extends advanced_testcase {
         $this->assertTrue($actionevent->is_actionable());
     }
 
-    public function test_url_core_calendar_provide_event_action_already_completed() {
+    public function test_url_core_calendar_provide_event_action_already_completed(): void {
         global $CFG;
 
         $this->resetAfterTest();
@@ -231,7 +233,7 @@ class mod_url_lib_testcase extends advanced_testcase {
             \core_completion\api::COMPLETION_EVENT_TYPE_DATE_COMPLETION_EXPECTED);
 
         // Mark the activity as completed.
-        $completion = new completion_info($course);
+        $completion = new \completion_info($course);
         $completion->set_module_viewed($cm);
 
         // Create an action factory.
@@ -253,7 +255,7 @@ class mod_url_lib_testcase extends advanced_testcase {
      * @return bool|calendar_event
      */
     private function create_action_event($courseid, $instanceid, $eventtype) {
-        $event = new stdClass();
+        $event = new \stdClass();
         $event->name = 'Calendar event';
         $event->modulename  = 'url';
         $event->courseid = $courseid;
@@ -262,6 +264,6 @@ class mod_url_lib_testcase extends advanced_testcase {
         $event->eventtype = $eventtype;
         $event->timestart = time();
 
-        return calendar_event::create($event);
+        return \calendar_event::create($event);
     }
 }

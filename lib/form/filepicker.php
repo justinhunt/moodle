@@ -184,11 +184,10 @@ class MoodleQuickForm_filepicker extends HTML_QuickForm_input implements templat
         $html .= "<div><object type='text/html' data='$nonjsfilepicker' height='160' width='600' style='border:1px solid #000'></object></div>";
         $html .= '</noscript>';
 
-        if (!empty($options->accepted_types) && $options->accepted_types != '*') {
+        if (!empty($args->accepted_types) && $args->accepted_types != '*') {
             $html .= html_writer::tag('p', get_string('filesofthesetypes', 'form'));
             $util = new \core_form\filetypes_util();
-            $filetypes = $options->accepted_types;
-            $filetypedescriptions = $util->describe_file_types($filetypes);
+            $filetypedescriptions = $util->describe_file_types($args->accepted_types);
             $html .= $OUTPUT->render_from_template('core_form/filetypes-descriptions', $filetypedescriptions);
         }
 
@@ -248,9 +247,9 @@ class MoodleQuickForm_filepicker extends HTML_QuickForm_input implements templat
     public function validateSubmitValue($value) {
 
         $filetypesutil = new \core_form\filetypes_util();
-        $whitelist = $filetypesutil->normalize_file_types($this->_options['accepted_types']);
+        $allowlist = $filetypesutil->normalize_file_types($this->_options['accepted_types']);
 
-        if (empty($whitelist) || $whitelist === ['*']) {
+        if (empty($allowlist) || $allowlist === ['*']) {
             // Any file type is allowed, nothing to check here.
             return;
         }
@@ -264,14 +263,14 @@ class MoodleQuickForm_filepicker extends HTML_QuickForm_input implements templat
         }
 
         foreach ($draftfiles->list as $file) {
-            if (!$filetypesutil->is_allowed_file_type($file->filename, $whitelist)) {
+            if (!$filetypesutil->is_allowed_file_type($file->filename, $allowlist)) {
                 $wrongfiles[] = $file->filename;
             }
         }
 
         if ($wrongfiles) {
             $a = array(
-                'whitelist' => implode(', ', $whitelist),
+                'allowlist' => implode(', ', $allowlist),
                 'wrongfiles' => implode(', ', $wrongfiles),
             );
             return get_string('err_wrongfileextension', 'core_form', $a);

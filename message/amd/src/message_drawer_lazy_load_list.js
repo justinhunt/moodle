@@ -17,18 +17,19 @@
  * Lazy loaded list of items.
  *
  * @module     core_message/message_drawer_lazy_load_list
- * @package    message
  * @copyright  2018 Ryan Wyllie <ryan@moodle.com>
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 define(
 [
     'jquery',
-    'core/custom_interaction_events'
+    'core/custom_interaction_events',
+    'core/pending',
 ],
 function(
     $,
-    CustomEvents
+    CustomEvents,
+    PendingPromise,
 ) {
 
     var SELECTORS = {
@@ -249,6 +250,7 @@ function(
      * @return {Object} promise
      */
     var initialLoadAndRender = function(root, loadCallback, renderCallback) {
+        const pendingPromise = new PendingPromise('initialLoadAndRender');
         getContentContainer(root).empty();
         showPlaceholder(root);
         hideContent(root);
@@ -267,6 +269,10 @@ function(
             .catch(function() {
                 hidePlaceholder(root);
                 showContent(root);
+                return;
+            })
+            .then(() => {
+                pendingPromise.resolve();
                 return;
             });
     };

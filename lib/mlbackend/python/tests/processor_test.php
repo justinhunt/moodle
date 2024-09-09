@@ -14,24 +14,17 @@
 // You should have received a copy of the GNU General Public License
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
-/**
- * Provides the {@link mlbackend_python_processor_testcase} class.
- *
- * @package     mlbackend_python
- * @category    test
- * @copyright   2019 David Mudrák <david@moodle.com>
- * @license     http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
- */
-
-defined('MOODLE_INTERNAL') || die();
+namespace mlbackend_python;
 
 /**
  * Unit tests for the {@link \mlbackend_python\processor} class.
  *
+ * @package   mlbackend_python
+ * @category  test
  * @copyright 2019 David Mudrák <david@moodle.com>
  * @license   http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
-class mlbackend_python_processor_testcase extends advanced_testcase {
+class processor_test extends \advanced_testcase {
 
     /**
      * Test implementation of the {@link \mlbackend_python\processor::check_pip_package_version()} method.
@@ -41,14 +34,14 @@ class mlbackend_python_processor_testcase extends advanced_testcase {
      * @param string $required A sample of the required package version
      * @param int $result Expected value returned by the tested method
      */
-    public function test_check_pip_package_version($actual, $required, $result) {
+    public function test_check_pip_package_version($actual, $required, $result): void {
         $this->assertSame($result, \mlbackend_python\processor::check_pip_package_version($actual, $required));
     }
 
     /**
      * Check that the {@link \mlbackend_python\processor::check_pip_package_version()} can be called with single argument.
      */
-    public function test_check_pip_package_version_default() {
+    public function test_check_pip_package_version_default(): void {
 
         $this->assertSame(-1, \mlbackend_python\processor::check_pip_package_version('0.0.1'));
         $this->assertSame(0, \mlbackend_python\processor::check_pip_package_version(

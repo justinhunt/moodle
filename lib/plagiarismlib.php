@@ -47,114 +47,10 @@ function plagiarism_get_links($linkarray) {
         $plagiarismplugin = new $plagiarismclass;
         $output .= $plagiarismplugin->get_links($linkarray);
     }
-    return $output;
-}
-
-/**
- * returns array of plagiarism details about specified file
- *
- * @param int $cmid
- * @param int $userid
- * @param object $file moodle file object
- * @return array - sets of details about specified file, one array of details per plagiarism plugin
- *  - each set contains at least 'analyzed', 'score', 'reporturl'
- */
-function plagiarism_get_file_results($cmid, $userid, $file) {
-    global $CFG;
-    $allresults = array();
-    if (empty($CFG->enableplagiarism)) {
-        return $allresults;
+    if (!empty($output)) {
+        return html_writer::span($output, 'core_plagiarism_links');
     }
-    $plagiarismplugins = plagiarism_load_available_plugins();
-    foreach ($plagiarismplugins as $plugin => $dir) {
-        require_once($dir.'/lib.php');
-        $plagiarismclass = "plagiarism_plugin_$plugin";
-        $plagiarismplugin = new $plagiarismclass;
-        $allresults[] = $plagiarismplugin->get_file_results($cmid, $userid, $file);
-    }
-    return $allresults;
-}
-
-/**
- * saves/updates plagiarism settings from a modules config page - called by course/modedit.php
- *
- * @deprecated Since Moodle 3.9. MDL-65835 Please use {plugin name}_coursemodule_edit_post_actions() instead.
- * @todo MDL-67526 This is to be moved from here to deprecatedlib.php in Moodle 4.3
- * @param object $data - form data
- */
-function plagiarism_save_form_elements($data) {
-    global $CFG;
-    if (empty($CFG->enableplagiarism)) {
-        return '';
-    }
-    $plagiarismplugins = plagiarism_load_available_plugins();
-    foreach ($plagiarismplugins as $plugin => $dir) {
-        require_once($dir.'/lib.php');
-        $plagiarismclass = "plagiarism_plugin_$plugin";
-        $plagiarismplugin = new $plagiarismclass;
-
-        $reflectionmethod = new ReflectionMethod($plagiarismplugin, 'save_form_elements');
-        if ($reflectionmethod->getDeclaringClass()->getName() == get_class($plagiarismplugin)) {
-            $text = 'plagiarism_plugin::save_form_elements() is deprecated.';
-            $text .= ' Use plagiarism_' . $plugin . '_coursemodule_edit_post_actions() instead';
-            debugging($text, DEBUG_DEVELOPER);
-        }
-
-        $plagiarismplugin->save_form_elements($data);
-    }
-}
-
-/**
- * adds the list of plagiarism settings to a form - called inside modules that have enabled plagiarism
- *
- * @deprecated Since Moodle 3.9. MDL-65835 Please use {plugin name}_coursemodule_standard_elements() instead.
- * @todo MDL-67526 This is to be moved from here to deprecatedlib.php in Moodle 4.3
- * @param object $mform - Moodle form object
- * @param object $context - context object
- * @param string $modulename - Name of the module
- */
-function plagiarism_get_form_elements_module($mform, $context, $modulename = "") {
-    global $CFG;
-    if (empty($CFG->enableplagiarism)) {
-        return '';
-    }
-    $plagiarismplugins = plagiarism_load_available_plugins();
-    foreach ($plagiarismplugins as $plugin => $dir) {
-        require_once($dir.'/lib.php');
-        $plagiarismclass = "plagiarism_plugin_$plugin";
-        $plagiarismplugin = new $plagiarismclass;
-
-        $reflectionmethod = new ReflectionMethod($plagiarismplugin, 'get_form_elements_module');
-        if ($reflectionmethod->getDeclaringClass()->getName() == get_class($plagiarismplugin)) {
-            $text = 'plagiarism_plugin::get_form_elements_module() is deprecated.';
-            $text .= ' Use plagiarism_' . $plugin . '_coursemodule_standard_elements() instead';
-            debugging($text, DEBUG_DEVELOPER);
-        }
-
-        $plagiarismplugin->get_form_elements_module($mform, $context, $modulename);
-    }
-}
-/**
- * updates the status of all files within a module
- *
- * @param object $course - full Course object
- * @param object $cm - full cm object
- * @return string
- */
-function plagiarism_update_status($course, $cm) {
-    global $CFG;
-    if (empty($CFG->enableplagiarism)) {
-        return '';
-    }
-    $plagiarismplugins = plagiarism_load_available_plugins();
-    $output = '';
-    foreach ($plagiarismplugins as $plugin => $dir) {
-        require_once($dir.'/lib.php');
-        $plagiarismclass = "plagiarism_plugin_$plugin";
-        $plagiarismplugin = new $plagiarismclass;
-        $output .= $plagiarismplugin->update_status($course, $cm);
-    }
-    return $output;
+    return '';
 }
 
 /**
@@ -181,12 +77,10 @@ function plagiarism_print_disclosure($cmid) {
 /**
  * Helper function - also loads lib file of plagiarism plugin
  *
- * @todo MDL-67872 the deprecated code in this function to be removed in Moodle 4.3
  * @return array of available plugins
  */
 function plagiarism_load_available_plugins() {
     global $CFG;
-    static $showndeprecatedmessage = array(); // Only show message once per page load.
 
     if (empty($CFG->enableplagiarism)) {
         return array();
@@ -195,18 +89,7 @@ function plagiarism_load_available_plugins() {
     $availableplugins = array();
     foreach ($plagiarismplugins as $plugin => $dir) {
         // Check this plugin is enabled and a lib file exists.
-        if (get_config('plagiarism', $plugin."_use")) {
-            // Deprecated Since Moodle 3.9.
-            $pluginenabled = true;
-            if (empty($showndeprecatedmessage[$plugin])) {
-                $text = 'The setting plagiarism:'.$plugin.'_use is deprecated.';
-                $text .= ' Use plagiarism_' . $plugin . ':enabled instead';
-                debugging($text, DEBUG_DEVELOPER);
-                $showndeprecatedmessage[$plugin] = true;
-            }
-        } else {
-            $pluginenabled = get_config('plagiarism_'.$plugin, 'enabled');
-        }
+        $pluginenabled = get_config('plagiarism_'.$plugin, 'enabled');
         if ($pluginenabled && file_exists($dir."/lib.php")) {
             require_once($dir.'/lib.php');
             $plagiarismclass = "plagiarism_plugin_$plugin";

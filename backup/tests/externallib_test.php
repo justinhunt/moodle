@@ -14,14 +14,12 @@
 // You should have received a copy of the GNU General Public License
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
-/**
- * Backup webservice tests.
- *
- * @package    core_backup
- * @copyright  2020 onward The Moodle Users Association <https://moodleassociation.org/>
- * @author     Matt Porritt <mattp@catalyst-au.net>
- * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
- */
+namespace core_backup;
+
+use backup;
+use core_backup_external;
+use core_external\external_api;
+use externallib_advanced_testcase;
 
 defined('MOODLE_INTERNAL') || die();
 
@@ -39,13 +37,14 @@ require_once($CFG->dirroot . '/backup/externallib.php');
  * @author     Matt Porritt <mattp@catalyst-au.net>
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
-class backup_external_testcase extends externallib_advanced_testcase {
+class externallib_test extends externallib_advanced_testcase {
 
     /**
      * Set up tasks for all tests.
      */
-    protected function setUp() {
+    protected function setUp(): void {
         global $CFG;
+        parent::setUp();
 
         $this->resetAfterTest(true);
 
@@ -60,7 +59,7 @@ class backup_external_testcase extends externallib_advanced_testcase {
     /**
      * Test getting course copy progress.
      */
-    public function test_get_copy_progress() {
+    public function test_get_copy_progress(): void {
         global $USER;
 
         $this->setAdminUser();
@@ -85,8 +84,8 @@ class backup_external_testcase extends externallib_advanced_testcase {
         $formdata->role_3 = 3;
         $formdata->role_5 = 5;
 
-        $coursecopy = new \core_backup\copy\copy($formdata);
-        $copydetails = $coursecopy->create_copy();
+        $copydata = \copy_helper::process_formdata($formdata);
+        $copydetails = \copy_helper::create_copy($copydata);
         $copydetails['operation'] = \backup::OPERATION_BACKUP;
 
         $params = array('copies' => $copydetails);
@@ -126,7 +125,7 @@ class backup_external_testcase extends externallib_advanced_testcase {
     /**
      * Test ajax submission of course copy process.
      */
-    public function test_submit_copy_form() {
+    public function test_submit_copy_form(): void {
         global $DB;
 
         $this->setAdminUser();

@@ -68,28 +68,42 @@ class behat_qtype_ddmarker extends behat_base {
         // DOM node so that its centre is over the centre of anothe DOM node.
         // Therefore to make it drag to the specified place, we have to add
         // a target div.
+        // We also need to scroll the marker into view so we can calculate the correct offsetHeight and offsetWidth.
+        $markerxpath = $this->marker_xpath($marker);
         $this->execute_script("
                 (function() {
-                    if (document.getElementById('target-{$x}-{$y}')) {
-                        return;
-                    }
-                    var image = document.querySelector('.dropbackground');
-                    var target = document.createElement('div');
-                    target.setAttribute('id', 'target-{$x}-{$y}');
-                    var container = document.querySelector('.droparea');
-                    container.insertBefore(target, image);
-                    var xadjusted = {$x} + (container.offsetWidth - image.offsetWidth) / 2;
-                    var yadjusted = {$y} + (container.offsetHeight - image.offsetHeight) / 2;
-                    target.style.setProperty('position', 'absolute');
-                    target.style.setProperty('left', xadjusted + 'px');
-                    target.style.setProperty('top', yadjusted + 'px');
-                    target.style.setProperty('width', '1px');
-                    target.style.setProperty('height', '1px');
+                    require(['core/pending'], function(Pending) {
+                        if (document.getElementById('target-{$x}-{$y}')) {
+                            return;
+                        }
+                        const pendingPromise = new Pending('qtype_ddmarker:drag-drop');
+                        const image = document.querySelector('.dropbackground');
+                        const target = document.createElement('div');
+                        target.setAttribute('id', 'target-{$x}-{$y}');
+                        const container = document.querySelector('.droparea');
+                        container.insertBefore(target, image);
+                        const widthRatio = image.offsetWidth / image.naturalWidth;
+                        const heightRatio = image.offsetHeight / image.naturalHeight;
+                        const marker = document.evaluate('{$markerxpath}', document, null, XPathResult.ANY_TYPE, null).iterateNext();
+                        marker.scrollIntoView();
+                        const xadjusted = {$x} * widthRatio
+                                        + (container.offsetWidth - image.offsetWidth) / 2
+                                        + marker.offsetWidth / 2;
+                        const yadjusted = {$y} * heightRatio
+                                        + (container.offsetHeight - image.offsetHeight) / 2
+                                        + marker.offsetHeight / 2;
+                        target.style.setProperty('position', 'absolute');
+                        target.style.setProperty('left', xadjusted + 'px');
+                        target.style.setProperty('top', yadjusted + 'px');
+                        target.style.setProperty('width', '1px');
+                        target.style.setProperty('height', '1px');
+                        pendingPromise.resolve();
+                    });
                 }())"
         );
 
         $generalcontext = behat_context_helper::get('behat_general');
-        $generalcontext->i_drag_and_i_drop_it_in($this->marker_xpath($marker),
+        $generalcontext->i_drag_and_i_drop_it_in($markerxpath,
                 'xpath_element', "#target-{$x}-{$y}", 'css_element');
     }
 
@@ -103,18 +117,11 @@ class behat_qtype_ddmarker extends behat_base {
      * @Given /^I type "(?P<direction>up|down|left|right)" "(?P<repeats>\d+)" times on marker "(?P<marker>[^"]*)" in the drag and drop markers question$/
      */
     public function i_type_on_marker_in_the_drag_and_drop_markers_question($direction, $repeats, $marker) {
-        $keycodes = array(
-            'up'    => chr(38),
-            'down'  => chr(40),
-            'left'  => chr(37),
-            'right' => chr(39),
-        );
         $node = $this->get_selected_node('xpath_element', $this->marker_xpath($marker, true));
         $this->ensure_node_is_visible($node);
+        $node->focus();
         for ($i = 0; $i < $repeats; $i++) {
-            $node->keyDown($keycodes[$direction]);
-            $node->keyPress($keycodes[$direction]);
-            $node->keyUp($keycodes[$direction]);
+            $this->execute('behat_general::i_press_named_key', ['', $direction]);
         }
     }
 }

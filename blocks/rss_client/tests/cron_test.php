@@ -14,32 +14,26 @@
 // You should have received a copy of the GNU General Public License
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
-/**
- * PHPunit tests for rss client cron.
- *
- * @package    block_rss_client
- * @copyright  2015 University of Nottingham
- * @author     Neill Magill <neill.magill@nottingham.ac.uk>
- * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
- */
+namespace block_rss_client;
+
 defined('MOODLE_INTERNAL') || die();
 require_once(__DIR__ . '/../../moodleblock.class.php');
 require_once(__DIR__ . '/../block_rss_client.php');
 
 /**
- * Class for the PHPunit tests for rss client cron.
+ * PHPunit tests for rss client cron.
  *
  * @package    block_rss_client
  * @copyright  2015 Universit of Nottingham
  * @author     Neill Magill <neill.magill@nottingham.ac.uk>
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
-class block_rss_client_cron_testcase extends advanced_testcase {
+class cron_test extends \advanced_testcase {
     /**
      * Test that when a record has a skipuntil time that is greater
      * than the current time the attempt is skipped.
      */
-    public function test_skip() {
+    public function test_skip(): void {
         global $DB, $CFG;
         $this->resetAfterTest();
         // Create a RSS feed record with a skip until time set to the future.
@@ -64,8 +58,8 @@ class block_rss_client_cron_testcase extends advanced_testcase {
         error_reporting($errorlevel);
 
         $cronoutput = ob_get_clean();
-        $this->assertContains('skipping until ' . userdate($record->skipuntil), $cronoutput);
-        $this->assertContains('0 feeds refreshed (took ', $cronoutput);
+        $this->assertStringContainsString('skipping until ' . userdate($record->skipuntil), $cronoutput);
+        $this->assertStringContainsString('0 feeds refreshed (took ', $cronoutput);
     }
 
     /**
@@ -73,7 +67,7 @@ class block_rss_client_cron_testcase extends advanced_testcase {
      *
      * @return  array
      */
-    public function skip_time_increase_provider() : array {
+    public function skip_time_increase_provider(): array {
         return [
             'Never failed' => [
                 'skiptime' => 0,
@@ -99,7 +93,7 @@ class block_rss_client_cron_testcase extends advanced_testcase {
      *
      * @dataProvider    skip_time_increase_provider
      */
-    public function test_error($skiptime, $skipuntil, $newvalue) {
+    public function test_error($skiptime, $skipuntil, $newvalue): void {
         global $DB, $CFG;
         $this->resetAfterTest();
 
@@ -121,11 +115,11 @@ class block_rss_client_cron_testcase extends advanced_testcase {
 
         // Run the scheduled task and have it fail.
         $task = $this->getMockBuilder(\block_rss_client\task\refreshfeeds::class)
-            ->setMethods(['fetch_feed'])
+            ->onlyMethods(['fetch_feed'])
             ->getMock();
 
         $piemock = $this->getMockBuilder(\moodle_simplepie::class)
-            ->setMethods(['error'])
+            ->onlyMethods(['error'])
             ->getMock();
 
         $piemock->method('error')

@@ -14,18 +14,10 @@
 // You should have received a copy of the GNU General Public License
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
-/**
- * Tests for class customfield_text
- *
- * @package    customfield_text
- * @copyright  2019 Marina Glancy
- * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
- */
+namespace customfield_text;
 
-defined('MOODLE_INTERNAL') || die();
-
-use customfield_text\field_controller;
-use customfield_text\data_controller;
+use core_customfield_generator;
+use core_customfield_test_instance_form;
 
 /**
  * Functional test for customfield_text
@@ -34,7 +26,7 @@ use customfield_text\data_controller;
  * @copyright  2019 Marina Glancy
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
-class customfield_text_plugin_testcase extends advanced_testcase {
+class plugin_test extends \advanced_testcase {
 
     /** @var stdClass[]  */
     private $courses = [];
@@ -48,14 +40,15 @@ class customfield_text_plugin_testcase extends advanced_testcase {
     /**
      * Tests set up.
      */
-    public function setUp() {
+    public function setUp(): void {
+        parent::setUp();
         $this->resetAfterTest();
 
         $this->cfcat = $this->get_generator()->create_category();
 
         $this->cfields[1] = $this->get_generator()->create_field(
             ['categoryid' => $this->cfcat->get('id'), 'shortname' => 'myfield1', 'type' => 'text',
-                'configdata' => ['maxlength' => 30, 'displaysize' => 50]]);
+                'configdata' => ['maxlength' => 30, 'displaysize' => 50], 'description' => null]);
         $this->cfields[2] = $this->get_generator()->create_field(
             ['categoryid' => $this->cfcat->get('id'), 'shortname' => 'myfield2', 'type' => 'text',
                 'configdata' => ['required' => 1, 'maxlength' => 30, 'displaysize' => 50]]);
@@ -82,14 +75,14 @@ class customfield_text_plugin_testcase extends advanced_testcase {
      * Get generator
      * @return core_customfield_generator
      */
-    protected function get_generator() : core_customfield_generator {
+    protected function get_generator(): core_customfield_generator {
         return $this->getDataGenerator()->get_plugin_generator('core_customfield');
     }
 
     /**
      * Test for initialising field and data controllers
      */
-    public function test_initialise() {
+    public function test_initialise(): void {
         $f = \core_customfield\field_controller::create($this->cfields[1]->get('id'));
         $this->assertTrue($f instanceof field_controller);
 
@@ -108,22 +101,23 @@ class customfield_text_plugin_testcase extends advanced_testcase {
      *
      * Create a configuration form and submit it with the same values as in the field
      */
-    public function test_config_form() {
+    public function test_config_form(): void {
+        $this->setAdminUser();
         $submitdata = (array)$this->cfields[1]->to_record();
         $submitdata['configdata'] = $this->cfields[1]->get('configdata');
 
-        \core_customfield\field_config_form::mock_submit($submitdata, []);
-        $handler = $this->cfcat->get_handler();
-        $form = $handler->get_field_config_form($this->cfields[1]);
+        $submitdata = \core_customfield\field_config_form::mock_ajax_submit($submitdata);
+        $form = new \core_customfield\field_config_form(null, null, 'post', '', null, true,
+            $submitdata, true);
+        $form->set_data_for_dynamic_submission();
         $this->assertTrue($form->is_validated());
-        $data = $form->get_data();
-        $handler->save_field_configuration($this->cfields[1], $data);
+        $form->process_dynamic_submission();
     }
 
     /**
      * Test for instance form functions
      */
-    public function test_instance_form() {
+    public function test_instance_form(): void {
         global $CFG;
         require_once($CFG->dirroot . '/customfield/tests/fixtures/test_instance_form.php');
         $this->setAdminUser();
@@ -152,12 +146,12 @@ class customfield_text_plugin_testcase extends advanced_testcase {
     /**
      * Test for data_controller::get_value and export_value
      */
-    public function test_get_export_value() {
+    public function test_get_export_value(): void {
         $this->assertEquals('Value1', $this->cfdata[1]->get_value());
         $this->assertEquals('Value1', $this->cfdata[1]->export_value());
 
         // Field without data but with a default value.
-        $d = core_customfield\data_controller::create(0, null, $this->cfields[3]);
+        $d = \core_customfield\data_controller::create(0, null, $this->cfields[3]);
         $this->assertEquals('Defvalue', $d->get_value());
         $this->assertEquals('Defvalue', $d->export_value());
 
@@ -170,7 +164,7 @@ class customfield_text_plugin_testcase extends advanced_testcase {
     /**
      * Deleting fields and data
      */
-    public function test_delete() {
+    public function test_delete(): void {
         $this->cfcat->get_handler()->delete_all();
     }
 }

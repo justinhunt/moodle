@@ -67,7 +67,7 @@ class provider implements
      * @param   collection     $items The initialised collection to add items to.
      * @return  collection     A listing of user data stored through this system.
      */
-    public static function get_metadata(collection $items) : collection {
+    public static function get_metadata(collection $items): collection {
         // The 'forum' table does not store any specific user data.
         $items->add_database_table('forum_digests', [
             'forum' => 'privacy:metadata:forum_digests:forum',
@@ -165,7 +165,7 @@ class provider implements
      * @param   int         $userid     The user to search.
      * @return  contextlist $contextlist  The contextlist containing the list of contexts used in this plugin.
      */
-    public static function get_contexts_for_userid(int $userid) : \core_privacy\local\request\contextlist {
+    public static function get_contexts_for_userid(int $userid): \core_privacy\local\request\contextlist {
         $contextlist = new \core_privacy\local\request\contextlist();
 
         $params = [
@@ -444,7 +444,7 @@ class provider implements
         $vaultfactory = \mod_forum\local\container::get_vault_factory();
         $discussionlistvault = $vaultfactory->get_discussions_in_forum_vault();
         $discussionlistsortorder = get_user_preferences('forum_discussionlistsortorder',
-            $discussionlistvault::SORTORDER_LASTPOST_DESC);
+            $discussionlistvault::SORTORDER_LASTPOST_DESC, $user->id);
         switch ($discussionlistsortorder) {
             case $discussionlistvault::SORTORDER_LASTPOST_DESC:
                 $discussionlistsortorderdescription = get_string('discussionlistsortbylastpostdesc',
@@ -468,6 +468,30 @@ class provider implements
                 break;
             case $discussionlistvault::SORTORDER_REPLIES_ASC:
                 $discussionlistsortorderdescription = get_string('discussionlistsortbyrepliesasc',
+                    'mod_forum');
+                break;
+            case $discussionlistvault::SORTORDER_DISCUSSION_DESC:
+                $discussionlistsortorderdescription = get_string('discussionlistsortbydiscussiondesc',
+                    'mod_forum');
+                break;
+            case $discussionlistvault::SORTORDER_DISCUSSION_ASC:
+                $discussionlistsortorderdescription = get_string('discussionlistsortbydiscussionasc',
+                    'mod_forum');
+                break;
+            case $discussionlistvault::SORTORDER_STARTER_DESC:
+                $discussionlistsortorderdescription = get_string('discussionlistsortbystarterdesc',
+                    'mod_forum');
+                break;
+            case $discussionlistvault::SORTORDER_STARTER_ASC:
+                $discussionlistsortorderdescription = get_string('discussionlistsortbystarterasc',
+                    'mod_forum');
+                break;
+            case $discussionlistvault::SORTORDER_GROUP_DESC:
+                $discussionlistsortorderdescription = get_string('discussionlistsortbygroupdesc',
+                    'mod_forum');
+                break;
+            case $discussionlistvault::SORTORDER_GROUP_ASC:
+                $discussionlistsortorderdescription = get_string('discussionlistsortbygroupasc',
                     'mod_forum');
                 break;
         }
@@ -634,7 +658,7 @@ class provider implements
              LEFT JOIN {groups} g ON g.id = d.groupid
              LEFT JOIN {forum_discussion_subs} dsub ON dsub.discussion = d.id AND dsub.userid = :dsubuserid
              LEFT JOIN {forum_posts} p ON p.discussion = d.id
-                 WHERE f.id ${foruminsql}
+                 WHERE f.id {$foruminsql}
                    AND (
                         d.userid    = :discussionuserid OR
                         p.userid    = :postuserid OR

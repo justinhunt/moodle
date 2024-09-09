@@ -45,7 +45,7 @@ class request_transform_test extends advanced_testcase {
      *
      * @covers ::user
      */
-    public function test_user() {
+    public function test_user(): void {
         // Note: This test currently sucks, but there's no point creating users just to test this.
         for ($i = 0; $i < 10; $i++) {
             $this->assertEquals($i, transform::user($i));
@@ -57,13 +57,13 @@ class request_transform_test extends advanced_testcase {
      *
      * @covers ::datetime
      */
-    public function test_datetime() {
+    public function test_datetime(): void {
         $time = 1;
 
         $datestr = transform::datetime($time);
 
         // Assert it is a string.
-        $this->assertInternalType('string', $datestr);
+        $this->assertIsString($datestr);
 
         // To prevent failures on MAC where we are returned with a lower-case 'am' we want to convert this to 'AM'.
         $datestr = str_replace('am', 'AM', $datestr);
@@ -79,13 +79,13 @@ class request_transform_test extends advanced_testcase {
      *
      * @covers ::date
      */
-    public function test_date() {
+    public function test_date(): void {
         $time = 1;
 
         $datestr = transform::date($time);
 
         // Assert it is a string.
-        $this->assertInternalType('string', $datestr);
+        $this->assertIsString($datestr);
 
         // Assert the formatted date is correct.
         $dateobj = new DateTime();
@@ -101,7 +101,7 @@ class request_transform_test extends advanced_testcase {
      * @param   string  $expected The expected value
      * @covers ::yesno
      */
-    public function test_yesno($input, $expected) {
+    public function test_yesno($input, $expected): void {
         $this->assertEquals($expected, transform::yesno($input));
     }
 

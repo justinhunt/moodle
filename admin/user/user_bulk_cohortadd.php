@@ -34,6 +34,9 @@ $dir  = optional_param('dir', 'asc', PARAM_ALPHA);
 admin_externalpage_setup('userbulk');
 require_capability('moodle/cohort:assign', context_system::instance());
 
+$returnurl = optional_param('returnurl', '', PARAM_LOCALURL);
+$return = new moodle_url($returnurl ?: '/admin/user/user_bulk.php');
+
 $users = $SESSION->bulk_users;
 
 $strnever = get_string('never');
@@ -60,11 +63,12 @@ foreach ($allcohorts as $c) {
 unset($allcohorts);
 
 if (count($cohorts) < 2) {
-    redirect(new moodle_url('/admin/user/user_bulk.php'), get_string('bulknocohort', 'core_cohort'));
+    redirect($return, get_string('bulknocohort', 'core_cohort'));
 }
 
 $countries = get_string_manager()->get_list_of_countries(true);
-$namefields = get_all_user_name_fields(true);
+$userfieldsapi = \core_user\fields::for_name();
+$namefields = $userfieldsapi->get_sql('', false, '', '', false)->selects;
 foreach ($users as $key => $id) {
     $user = $DB->get_record('user', array('id' => $id), 'id, ' . $namefields . ', username,
             email, country, lastaccess, city, deleted');
@@ -77,9 +81,10 @@ foreach ($users as $key => $id) {
 unset($countries);
 
 $mform = new user_bulk_cohortadd_form(null, $cohorts);
+$mform->set_data(['returnurl' => $returnurl]);
 
 if (empty($users) or $mform->is_cancelled()) {
-    redirect(new moodle_url('/admin/user/user_bulk.php'));
+    redirect($return);
 
 } else if ($data = $mform->get_data()) {
     // process request
@@ -88,7 +93,7 @@ if (empty($users) or $mform->is_cancelled()) {
             cohort_add_member($data->cohort, $user->id);
         }
     }
-    redirect(new moodle_url('/admin/user/user_bulk.php'));
+    redirect($return);
 }
 
 // Need to sort by date

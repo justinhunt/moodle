@@ -117,12 +117,13 @@ abstract class question_test_helper {
      */
     public static function get_question_editing_form($cat, $questiondata) {
         $catcontext = context::instance_by_id($cat->contextid, MUST_EXIST);
-        $contexts = new question_edit_contexts($catcontext);
+        $contexts = new core_question\local\bank\question_edit_contexts($catcontext);
         $dataforformconstructor = new stdClass();
         $dataforformconstructor->createdby = $questiondata->createdby;
         $dataforformconstructor->qtype = $questiondata->qtype;
         $dataforformconstructor->contextid = $questiondata->contextid = $catcontext->id;
         $dataforformconstructor->category = $questiondata->category = $cat->id;
+        $dataforformconstructor->status = $questiondata->status;
         $dataforformconstructor->formoptions = new stdClass();
         $dataforformconstructor->formoptions->canmove = true;
         $dataforformconstructor->formoptions->cansaveasnew = true;
@@ -178,8 +179,8 @@ class test_question_maker {
         $q->penalty = 0.3333333;
         $q->length = 1;
         $q->stamp = make_unique_id_code();
-        $q->version = make_unique_id_code();
-        $q->hidden = 0;
+        $q->status = \core_question\local\bank\question_version_status::QUESTION_STATUS_READY;
+        $q->version = 1;
         $q->timecreated = time();
         $q->timemodified = time();
         $q->createdby = $USER->id;
@@ -200,8 +201,8 @@ class test_question_maker {
         $qdata->penalty = 0.3333333;
         $qdata->length = 1;
         $qdata->stamp = make_unique_id_code();
-        $qdata->version = make_unique_id_code();
-        $qdata->hidden = 0;
+        $qdata->status = \core_question\local\bank\question_version_status::QUESTION_STATUS_READY;
+        $qdata->version = 1;
         $qdata->timecreated = time();
         $qdata->timemodified = time();
         $qdata->createdby = $USER->id;
@@ -479,15 +480,20 @@ abstract class data_loading_method_test_base extends advanced_testcase {
 
 abstract class question_testcase extends advanced_testcase {
 
+    /**
+     * Tolerance accepted in some unit tests when float operations are involved.
+     */
+    const GRADE_DELTA = 0.00000005;
+
     public function assert($expectation, $compare, $notused = '') {
 
         if (get_class($expectation) === 'question_pattern_expectation') {
-            $this->assertRegExp($expectation->pattern, $compare,
+            $this->assertMatchesRegularExpression($expectation->pattern, $compare,
                     'Expected regex ' . $expectation->pattern . ' not found in ' . $compare);
             return;
 
         } else if (get_class($expectation) === 'question_no_pattern_expectation') {
-            $this->assertNotRegExp($expectation->pattern, $compare,
+            $this->assertDoesNotMatchRegularExpression($expectation->pattern, $compare,
                     'Unexpected regex ' . $expectation->pattern . ' found in ' . $compare);
             return;
 
@@ -595,6 +601,19 @@ abstract class question_testcase extends advanced_testcase {
             }
         }
         return;
+    }
+
+    /**
+     * Check that 2 XML strings are the same, ignoring differences in line endings.
+     *
+     * @param string $expectedxml The expected XML string
+     * @param string $xml The XML string to check
+     */
+    public function assert_same_xml($expectedxml, $xml) {
+        $this->assertEquals(
+            phpunit_util::normalise_line_endings($expectedxml),
+            phpunit_util::normalise_line_endings($xml)
+        );
     }
 }
 
@@ -785,27 +804,30 @@ class question_no_pattern_expectation {
 abstract class qbehaviour_walkthrough_test_base extends question_testcase {
     /** @var question_display_options */
     protected $displayoptions;
+
     /** @var question_usage_by_activity */
     protected $quba;
-    /** @var integer */
 
+    /** @var int The slot number of the question_attempt we are using in $quba. */
     protected $slot;
+
     /**
      * @var string after {@link render()} has been called, this contains the
      * display of the question in its current state.
      */
     protected $currentoutput = '';
 
-    protected function setUp() {
+    protected function setUp(): void {
         parent::setUp();
-        $this->resetAfterTest(true);
+        $this->resetAfterTest();
+        $this->setAdminUser();
 
         $this->displayoptions = new question_display_options();
         $this->quba = question_engine::make_questions_usage_by_activity('unit_test',
             context_system::instance());
     }
 
-    protected function tearDown() {
+    protected function tearDown(): void {
         $this->displayoptions = null;
         $this->quba = null;
         parent::tearDown();
@@ -857,11 +879,11 @@ abstract class qbehaviour_walkthrough_test_base extends question_testcase {
         $this->quba->manual_grade($this->slot, $comment, $mark, $commentformat);
     }
 
-    protected function save_quba(moodle_database $db = null) {
+    protected function save_quba(?moodle_database $db = null) {
         question_engine::save_questions_usage_by_activity($this->quba, $db);
     }
 
-    protected function load_quba(moodle_database $db = null) {
+    protected function load_quba(?moodle_database $db = null) {
         $this->quba = question_engine::load_questions_usage_by_activity($this->quba->get_id(), $db);
     }
 
@@ -898,8 +920,8 @@ abstract class qbehaviour_walkthrough_test_base extends question_testcase {
                 // so explicity check not null in this case.
                 $this->assertNotNull($this->quba->get_question_mark($this->slot));
             }
-            $this->assertEquals($mark, $this->quba->get_question_mark($this->slot),
-                'Expected mark and actual mark differ.', 0.000001);
+            $this->assertEqualsWithDelta($mark, $this->quba->get_question_mark($this->slot),
+                 0.000001, 'Expected mark and actual mark differ.');
         }
     }
 
@@ -908,6 +930,7 @@ abstract class qbehaviour_walkthrough_test_base extends question_testcase {
      * $this->currentoutput so that it can be verified.
      */
     protected function render() {
+        $this->quba->preload_all_step_users();
         $this->currentoutput = $this->quba->render_question($this->slot, $this->displayoptions);
     }
 
@@ -974,13 +997,13 @@ abstract class qbehaviour_walkthrough_test_base extends question_testcase {
 
     protected function check_output_contains($string) {
         $this->render();
-        $this->assertContains($string, $this->currentoutput,
+        $this->assertStringContainsString($string, $this->currentoutput,
                 'Expected string ' . $string . ' not found in ' . $this->currentoutput);
     }
 
     protected function check_output_does_not_contain($string) {
         $this->render();
-        $this->assertNotContains($string, $this->currentoutput,
+        $this->assertStringNotContainsString($string, $this->currentoutput,
                 'String ' . $string . ' unexpectedly found in ' . $this->currentoutput);
     }
 
@@ -999,9 +1022,9 @@ abstract class qbehaviour_walkthrough_test_base extends question_testcase {
      * @param $condition one or more Expectations. (users varargs).
      */
     protected function check_current_output() {
-        $html = $this->quba->render_question($this->slot, $this->displayoptions);
+        $this->render();
         foreach (func_get_args() as $condition) {
-            $this->assert($condition, $html);
+            $this->assert($condition, $this->currentoutput);
         }
     }
 
@@ -1013,9 +1036,9 @@ abstract class qbehaviour_walkthrough_test_base extends question_testcase {
      * @param question_contains_select_expectation $expectations One or more expectations.
      */
     protected function check_output_contains_selectoptions(...$expectations) {
-        $html = $this->quba->render_question($this->slot, $this->displayoptions);
+        $this->render();
         foreach ($expectations as $expectation) {
-            $this->assert_select_options($expectation, $html);
+            $this->assert_select_options($expectation, $this->currentoutput);
         }
     }
 
@@ -1223,7 +1246,7 @@ abstract class qbehaviour_walkthrough_test_base extends question_testcase {
         } else if ($enabled === false) {
             $expectedattributes['disabled'] = 'disabled';
         }
-        return new question_contains_tag_with_attributes('input', $expectedattributes, $forbiddenattributes);
+        return new question_contains_tag_with_attributes('button', $expectedattributes, $forbiddenattributes);
     }
 
     /**
@@ -1300,6 +1323,24 @@ abstract class qbehaviour_walkthrough_test_base extends question_testcase {
         // Does not currently verify hint text.
         return new question_contains_tag_with_attribute('div', 'class', 'hint');
     }
+
+    /**
+     * Returns an expectation that a string contains a corrupted question notification.
+     *
+     * @return question_pattern_expectation an expectation for use with check_current_output.
+     */
+    protected function get_contains_corruption_notification() {
+        return new question_pattern_expectation('/' . preg_quote(get_string('corruptedquestion', 'qtype_multianswer'), '/') . '/');
+    }
+
+    /**
+     * Returns an expectation that a string contains a corrupted subquestion message.
+     *
+     * @return question_pattern_expectation an expectation for use with check_current_output.
+     */
+    protected function get_contains_corrupted_subquestion_message() {
+        return new question_pattern_expectation('/' . preg_quote(get_string('missingsubquestion', 'qtype_multianswer'), '/') . '/');
+    }
 }
 
 /**
@@ -1341,10 +1382,12 @@ class question_test_recordset extends moodle_recordset {
         $this->close();
     }
 
+    #[\ReturnTypeWillChange]
     public function current() {
         return (object) current($this->records);
     }
 
+    #[\ReturnTypeWillChange]
     public function key() {
         if (is_null(key($this->records))) {
             return false;
@@ -1353,11 +1396,11 @@ class question_test_recordset extends moodle_recordset {
         return reset($current);
     }
 
-    public function next() {
+    public function next(): void {
         next($this->records);
     }
 
-    public function valid() {
+    public function valid(): bool {
         return !is_null(key($this->records));
     }
 
@@ -1367,20 +1410,33 @@ class question_test_recordset extends moodle_recordset {
 }
 
 /**
- * Helper class for tests that help to test core_question_renderer.
+ * Provide utility function for random question test
  *
- * @copyright  2018 Huong Nguyen <huongnv13@gmail.com>
+ * @package   core_question
+ * @author     Nathan Nguyen <nathannguyen@catalyst-au.net>
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
-class testable_core_question_renderer extends core_question_renderer {
-
+class question_filter_test_helper {
     /**
-     * Test the private number function.
+     * Create filters base on provided values
      *
-     * @param null|string $number
-     * @return HTML
+     * @param array $categoryids question category filter
+     * @param bool $recursive subcategories filter
+     * @param array $qtagids tags filter
+     * @return array
      */
-    public function number($number) {
-        return parent::number($number);
+    public static function create_filters(array $categoryids, bool $recursive = false, array $qtagids = []): array {
+        $filters = [
+            'category' => [
+                'jointype' => \qbank_managecategories\category_condition::JOINTYPE_DEFAULT,
+                'values' => $categoryids,
+                'filteroptions' => ['includesubcategories' => $recursive],
+            ],
+            'qtagids' => [
+                'jointype' => \qbank_tagquestion\tag_condition::JOINTYPE_DEFAULT,
+                'values' => $qtagids,
+            ],
+        ];
+        return $filters;
     }
 }

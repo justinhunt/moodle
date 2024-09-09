@@ -23,6 +23,8 @@
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
+namespace core;
+
 defined('MOODLE_INTERNAL') || die();
 
 require_once(__DIR__.'/read_slave_moodle_database.php');
@@ -46,7 +48,7 @@ class read_slave_moodle_database_table_names extends read_slave_moodle_database 
      * @param string $sql
      * @return array
      */
-    public function table_names(string $sql) : array {
+    public function table_names(string $sql): array {
         return parent::table_names($sql);
     }
 }

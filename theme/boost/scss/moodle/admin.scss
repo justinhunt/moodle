@@ -16,18 +16,15 @@
 
 .environmenttable {
     .warn {
-        background-color: $state-warning-bg;
-        color: $state-warning-text;
+        @extend .alert-warning;
     }
 
     .error {
-        background-color: $state-danger-bg;
-        color: $state-danger-text;
+        @extend .alert-danger;
     }
 
     .ok {
-        background-color: $state-success-bg;
-        color: $state-success-text;
+        @extend .alert-success;
     }
 }
 
@@ -59,10 +56,6 @@
 
 .timewarninghidden {
     display: none;
-}
-
-#page-admin-report-capability-index #capabilitysearch {
-    width: 30em;
 }
 
 #page-admin-qtypes #qtypes div,
@@ -105,15 +98,16 @@
     text-align: left;
     margin-left: auto;
     margin-right: auto;
-    margin-top: $spacer-y;
+    margin-top: $spacer;
 }
 
 #page-admin-roles-define .topfields {
     margin: 1em 0 2em;
 }
 
+#page-admin-roles-override .capcurrent,
 #page-admin-roles-define .capdefault {
-    background-color: $table-bg-hover;
+    background-color: $table-hover-bg;
 }
 
 #page-filter-manage .backlink,
@@ -250,6 +244,21 @@
     margin: 0;
 }
 
+.path-admin,
+.format-site {
+    .header-maxwidth,
+    .secondary-navigation .navigation .nav-tabs {
+        max-width: none;
+    }
+}
+.path-admin.path-admin-roles:not(.format-site),
+.path-admin.path-admin-tool-lp {
+    .header-maxwidth,
+    .secondary-navigation .navigation .nav-tabs {
+        max-width: $course-content-maxwidth;
+    }
+}
+
 .plugincheckwrapper {
     width: 100%;
 }
@@ -293,8 +302,7 @@
     display: block;
 }
 
-#admin-spelllanguagelist textarea,
-#page-admin-setting-editorsettingstinymce .form-textarea textarea {
+#admin-spelllanguagelist textarea {
     /* rtl:ignore */
     text-align: left;
     /* rtl:ignore */
@@ -359,16 +367,6 @@
     width: 4em;
 }
 
-#adminthemeselector .selectedtheme td.c0 {
-    border: 1px solid $state-info-border;
-    border-right-width: 0;
-}
-
-#adminthemeselector .selectedtheme td.c1 {
-    border: 1px solid $state-info-border;
-    border-left-width: 0;
-}
-
 .admin_colourpicker,
 .admin_colourpicker_preview {
     display: none;
@@ -388,15 +386,15 @@
     }
     .admin_colourpicker .colourdialogue {
         float: left;
-        border: 1px solid $state-info-border;
+        border: 1px solid $input-border-color;
     }
     .admin_colourpicker .previewcolour {
-        border: 1px solid $state-info-border;
+        border: 1px solid $input-border-color;
         margin-left: 301px;
     }
 
     .admin_colourpicker .currentcolour {
-        border: 1px solid $state-info-border;
+        border: 1px solid $input-border-color;
         margin-left: 301px;
         border-top-width: 0;
     }
@@ -427,6 +425,11 @@
 
 #page-admin-index #notice .checkforupdates {
     text-align: center;
+}
+
+#page-admin-index #page-content .alert a {
+    font-weight: normal;
+    text-decoration: underline;
 }
 
 // Plugins overview page at admin/plugins.php
@@ -484,7 +487,7 @@
 
         .uninstall {
             a {
-                color: $state-danger-text;
+                color: $danger;
             }
         }
 
@@ -603,7 +606,7 @@
 
 #core-cache-rescan-definitions,
 #core-cache-mode-mappings .edit-link,
-#core-cache-lock-summary .new-instance {
+#core-cache-lock-additional-actions .new-instance {
     margin-top: 0.5em;
     text-align: center;
 }
@@ -650,5 +653,19 @@
     .task-class {
         font-size: $font-size-sm;
         color: $gray-600;
+    }
+}
+
+.path-admin-tool-uploaduser {
+    .uuwarning {
+        background-color: $state-warning-bg;
+    }
+
+    .uuerror {
+        background-color: $state-danger-bg;
+    }
+
+    .uuinfo {
+        background-color: $state-success-bg;
     }
 }

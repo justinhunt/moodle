@@ -22,37 +22,22 @@
  * @license   http://www.gnu.org/copyleft/gpl.html GNU Public License
  */
 
-defined('MOODLE_INTERNAL') || die();
-
 /**
  * Upgrade code for the popup message processor
  *
  * @param int $oldversion The version that we are upgrading from
  */
 function xmldb_message_popup_upgrade($oldversion) {
-    global $DB;
-
-    // Automatically generated Moodle v3.5.0 release upgrade line.
+    // Automatically generated Moodle v4.1.0 release upgrade line.
     // Put any upgrade step following this.
 
-    // Automatically generated Moodle v3.6.0 release upgrade line.
+    // Automatically generated Moodle v4.2.0 release upgrade line.
     // Put any upgrade step following this.
 
-    // Automatically generated Moodle v3.7.0 release upgrade line.
+    // Automatically generated Moodle v4.3.0 release upgrade line.
     // Put any upgrade step following this.
 
-    // Automatically generated Moodle v3.8.0 release upgrade line.
-    // Put any upgrade step following this.
-
-    if ($oldversion < 2020020600) {
-        // Clean up orphaned popup notification records.
-        $DB->delete_records_select('message_popup_notifications', 'notificationid NOT IN (SELECT id FROM {notifications})');
-
-        // Reportbuilder savepoint reached.
-        upgrade_plugin_savepoint(true, 2020020600, 'message', 'popup');
-    }
-
-    // Automatically generated Moodle v3.9.0 release upgrade line.
+    // Automatically generated Moodle v4.4.0 release upgrade line.
     // Put any upgrade step following this.
 
     return true;

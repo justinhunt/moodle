@@ -34,12 +34,12 @@ use context_module;
  * @copyright  2020 Ferran Recio <ferran@moodle.com>
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
-class statement_received_testcase extends advanced_testcase {
+class statement_received_test extends advanced_testcase {
 
     /**
      * Test statement_recieved event.
      */
-    public function test_statement_received() {
+    public function test_statement_received(): void {
         global $USER;
 
         $this->resetAfterTest();
@@ -72,9 +72,6 @@ class statement_received_testcase extends advanced_testcase {
         $this->assertInstanceOf('\mod_h5pactivity\event\statement_received', $event);
         $this->assertEquals(context_module::instance($activity->cmid), $event->get_context());
         $this->assertEquals($activity->id, $event->objectid);
-        $expected = [$course->id, 'h5pactivity', 'statement received',
-            'grade.php?user=' . $USER->id, 0, $activity->cmid];
-        $this->assertEventLegacyLogData($expected, $event);
         $this->assertEventContextNotUsed($event);
     }
 }

@@ -14,13 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
-/**
- * Search engine base unit tests.
- *
- * @package     core_search
- * @copyright   2017 Matt Porritt <mattp@catalyst-au.net>
- * @license     http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
- */
+namespace core_search;
 
 defined('MOODLE_INTERNAL') || die();
 
@@ -35,7 +29,7 @@ require_once($CFG->dirroot . '/search/tests/fixtures/mock_search_area.php');
  * @copyright   2017 Matt Porritt <mattp@catalyst-au.net>
  * @license     http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
-class search_base_testcase extends advanced_testcase {
+class base_test extends \advanced_testcase {
     /**
      * @var \core_search::manager
      */
@@ -51,30 +45,32 @@ class search_base_testcase extends advanced_testcase {
      */
     protected $engine = null;
 
-    public function setUp() {
+    public function setUp(): void {
+        parent::setUp();
         $this->resetAfterTest();
         set_config('enableglobalsearch', true);
 
         // Set \core_search::instance to the mock_search_engine as we don't require the search engine to be working to test this.
-        $search = testable_core_search::instance();
+        $search = \testable_core_search::instance();
 
         $this->generator = self::getDataGenerator()->get_plugin_generator('core_search');
         $this->generator->setup();
     }
 
-    public function tearDown() {
+    public function tearDown(): void {
         // For unit tests before PHP 7, teardown is called even on skip. So only do our teardown if we did setup.
         if ($this->generator) {
             // Moodle DML freaks out if we don't teardown the temp table after each run.
             $this->generator->teardown();
             $this->generator = null;
         }
+        parent::tearDown();
     }
 
     /**
      * Test base get search fileareas
      */
-    public function test_get_search_fileareas_base() {
+    public function test_get_search_fileareas_base(): void {
 
         $builder = $this->getMockBuilder('\core_search\base');
         $builder->disableOriginalConstructor();
@@ -88,7 +84,7 @@ class search_base_testcase extends advanced_testcase {
     /**
      * Test base attach files
      */
-    public function test_attach_files_base() {
+    public function test_attach_files_base(): void {
         $filearea = 'search';
         $component = 'mod_test';
 
@@ -107,7 +103,7 @@ class search_base_testcase extends advanced_testcase {
         // Construct the search document.
         $rec = new \stdClass();
         $rec->contextid = 1;
-        $area = new core_mocksearch\search\mock_search_area();
+        $area = new \core_mocksearch\search\mock_search_area();
         $record = $this->generator->create_record($rec);
         $document = $area->get_document($record);
 
@@ -115,7 +111,7 @@ class search_base_testcase extends advanced_testcase {
         // with required methods stubbed.
         $builder = $this->getMockBuilder('\core_search\base');
         $builder->disableOriginalConstructor();
-        $builder->setMethods(array('get_search_fileareas', 'get_component_name'));
+        $builder->onlyMethods(array('get_search_fileareas', 'get_component_name'));
         $stub = $builder->getMockForAbstractClass();
         $stub->method('get_search_fileareas')->willReturn(array($filearea));
         $stub->method('get_component_name')->willReturn($component);
@@ -134,8 +130,8 @@ class search_base_testcase extends advanced_testcase {
     /**
      * Tests the base version (stub) of get_contexts_to_reindex.
      */
-    public function test_get_contexts_to_reindex() {
-        $area = new core_mocksearch\search\mock_search_area();
+    public function test_get_contexts_to_reindex(): void {
+        $area = new \core_mocksearch\search\mock_search_area();
         $this->assertEquals([\context_system::instance()],
                 iterator_to_array($area->get_contexts_to_reindex(), false));
     }
@@ -143,7 +139,7 @@ class search_base_testcase extends advanced_testcase {
     /**
      * Test default document icon.
      */
-    public function test_get_default_doc_icon() {
+    public function test_get_default_doc_icon(): void {
         $basearea = $this->getMockBuilder('\core_search\base')
             ->disableOriginalConstructor()
             ->getMockForAbstractClass();
@@ -161,7 +157,7 @@ class search_base_testcase extends advanced_testcase {
     /**
      * Test base search area category names.
      */
-    public function test_get_category_names() {
+    public function test_get_category_names(): void {
         $builder = $this->getMockBuilder('\core_search\base');
         $builder->disableOriginalConstructor();
         $stub = $builder->getMockForAbstractClass();
@@ -173,7 +169,7 @@ class search_base_testcase extends advanced_testcase {
     /**
      * Test getting all required search area setting names.
      */
-    public function test_get_settingnames() {
+    public function test_get_settingnames(): void {
         $expected = array('_enabled', '_indexingstart', '_indexingend', '_lastindexrun',
             '_docsignored', '_docsprocessed', '_recordsprocessed', '_partial');
         $this->assertEquals($expected, \core_search\base::get_settingnames());

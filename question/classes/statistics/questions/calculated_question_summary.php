@@ -23,7 +23,10 @@
  */
 
 namespace core_question\statistics\questions;
+
 defined('MOODLE_INTERNAL') || die();
+
+require_once($CFG->dirroot . '/question/engine/lib.php');
 
 /**
  * Class calculated_question_summary
@@ -114,7 +117,7 @@ class calculated_question_summary extends calculated {
         $set = false;
 
         foreach ($this->subqstats as $subqstat) {
-            if (isset($subqstat->sd) && $subqstat->maxmark) {
+            if (isset($subqstat->sd) && $subqstat->maxmark > \question_utils::MARK_TOLERANCE) {
                 $value = $subqstat->sd / $subqstat->maxmark;
             } else {
                 $value = null;
@@ -143,7 +146,7 @@ class calculated_question_summary extends calculated {
      * @param float|null $value2
      * @return float|null
      */
-    protected function max(float $value1 = null, float $value2 = null) {
+    protected function max(?float $value1 = null, ?float $value2 = null) {
         $temp1 = $value1 ?: 0;
         $temp2 = $value2 ?: 0;
 
@@ -167,7 +170,7 @@ class calculated_question_summary extends calculated {
      * @param float|null $value2
      * @return mixed|null
      */
-    protected function min(float $value1 = null, float $value2 = null) {
+    protected function min(?float $value1 = null, ?float $value2 = null) {
         $temp1 = $value1 ?: 0;
         $temp2 = $value2 ?: 0;
 

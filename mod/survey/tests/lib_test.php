@@ -23,6 +23,7 @@
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  * @since      Moodle 3.0
  */
+namespace mod_survey;
 
 defined('MOODLE_INTERNAL') || die();
 
@@ -36,22 +37,33 @@ defined('MOODLE_INTERNAL') || die();
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  * @since      Moodle 3.0
  */
-class mod_survey_lib_testcase extends advanced_testcase {
+class lib_test extends \advanced_testcase {
 
     /**
      * Prepares things before this test case is initialised
      * @return void
      */
-    public static function setUpBeforeClass() {
+    public static function setUpBeforeClass(): void {
         global $CFG;
         require_once($CFG->dirroot . '/mod/survey/lib.php');
+        parent::setUpBeforeClass();
+    }
+
+    /**
+     * Setup testcase.
+     */
+    public function setUp(): void {
+        parent::setUp();
+        // Survey module is disabled by default, enable it for testing.
+        $manager = \core_plugin_manager::resolve_plugininfo_class('mod');
+        $manager::enable_plugin('survey', 1);
     }
 
     /**
      * Test survey_view
      * @return void
      */
-    public function test_survey_view() {
+    public function test_survey_view(): void {
         global $CFG;
 
         $CFG->enablecompletion = 1;
@@ -62,7 +74,7 @@ class mod_survey_lib_testcase extends advanced_testcase {
         $course = $this->getDataGenerator()->create_course(array('enablecompletion' => 1));
         $survey = $this->getDataGenerator()->create_module('survey', array('course' => $course->id),
                                                             array('completion' => 2, 'completionview' => 1));
-        $context = context_module::instance($survey->cmid);
+        $context = \context_module::instance($survey->cmid);
         $cm = get_coursemodule_from_instance('survey', $survey->id);
 
         // Trigger and capture the event.
@@ -84,7 +96,7 @@ class mod_survey_lib_testcase extends advanced_testcase {
         $this->assertEventContextNotUsed($event);
         $this->assertNotEmpty($event->get_name());
         // Check completion status.
-        $completion = new completion_info($course);
+        $completion = new \completion_info($course);
         $completiondata = $completion->get_data($cm);
         $this->assertEquals(1, $completiondata->completionstate);
 
@@ -93,7 +105,7 @@ class mod_survey_lib_testcase extends advanced_testcase {
     /**
      * Test survey_order_questions
      */
-    public function test_survey_order_questions() {
+    public function test_survey_order_questions(): void {
         global $DB;
 
         $this->resetAfterTest();
@@ -114,7 +126,7 @@ class mod_survey_lib_testcase extends advanced_testcase {
     /**
      * Test survey_save_answers
      */
-    public function test_survey_save_answers() {
+    public function test_survey_save_answers(): void {
         global $DB;
 
         $this->resetAfterTest();
@@ -123,7 +135,7 @@ class mod_survey_lib_testcase extends advanced_testcase {
         // Setup test data.
         $course = $this->getDataGenerator()->create_course();
         $survey = $this->getDataGenerator()->create_module('survey', array('course' => $course->id));
-        $context = context_module::instance($survey->cmid);
+        $context = \context_module::instance($survey->cmid);
 
         // Build our questions and responses array.
         $realquestions = array();
@@ -167,7 +179,7 @@ class mod_survey_lib_testcase extends advanced_testcase {
         $this->assertEquals($survey->id, $event->other['surveyid']);
     }
 
-    public function test_survey_core_calendar_provide_event_action() {
+    public function test_survey_core_calendar_provide_event_action(): void {
         $this->resetAfterTest();
         $this->setAdminUser();
 
@@ -193,7 +205,7 @@ class mod_survey_lib_testcase extends advanced_testcase {
         $this->assertTrue($actionevent->is_actionable());
     }
 
-    public function test_survey_core_calendar_provide_event_action_for_user() {
+    public function test_survey_core_calendar_provide_event_action_for_user(): void {
         global $CFG;
 
         $this->resetAfterTest();
@@ -228,7 +240,7 @@ class mod_survey_lib_testcase extends advanced_testcase {
         $this->assertTrue($actionevent->is_actionable());
     }
 
-    public function test_survey_core_calendar_provide_event_action_as_non_user() {
+    public function test_survey_core_calendar_provide_event_action_as_non_user(): void {
         global $CFG;
 
         $this->resetAfterTest();
@@ -256,7 +268,7 @@ class mod_survey_lib_testcase extends advanced_testcase {
         $this->assertNull($actionevent);
     }
 
-    public function test_survey_core_calendar_provide_event_action_already_completed() {
+    public function test_survey_core_calendar_provide_event_action_already_completed(): void {
         global $CFG;
 
         $this->resetAfterTest();
@@ -277,7 +289,7 @@ class mod_survey_lib_testcase extends advanced_testcase {
             \core_completion\api::COMPLETION_EVENT_TYPE_DATE_COMPLETION_EXPECTED);
 
         // Mark the activity as completed.
-        $completion = new completion_info($course);
+        $completion = new \completion_info($course);
         $completion->set_module_viewed($cm);
 
         // Create an action factory.
@@ -290,7 +302,7 @@ class mod_survey_lib_testcase extends advanced_testcase {
         $this->assertNull($actionevent);
     }
 
-    public function test_survey_core_calendar_provide_event_action_already_completed_for_user() {
+    public function test_survey_core_calendar_provide_event_action_already_completed_for_user(): void {
         global $CFG;
 
         $this->resetAfterTest();
@@ -315,7 +327,7 @@ class mod_survey_lib_testcase extends advanced_testcase {
             \core_completion\api::COMPLETION_EVENT_TYPE_DATE_COMPLETION_EXPECTED);
 
         // Mark the activity as completed for the $student1.
-        $completion = new completion_info($course);
+        $completion = new \completion_info($course);
         $completion->set_module_viewed($cm, $student1->id);
 
         // Now log in as $student2.
@@ -340,7 +352,7 @@ class mod_survey_lib_testcase extends advanced_testcase {
      * @return bool|calendar_event
      */
     private function create_action_event($courseid, $instanceid, $eventtype) {
-        $event = new stdClass();
+        $event = new \stdClass();
         $event->name = 'Calendar event';
         $event->modulename  = 'survey';
         $event->courseid = $courseid;
@@ -349,7 +361,7 @@ class mod_survey_lib_testcase extends advanced_testcase {
         $event->eventtype = $eventtype;
         $event->timestart = time();
 
-        return calendar_event::create($event);
+        return \calendar_event::create($event);
     }
 
     /**
@@ -357,7 +369,7 @@ class mod_survey_lib_testcase extends advanced_testcase {
      * This function should work given either an instance of the module (cm_info), such as when checking the active rules,
      * or if passed a stdClass of similar structure, such as when checking the the default completion settings for a mod type.
      */
-    public function test_mod_survey_completion_get_active_rule_descriptions() {
+    public function test_mod_survey_completion_get_active_rule_descriptions(): void {
         $this->resetAfterTest();
         $this->setAdminUser();
 
@@ -373,13 +385,13 @@ class mod_survey_lib_testcase extends advanced_testcase {
             'completion' => 2,
             'completionsubmit' => 0,
         ]);
-        $cm1 = cm_info::create(get_coursemodule_from_instance('survey', $survey1->id));
-        $cm2 = cm_info::create(get_coursemodule_from_instance('survey', $survey2->id));
+        $cm1 = \cm_info::create(get_coursemodule_from_instance('survey', $survey1->id));
+        $cm2 = \cm_info::create(get_coursemodule_from_instance('survey', $survey2->id));
 
         // Data for the stdClass input type.
         // This type of input would occur when checking the default completion rules for an activity type, where we don't have
         // any access to cm_info, rather the input is a stdClass containing completion and customdata attributes, just like cm_info.
-        $moddefaults = new stdClass();
+        $moddefaults = new \stdClass();
         $moddefaults->customdata = ['customcompletionrules' => ['completionsubmit' => 1]];
         $moddefaults->completion = 2;
 
@@ -387,6 +399,6 @@ class mod_survey_lib_testcase extends advanced_testcase {
         $this->assertEquals(mod_survey_get_completion_active_rule_descriptions($cm1), $activeruledescriptions);
         $this->assertEquals(mod_survey_get_completion_active_rule_descriptions($cm2), []);
         $this->assertEquals(mod_survey_get_completion_active_rule_descriptions($moddefaults), $activeruledescriptions);
-        $this->assertEquals(mod_survey_get_completion_active_rule_descriptions(new stdClass()), []);
+        $this->assertEquals(mod_survey_get_completion_active_rule_descriptions(new \stdClass()), []);
     }
 }

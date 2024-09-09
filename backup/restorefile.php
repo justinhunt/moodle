@@ -48,13 +48,23 @@ if (!empty($filecontextid)) {
 
 $url = new moodle_url('/backup/restorefile.php', array('contextid'=>$contextid));
 
+$PAGE->set_url($url);
+$PAGE->set_context($context);
+
 switch ($context->contextlevel) {
+    case CONTEXT_COURSECAT:
+        core_course_category::page_setup();
+        break;
     case CONTEXT_MODULE:
-        $heading = get_string('restoreactivity', 'backup');
+        $PAGE->set_heading(get_string('restoreactivity', 'backup'));
         break;
     case CONTEXT_COURSE:
+        $course = get_course($context->instanceid);
+        $PAGE->set_heading($course->fullname);
+        $PAGE->set_secondary_active_tab('coursereuse');
+        break;
     default:
-        $heading = get_string('restorecourse', 'backup');
+        $PAGE->set_heading($SITE->fullname);
 }
 
 
@@ -109,11 +119,9 @@ if ($action == 'choosebackupfile') {
     die;
 }
 
-$PAGE->set_url($url);
-$PAGE->set_context($context);
 $PAGE->set_title(get_string('course') . ': ' . $coursefullname);
-$PAGE->set_heading($heading);
 $PAGE->set_pagelayout('admin');
+$PAGE->activityheader->disable();
 $PAGE->requires->js_call_amd('core_backup/async_backup', 'asyncBackupAllStatus', array($context->id));
 
 $form = new course_restore_form(null, array('contextid'=>$contextid));
@@ -130,6 +138,8 @@ if ($data && has_capability('moodle/restore:uploadfile', $context)) {
 }
 
 echo $OUTPUT->header();
+\backup_helper::print_coursereuse_selector('restore');
+echo html_writer::tag('div', get_string('restoreinfo'), ['class' => 'pb-3']);
 
 // require uploadfile cap to use file picker
 if (has_capability('moodle/restore:uploadfile', $context)) {
@@ -139,60 +149,58 @@ if (has_capability('moodle/restore:uploadfile', $context)) {
     echo $OUTPUT->container_end();
 }
 
+// Activity backup area.
 if ($context->contextlevel == CONTEXT_MODULE) {
-    echo $OUTPUT->heading_with_help(get_string('choosefilefromactivitybackup', 'backup'), 'choosefilefromuserbackup', 'backup');
-    echo $OUTPUT->container_start();
-    $treeview_options = array();
-    $user_context = context_user::instance($USER->id);
-    $treeview_options['filecontext'] = $context;
-    $treeview_options['currentcontext'] = $context;
-    $treeview_options['component']   = 'backup';
-    $treeview_options['context']     = $context;
-    $treeview_options['filearea']    = 'activity';
+    $treeviewoptions = [
+        'filecontext' => $context,
+        'currentcontext' => $context,
+        'component' => 'backup',
+        'context' => $context,
+        'filearea' => 'activity',
+    ];
     $renderer = $PAGE->get_renderer('core', 'backup');
-    echo $renderer->backup_files_viewer($treeview_options);
-    echo $OUTPUT->container_end();
+    echo $renderer->backup_files_viewer($treeviewoptions);
+    // Update the course context with the proper value, because $context contains the module context.
+    $coursecontext = \context_course::instance($course->id);
+} else {
+    $coursecontext = $context;
 }
 
-echo $OUTPUT->heading_with_help(get_string('choosefilefromcoursebackup', 'backup'), 'choosefilefromcoursebackup', 'backup');
-echo $OUTPUT->container_start();
-$treeview_options = array();
-$treeview_options['filecontext'] = $context;
-$treeview_options['currentcontext'] = $context;
-$treeview_options['component']   = 'backup';
-$treeview_options['context']     = $context;
-$treeview_options['filearea']    = 'course';
+// Course backup area.
+$treeviewoptions = [
+    'filecontext' => $coursecontext,
+    'currentcontext' => $context,
+    'component' => 'backup',
+    'context' => $context,
+    'filearea' => 'course',
+];
 $renderer = $PAGE->get_renderer('core', 'backup');
-echo $renderer->backup_files_viewer($treeview_options);
-echo $OUTPUT->container_end();
+echo $renderer->backup_files_viewer($treeviewoptions);
 
-echo $OUTPUT->heading_with_help(get_string('choosefilefromuserbackup', 'backup'), 'choosefilefromuserbackup', 'backup');
-echo $OUTPUT->container_start();
-$treeview_options = array();
-$user_context = context_user::instance($USER->id);
-$treeview_options['filecontext'] = $user_context;
-$treeview_options['currentcontext'] = $context;
-$treeview_options['component']   = 'user';
-$treeview_options['context']     = 'backup';
-$treeview_options['filearea']    = 'backup';
+// Private backup area.
+$usercontext = context_user::instance($USER->id);
+$treeviewoptions = [
+    'filecontext' => $usercontext,
+    'currentcontext' => $context,
+    'component' => 'user',
+    'context' => 'backup',
+    'filearea' => 'backup',
+];
 $renderer = $PAGE->get_renderer('core', 'backup');
-echo $renderer->backup_files_viewer($treeview_options);
-echo $OUTPUT->container_end();
+echo $renderer->backup_files_viewer($treeviewoptions);
 
+// Automated backup area.
 $automatedbackups = get_config('backup', 'backup_auto_active');
 if (!empty($automatedbackups)) {
-    echo $OUTPUT->heading_with_help(get_string('choosefilefromautomatedbackup', 'backup'), 'choosefilefromautomatedbackup', 'backup');
-    echo $OUTPUT->container_start();
-    $treeview_options = array();
-    $user_context = context_user::instance($USER->id);
-    $treeview_options['filecontext'] = $context;
-    $treeview_options['currentcontext'] = $context;
-    $treeview_options['component']   = 'backup';
-    $treeview_options['context']     = $context;
-    $treeview_options['filearea']    = 'automated';
+    $treeviewoptions = [
+        'filecontext' => $context,
+        'currentcontext' => $context,
+        'component' => 'backup',
+        'context' => $context,
+        'filearea' => 'automated',
+    ];
     $renderer = $PAGE->get_renderer('core', 'backup');
-    echo $renderer->backup_files_viewer($treeview_options);
-    echo $OUTPUT->container_end();
+    echo $renderer->backup_files_viewer($treeviewoptions);
 }
 
 // In progress course restores.

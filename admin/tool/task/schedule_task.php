@@ -28,18 +28,6 @@ define('NO_OUTPUT_BUFFERING', true);
 
 require('../../../config.php');
 
-require_once($CFG->libdir.'/cronlib.php');
-
-/**
- * Function used to handle mtrace by outputting the text to normal browser window.
- *
- * @param string $message Message to output
- * @param string $eol End of line character
- */
-function tool_task_mtrace_wrapper($message, $eol) {
-    echo s($message . $eol);
-}
-
 // Allow execution of single task. This requires login and has different rules.
 $taskname = required_param('task', PARAM_RAW_TRIMMED);
 
@@ -47,22 +35,32 @@ $taskname = required_param('task', PARAM_RAW_TRIMMED);
 require_admin();
 $context = context_system::instance();
 
-if (!get_config('tool_task', 'enablerunnow')) {
-    print_error('nopermissions', 'error', '', get_string('runnow', 'tool_task'));
-}
-
 // Check input parameter against all existing tasks (this ensures it isn't possible to
 // create some kind of security problem by specifying a class that isn't a task or whatever).
 $task = \core\task\manager::get_scheduled_task($taskname);
 if (!$task) {
-    print_error('cannotfindinfo', 'error', $taskname);
+    throw new moodle_exception('cannotfindinfo', 'error', new moodle_url('/admin/tool/task/scheduledtasks.php'), $taskname);
+}
+
+if (!\core\task\manager::is_runnable()) {
+    $redirecturl = new \moodle_url('/admin/settings.php', ['section' => 'systempaths']);
+    throw new moodle_exception('cannotfindthepathtothecli', 'tool_task', $redirecturl->out());
+}
+
+if (!get_config('tool_task', 'enablerunnow') || !$task->can_run()) {
+    throw new moodle_exception('nopermissions', 'error', new moodle_url('/admin/tool/task/scheduledtasks.php'),
+        get_string('runnow', 'tool_task'), $task->get_name());
 }
 
 // Start output.
-$PAGE->set_url(new moodle_url('/admin/tool/task/schedule_task.php'));
+$PAGE->set_url(new moodle_url('/admin/tool/task/schedule_task.php', ['task' => $taskname]));
 $PAGE->set_context($context);
-$PAGE->navbar->add(get_string('scheduledtasks', 'tool_task'), new moodle_url('/admin/tool/task/scheduledtasks.php'));
+$PAGE->set_heading($SITE->fullname);
+$PAGE->set_title($task->get_name());
+
+navigation_node::override_active_url(new moodle_url('/admin/tool/task/scheduledtasks.php'));
 $PAGE->navbar->add(s($task->get_name()));
+
 echo $OUTPUT->header();
 echo $OUTPUT->heading($task->get_name());
 
@@ -83,13 +81,19 @@ if (!optional_param('confirm', 0, PARAM_INT)) {
 // Action requires session key.
 require_sesskey();
 
+\core\session\manager::write_close();
+
+// Prepare for streamed output.
+echo $OUTPUT->footer();
+echo $OUTPUT->select_element_for_append();
+
 // Prepare to handle output via mtrace.
-echo html_writer::start_tag('pre');
+require_once("{$CFG->dirroot}/{$CFG->admin}/tool/task/lib.php");
+echo html_writer::start_tag('pre', ['class' => 'task-output', 'style' => 'min-height: 24lh']);
 $CFG->mtrace_wrapper = 'tool_task_mtrace_wrapper';
 
 // Run the specified task (this will output an error if it doesn't exist).
 \core\task\manager::run_from_cli($task);
-
 echo html_writer::end_tag('pre');
 
 $output = $PAGE->get_renderer('tool_task');
@@ -100,4 +104,3 @@ echo $OUTPUT->single_button(new moodle_url('/admin/tool/task/schedule_task.php',
         get_string('runagain', 'tool_task'));
 echo $output->link_back(get_class($task));
 
-echo $OUTPUT->footer();

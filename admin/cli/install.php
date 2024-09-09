@@ -74,6 +74,8 @@ Options:
 --adminpass=PASSWORD  Password for the moodle admin account,
                       required in non-interactive mode.
 --adminemail=STRING   Email address for the moodle admin account.
+--sitepreset=STRING   Admin site preset to be applied during the installation process.
+--supportemail=STRING Email address for support and help.
 --upgradekey=STRING   The upgrade key to be set in the config.php, leave empty to not set it.
 --non-interactive     No interactive questions, installation fails if any
                       problem encountered.
@@ -170,11 +172,16 @@ $CFG->debugdeveloper       = true;
 $parts = explode('/', str_replace('\\', '/', dirname(__DIR__)));
 $CFG->admin                = array_pop($parts);
 
-//point pear include path to moodles lib/pear so that includes and requires will search there for files before anywhere else
-//the problem is that we need specific version of quickforms and hacked excel files :-(
+// Point pear include path to moodles lib/pear so that includes and requires will search there for files before anywhere else
+// the problem is that we need specific version of quickforms and hacked excel files :-(.
 ini_set('include_path', $CFG->libdir.'/pear' . PATH_SEPARATOR . ini_get('include_path'));
 
+// The core_component class can be used in any scripts, it does not need anything else.
 require_once($CFG->libdir.'/classes/component.php');
+
+// Register our classloader.
+\core\component::register_autoloader();
+
 require_once($CFG->libdir.'/classes/text.php');
 require_once($CFG->libdir.'/classes/string_manager.php');
 require_once($CFG->libdir.'/classes/string_manager_install.php');
@@ -188,15 +195,6 @@ require_once($CFG->libdir.'/moodlelib.php');
 require_once($CFG->libdir.'/deprecatedlib.php');
 require_once($CFG->libdir.'/adminlib.php');
 require_once($CFG->libdir.'/componentlib.class.php');
-require_once($CFG->dirroot.'/cache/lib.php');
-
-// Register our classloader, in theory somebody might want to replace it to load other hacked core classes.
-// Required because the database checks below lead to session interaction which is going to lead us to requiring autoloaded classes.
-if (defined('COMPONENT_CLASSLOADER')) {
-    spl_autoload_register(COMPONENT_CLASSLOADER);
-} else {
-    spl_autoload_register('core_component::classloader');
-}
 
 require($CFG->dirroot.'/version.php');
 $CFG->target_release = $release;
@@ -254,6 +252,8 @@ list($options, $unrecognized) = cli_get_params(
         'adminuser'         => 'admin',
         'adminpass'         => '',
         'adminemail'        => '',
+        'sitepreset'        => '',
+        'supportemail'      => '',
         'upgradekey'        => '',
         'non-interactive'   => false,
         'agree-license'     => false,
@@ -274,6 +274,12 @@ $lang = clean_param($options['lang'], PARAM_SAFEDIR);
 $languages = get_string_manager()->get_list_of_translations();
 if (array_key_exists($lang, $languages)) {
     $CFG->lang = $lang;
+}
+
+// Set up site admin preset.
+$sitepreset = clean_param($options['sitepreset'], PARAM_RAW);
+if (!empty($sitepreset)) {
+    $CFG->setsitepresetduringinstall = $sitepreset;
 }
 
 if ($unrecognized) {
@@ -729,6 +735,20 @@ if (!$skipdatabase) {
     // Validate that the address provided was an e-mail address.
     if (!empty($options['adminemail']) && !validate_email($options['adminemail'])) {
         $a = (object)['option' => 'adminemail', 'value' => $options['adminemail']];
+        cli_error(get_string('cliincorrectvalueerror', 'admin', $a));
+    }
+
+    // Ask for the support email address.
+    if ($interactive) {
+        cli_separator();
+        cli_heading(get_string('clisupportemail', 'install'));
+        $prompt = get_string('clitypevaluedefault', 'admin', $options['supportemail']);
+        $options['supportemail'] = cli_input($prompt, $options['supportemail']);
+    }
+
+    // Validate that the support email address provided is valid.
+    if (!empty($options['supportemail']) && !validate_email($options['supportemail'])) {
+        $a = (object)['option' => 'supportemail', 'value' => $options['supportemail']];
         cli_error(get_string('cliincorrectvalueerror', 'admin', $a));
     }
 }

@@ -20,6 +20,9 @@
  * @copyright  2014 Nikita Nikitsky, Volgograd State Technical University
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
+
+use core_question\local\bank\question_edit_contexts;
+
 defined('MOODLE_INTERNAL') || die();
 global $CFG;
 require_once($CFG->libdir . '/questionlib.php');
@@ -42,15 +45,11 @@ class qformat_xml_import_export_test extends advanced_testcase {
      * @return qformat_xml XML question format object.
      */
     public function create_qformat($filename, $course) {
-        global $DB;
         $qformat = new qformat_xml();
-        $contexts = $DB->get_records('context');
-        $importfile = __DIR__ . '/fixtures/' .$filename;
-        $realfilename = $filename;
-        $qformat->setContexts($contexts);
+        $qformat->setContexts((new question_edit_contexts(context_course::instance($course->id)))->all());
         $qformat->setCourse($course);
-        $qformat->setFilename($importfile);
-        $qformat->setRealfilename($realfilename);
+        $qformat->setFilename(__DIR__ . '/fixtures/' . $filename);
+        $qformat->setRealfilename($filename);
         $qformat->setMatchgrades('error');
         $qformat->setCatfromfile(1);
         $qformat->setContextfromfile(1);
@@ -79,7 +78,7 @@ class qformat_xml_import_export_test extends advanced_testcase {
      */
     protected function normalise_xml($xml) {
         // Normalise line endings.
-        $xml = str_replace("\r\n", "\n", $xml);
+        $xml = phpunit_util::normalise_line_endings($xml);
         $xml = preg_replace("~\n$~", "", $xml); // Strip final newline in file.
 
         // Replace all numbers in question id comments with 0.
@@ -132,7 +131,13 @@ class qformat_xml_import_export_test extends advanced_testcase {
      */
     public function assert_question_in_category($qname, $catname) {
         global $DB;
-        $question = $DB->get_record('question', ['name' => $qname], '*', MUST_EXIST);
+
+        $sql = "SELECT q.*, qbe.questioncategoryid AS category
+                  FROM {question} q
+                  JOIN {question_versions} qv ON qv.questionid = q.id
+                  JOIN {question_bank_entries} qbe ON qbe.id = qv.questionbankentryid
+                 WHERE q.name = :name";
+        $question = $DB->get_record_sql($sql, ['name' => $qname], MUST_EXIST);
         $category = $DB->get_record('question_categories', ['name' => $catname], '*', MUST_EXIST);
         $this->assertEquals($category->id, $question->category);
     }
@@ -140,8 +145,8 @@ class qformat_xml_import_export_test extends advanced_testcase {
     /**
      * Simple check for importing a category with a description.
      */
-    public function test_import_category() {
-        $this->resetAfterTest(true);
+    public function test_import_category(): void {
+        $this->resetAfterTest();
         $course = $this->getDataGenerator()->create_course();
         $this->setAdminUser();
         $qformat = $this->create_qformat('category_with_description.xml', $course);
@@ -155,8 +160,8 @@ class qformat_xml_import_export_test extends advanced_testcase {
     /**
      * Check importing nested categories.
      */
-    public function test_import_nested_categories() {
-        $this->resetAfterTest(true);
+    public function test_import_nested_categories(): void {
+        $this->resetAfterTest();
         $course = $this->getDataGenerator()->create_course();
         $this->setAdminUser();
         $qformat = $this->create_qformat('nested_categories.xml', $course);
@@ -173,8 +178,8 @@ class qformat_xml_import_export_test extends advanced_testcase {
     /**
      * Check importing nested categories contain the right questions.
      */
-    public function test_import_nested_categories_with_questions() {
-        $this->resetAfterTest(true);
+    public function test_import_nested_categories_with_questions(): void {
+        $this->resetAfterTest();
         $course = $this->getDataGenerator()->create_course();
         $this->setAdminUser();
         $qformat = $this->create_qformat('nested_categories_with_questions.xml', $course);
@@ -197,8 +202,8 @@ class qformat_xml_import_export_test extends advanced_testcase {
     /**
      * Check import of an old file (without format), for backward compatability.
      */
-    public function test_import_old_format() {
-        $this->resetAfterTest(true);
+    public function test_import_old_format(): void {
+        $this->resetAfterTest();
         $course = $this->getDataGenerator()->create_course();
         $this->setAdminUser();
         $qformat = $this->create_qformat('old_format_file.xml', $course);
@@ -215,8 +220,8 @@ class qformat_xml_import_export_test extends advanced_testcase {
     /**
      * Check the import of an xml file where the child category exists before the parent category.
      */
-    public function test_import_categories_in_reverse_order() {
-        $this->resetAfterTest(true);
+    public function test_import_categories_in_reverse_order(): void {
+        $this->resetAfterTest();
         $course = $this->getDataGenerator()->create_course();
         $this->setAdminUser();
         $qformat = $this->create_qformat('categories_reverse_order.xml', $course);
@@ -231,21 +236,47 @@ class qformat_xml_import_export_test extends advanced_testcase {
     }
 
     /**
-     * Simple check for exporting a category.
+     * Check exception when importing questions with invalid grades.
+     *
+     * @covers \qformat_default::importprocess
      */
-    public function test_export_category() {
-        $generator = $this->getDataGenerator()->get_plugin_generator('core_question');
+    public function test_import_invalid_grades(): void {
+        global $OUTPUT;
+
         $this->resetAfterTest(true);
         $course = $this->getDataGenerator()->create_course();
+        $this->setAdminUser();
+        $qformat = $this->create_qformat('error_invalid_grades.xml', $course);
+
+        ob_start();
+        $imported = $qformat->importprocess();
+        $output = ob_get_clean();
+
+        $a = ['grades' => '0.33', 'question' => 'Question with invalid grades : x > 1 & x < 2'];
+        $expectedoutput = $OUTPUT->notification(get_string('invalidgradequestion', 'question', $a));
+        $expectedoutput .= $OUTPUT->notification(get_string('importparseerror', 'question'));
+
+        $this->assertFalse($imported);
+        $this->assertEquals($expectedoutput, $output);
+    }
+
+    /**
+     * Simple check for exporting a category.
+     */
+    public function test_export_category(): void {
+        global $SITE;
+
+        $generator = $this->getDataGenerator()->get_plugin_generator('core_question');
+        $this->resetAfterTest();
         $this->setAdminUser();
         // Note while this loads $qformat with all the 'right' data from the xml file,
         // the call to setCategory, followed by exportprocess will actually only export data
         // from the database (created by the generator).
-        $qformat = $this->create_qformat('export_category.xml', $course);
+        $qformat = $this->create_qformat('export_category.xml', $SITE);
 
         $category = $generator->create_question_category([
                 'name' => 'Alpha',
-                'contextid' => '2',
+                'contextid' => context_course::instance($SITE->id)->id,
                 'info' => 'This is Alpha category for test',
                 'infoformat' => '0',
                 'idnumber' => 'alpha-idnumber',
@@ -270,16 +301,17 @@ class qformat_xml_import_export_test extends advanced_testcase {
     /**
      * Check exporting nested categories.
      */
-    public function test_export_nested_categories() {
-        $this->resetAfterTest(true);
-        $course = $this->getDataGenerator()->create_course();
+    public function test_export_nested_categories(): void {
+        global $SITE;
+
+        $this->resetAfterTest();
         $this->setAdminUser();
         $generator = $this->getDataGenerator()->get_plugin_generator('core_question');
-        $qformat = $this->create_qformat('nested_categories.zml', $course);
+        $qformat = $this->create_qformat('nested_categories.zml', $SITE);
 
         $categorydelta = $generator->create_question_category([
                 'name' => 'Delta',
-                'contextid' => '2',
+                'contextid' => context_course::instance($SITE->id)->id,
                 'info' => 'This is Delta category for test',
                 'infoformat' => '2',
                 'stamp' => make_unique_id_code(),
@@ -287,7 +319,7 @@ class qformat_xml_import_export_test extends advanced_testcase {
                 'sortorder' => '999']);
         $categoryepsilon = $generator->create_question_category([
                 'name' => 'Epsilon',
-                'contextid' => '2',
+                'contextid' => context_course::instance($SITE->id)->id,
                 'info' => 'This is Epsilon category for test',
                 'infoformat' => '4',
                 'stamp' => make_unique_id_code(),
@@ -295,7 +327,7 @@ class qformat_xml_import_export_test extends advanced_testcase {
                 'sortorder' => '999']);
         $categoryzeta = $generator->create_question_category([
                 'name' => 'Zeta',
-                'contextid' => '2',
+                'contextid' => context_course::instance($SITE->id)->id,
                 'info' => 'This is Zeta category for test',
                 'infoformat' => '0',
                 'stamp' => make_unique_id_code(),
@@ -323,16 +355,17 @@ class qformat_xml_import_export_test extends advanced_testcase {
     /**
      * Check exporting nested categories contain the right questions.
      */
-    public function test_export_nested_categories_with_questions() {
-        $this->resetAfterTest(true);
-        $course = $this->getDataGenerator()->create_course();
+    public function test_export_nested_categories_with_questions(): void {
+        global $SITE;
+
+        $this->resetAfterTest();
         $this->setAdminUser();
         $generator = $this->getDataGenerator()->get_plugin_generator('core_question');
-        $qformat = $this->create_qformat('nested_categories_with_questions.xml', $course);
+        $qformat = $this->create_qformat('nested_categories_with_questions.xml', $SITE);
 
         $categoryiota = $generator->create_question_category([
                 'name' => 'Iota',
-                'contextid' => '2',
+                'contextid' => context_course::instance($SITE->id)->id,
                 'info' => 'This is Iota category for test',
                 'infoformat' => '2',
                 'stamp' => make_unique_id_code(),
@@ -351,7 +384,7 @@ class qformat_xml_import_export_test extends advanced_testcase {
                 'penalty' => '1']);
         $categorykappa = $generator->create_question_category([
                 'name' => 'Kappa',
-                'contextid' => '2',
+                'contextid' => context_course::instance($SITE->id)->id,
                 'info' => 'This is Kappa category for test',
                 'infoformat' => '4',
                 'stamp' => make_unique_id_code(),
@@ -384,7 +417,7 @@ class qformat_xml_import_export_test extends advanced_testcase {
                 'idnumber' => '']);
         $categorylambda = $generator->create_question_category([
                 'name' => 'Lambda',
-                'contextid' => '2',
+                'contextid' => context_course::instance($SITE->id)->id,
                 'info' => 'This is Lambda category for test',
                 'infoformat' => '0',
                 'stamp' => make_unique_id_code(),
@@ -403,7 +436,7 @@ class qformat_xml_import_export_test extends advanced_testcase {
                 'penalty' => '1']);
         $categorymu = $generator->create_question_category([
                 'name' => 'Mu',
-                'contextid' => '2',
+                'contextid' => context_course::instance($SITE->id)->id,
                 'info' => 'This is Mu category for test',
                 'infoformat' => '0',
                 'stamp' => make_unique_id_code(),
@@ -427,9 +460,48 @@ class qformat_xml_import_export_test extends advanced_testcase {
     }
 
     /**
+     * Simple check for exporting a category.
+     */
+    public function test_export_category_with_special_chars(): void {
+        global $SITE;
+
+        $generator = $this->getDataGenerator()->get_plugin_generator('core_question');
+        $this->resetAfterTest();
+        $this->setAdminUser();
+        // Note while this loads $qformat with all the 'right' data from the xml file,
+        // the call to setCategory, followed by exportprocess will actually only export data
+        // from the database (created by the generator).
+        $qformat = $this->create_qformat('export_category.xml', $SITE);
+
+        $category = $generator->create_question_category([
+                'name' => 'Alpha',
+                'contextid' => context_course::instance($SITE->id)->id,
+                'info' => 'This is Alpha category for test',
+                'infoformat' => '0',
+                'idnumber' => 'The inequalities < & >',
+                'stamp' => make_unique_id_code(),
+                'parent' => '0',
+                'sortorder' => '999']);
+        $generator->create_question('truefalse', null, [
+                'category' => $category->id,
+                'name' => 'Alpha Question',
+                'questiontext' => ['format' => '1', 'text' => '<p>Testing Alpha Question</p>'],
+                'generalfeedback' => ['format' => '1', 'text' => ''],
+                'idnumber' => 'T & F',
+                'correctanswer' => '1',
+                'feedbacktrue' => ['format' => '1', 'text' => ''],
+                'feedbackfalse' => ['format' => '1', 'text' => ''],
+                'penalty' => '1']);
+        $qformat->setCategory($category);
+
+        $expectedxml = file_get_contents(__DIR__ . '/fixtures/html_chars_in_idnumbers.xml');
+        $this->assert_same_xml($expectedxml, $qformat->exportprocess());
+    }
+
+    /**
      * Test that bad multianswer questions are not imported.
      */
-    public function test_import_broken_multianswer_questions() {
+    public function test_import_broken_multianswer_questions(): void {
         $lines = file(__DIR__ . '/fixtures/broken_cloze_questions.xml');
         $importer = $qformat = new qformat_xml();
 
@@ -440,13 +512,13 @@ class qformat_xml_import_export_test extends advanced_testcase {
         ob_end_clean();
 
         // Check that there were some expected errors.
-        $this->assertContains('Error importing question', $output);
-        $this->assertContains('Invalid embedded answers (Cloze) question', $output);
-        $this->assertContains('This type of question requires at least 2 choices', $output);
-        $this->assertContains('The answer must be a number, for example -1.234 or 3e8, or \'*\'.', $output);
-        $this->assertContains('One of the answers should have a score of 100% so it is possible to get full marks for this question.',
+        $this->assertStringContainsString('Error importing question', $output);
+        $this->assertStringContainsString('Invalid embedded answers (Cloze) question', $output);
+        $this->assertStringContainsString('This type of question requires at least 2 choices', $output);
+        $this->assertStringContainsString('The answer must be a number, for example -1.234 or 3e8, or \'*\'.', $output);
+        $this->assertStringContainsString('One of the answers should have a score of 100% so it is possible to get full marks for this question.',
                 $output);
-        $this->assertContains('The question text must include at least one embedded answer.', $output);
+        $this->assertStringContainsString('The question text must include at least one embedded answer.', $output);
 
         // No question  have been imported.
         $this->assertCount(0, $questions);

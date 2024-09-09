@@ -22,9 +22,8 @@
  * @license   http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
-defined('MOODLE_INTERNAL') || die();
-
 use tool_usertours\manager;
+use tool_usertours\tour;
 
 /**
  * Upgrade the user tours plugin.
@@ -33,28 +32,24 @@ use tool_usertours\manager;
  * @return bool
  */
 function xmldb_tool_usertours_upgrade($oldversion) {
-    global $CFG, $DB;
-
-    // Automatically generated Moodle v3.5.0 release upgrade line.
+    // Automatically generated Moodle v4.1.0 release upgrade line.
     // Put any upgrade step following this.
 
-    // Automatically generated Moodle v3.6.0 release upgrade line.
+    // Automatically generated Moodle v4.2.0 release upgrade line.
     // Put any upgrade step following this.
 
-    // Automatically generated Moodle v3.7.0 release upgrade line.
-    // Put any upgrade step following this.
-
-    // Automatically generated Moodle v3.8.0 release upgrade line.
-    // Put any upgrade step following this.
-
-    if ($oldversion < 2020061501) {
-        // Updating shipped tours will fix broken sortorder records in existing tours.
+    if ($oldversion < 2023053000) {
+        // Update shipped tours.
+        // Normally, we just bump the version numbers because we need to call update_shipped_tours only once.
         manager::update_shipped_tours();
 
-        upgrade_plugin_savepoint(true, 2020061501, 'tool', 'usertours');
+        upgrade_plugin_savepoint(true, 2023053000, 'tool', 'usertours');
     }
 
-    // Automatically generated Moodle v3.9.0 release upgrade line.
+    // Automatically generated Moodle v4.3.0 release upgrade line.
+    // Put any upgrade step following this.
+
+    // Automatically generated Moodle v4.4.0 release upgrade line.
     // Put any upgrade step following this.
 
     return true;

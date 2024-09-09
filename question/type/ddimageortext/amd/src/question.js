@@ -17,11 +17,22 @@
  * JavaScript to allow dragging options to slots (using mouse down or touch) or tab through slots using keyboard.
  *
  * @module     qtype_ddimageortext/question
- * @package    qtype_ddimageortext
  * @copyright  2018 The Open University
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
-define(['jquery', 'core/dragdrop', 'core/key_codes'], function($, dragDrop, keys) {
+define([
+    'jquery',
+    'core/dragdrop',
+    'core/key_codes',
+    'core_form/changechecker',
+    'core_filters/events',
+], function(
+    $,
+    dragDrop,
+    keys,
+    FormChangeChecker,
+    filterEvent
+) {
 
     "use strict";
 
@@ -35,6 +46,8 @@ define(['jquery', 'core/dragdrop', 'core/key_codes'], function($, dragDrop, keys
      */
     function DragDropOntoImageQuestion(containerId, readOnly, places) {
         this.containerId = containerId;
+        this.questionAnswer = {};
+        this.questionDragDropWidthHeight = [];
         M.util.js_pending('qtype_ddimageortext-init-' + this.containerId);
         this.places = places;
         this.allImagesLoaded = false;
@@ -50,6 +63,86 @@ define(['jquery', 'core/dragdrop', 'core/key_codes'], function($, dragDrop, keys
         });
         this.waitForAllImagesToBeLoaded();
     }
+
+    /**
+     * Change all the drags and drops related to the item that has been changed by filter to correct size and content.
+     *
+     *  @param {object} filteredElement the element has been modified by filter.
+     */
+    DragDropOntoImageQuestion.prototype.changeAllDragsAndDropsToFilteredContent = function(filteredElement) {
+        let currentFilteredItem = $(filteredElement);
+        const parentIsDD = currentFilteredItem.parent().closest('div').hasClass('placed') ||
+            currentFilteredItem.parent().hasClass('draghome');
+        const isDD = currentFilteredItem.hasClass('placed') || currentFilteredItem.hasClass('draghome');
+        // The filtered element or parent element should a drag or drop item.
+        if (!parentIsDD && !isDD) {
+            return;
+        }
+        if (parentIsDD) {
+            currentFilteredItem = currentFilteredItem.parent().closest('div');
+        }
+        if (this.getRoot().find(currentFilteredItem).length <= 0) {
+            // If the DD item doesn't belong to this question
+            // In case we have multiple questions in the same page.
+            return;
+        }
+        const group = this.getGroup(currentFilteredItem),
+            choice = this.getChoice(currentFilteredItem);
+        let listOfModifiedDragDrop = [];
+        // Get the list of drag and drop item within the same group and choice.
+        this.getRoot().find('.group' + group + '.choice' + choice).each(function(i, node) {
+            // Same modified item, skip it.
+            if ($(node).get(0) === currentFilteredItem.get(0)) {
+                return;
+            }
+            const originalClass = $(node).attr('class');
+            const originalStyle = $(node).attr('style');
+            // We want to keep all the handler and event for filtered item, so using clone is the only choice.
+            const filteredDragDropClone = currentFilteredItem.clone();
+            // Sometimes, for the question that has a lot of input groups and unlimited draggable items,
+            // this 'clone' process takes longer than usual,it will not add the eventHandler for this cloned drag.
+            // We need to make sure to add the eventHandler for the cloned drag too.
+            questionManager.addEventHandlersToDrag(filteredDragDropClone);
+            // Replace the class and style of the drag drop item we want to replace for the clone.
+            filteredDragDropClone.attr('class', originalClass);
+            filteredDragDropClone.attr('style', originalStyle);
+            // Insert into DOM.
+            $(node).before(filteredDragDropClone);
+            // Add the item has been replaced to a list so we can remove it later.
+            listOfModifiedDragDrop.push(node);
+        });
+
+        listOfModifiedDragDrop.forEach(function(node) {
+            $(node).remove();
+        });
+        // Save the current height and width.
+        const currentHeight = currentFilteredItem.height();
+        const currentWidth = currentFilteredItem.width();
+        // Set to auto, so we can get the real height and width of the filtered item.
+        currentFilteredItem.height('auto');
+        currentFilteredItem.width('auto');
+        // We need to set display block so we can get height and width.
+        // Some browsers can't get the offsetWidth/Height if they are an inline element like span tag.
+        if (!filteredElement.offsetWidth || !filteredElement.offsetHeight) {
+            filteredElement.classList.add('d-block');
+        }
+        if (this.questionDragDropWidthHeight[group].maxWidth < Math.ceil(filteredElement.offsetWidth) ||
+            this.questionDragDropWidthHeight[group].maxHeight < Math.ceil(0 + filteredElement.offsetHeight)) {
+            // Remove the d-block class before calculation.
+            filteredElement.classList.remove('d-block');
+            // Now resize all the items in the same group if we have new maximum width or height.
+            this.resizeAllDragsAndDropsInGroup(group);
+        } else {
+            // Calculate the top padding.
+            const top = Math.floor((this.questionDragDropWidthHeight[group].maxHeight - filteredElement.offsetHeight) / 2);
+            // Set top padding so the content of filtered item is center again.
+            currentFilteredItem.width(currentWidth).height(currentHeight).css({
+                'padding-top': top + 'px',
+            });
+        }
+        // Remove the d-block class after resize.
+        filteredElement.classList.remove('d-block');
+    };
 
     /**
      * Waits until all images are loaded before calling setupQuestion().
@@ -84,6 +177,12 @@ define(['jquery', 'core/dragdrop', 'core/key_codes'], function($, dragDrop, keys
         // We now have all images. Carry on, but only after giving the layout a chance to settle down.
         this.allImagesLoaded = true;
         thisQ.setupQuestion();
+        // Wait for all dynamic content loaded by filter to be completed.
+        document.addEventListener(filterEvent.eventTypes.filterContentRenderingComplete, (elements) => {
+            elements.detail.nodes.forEach((element) => {
+                thisQ.changeAllDragsAndDropsToFilteredContent(element);
+            });
+        });
     };
 
     /**
@@ -125,7 +224,7 @@ define(['jquery', 'core/dragdrop', 'core/key_codes'], function($, dragDrop, keys
         var thisQ = this;
         this.getRoot().find('.draghomes > div').each(function(i, node) {
             thisQ.resizeAllDragsAndDropsInGroup(
-                    thisQ.getClassnameNumericSuffix($(node), 'dragitemgroup'));
+                thisQ.getClassnameNumericSuffix($(node), 'dragitemgroup'));
         });
     };
 
@@ -136,7 +235,7 @@ define(['jquery', 'core/dragdrop', 'core/key_codes'], function($, dragDrop, keys
      */
     DragDropOntoImageQuestion.prototype.resizeAllDragsAndDropsInGroup = function(group) {
         var root = this.getRoot(),
-            dragHomes = root.find('.dragitemgroup' + group + ' .draghome'),
+            dragHomes = root.find(".draghome.group" + group),
             maxWidth = 0,
             maxHeight = 0;
 
@@ -149,17 +248,14 @@ define(['jquery', 'core/dragdrop', 'core/key_codes'], function($, dragDrop, keys
         // The size we will want to set is a bit bigger than this.
         maxWidth += 10;
         maxHeight += 10;
+        this.questionDragDropWidthHeight[group] = {maxWidth, maxHeight};
 
         // Set each drag home to that size.
         dragHomes.each(function(i, drag) {
-            var left = Math.round((maxWidth - drag.offsetWidth) / 2),
-                top = Math.floor((maxHeight - drag.offsetHeight) / 2);
-            // Set top and left padding so the item is centred.
-            $(drag).css({
-                'padding-left': left + 'px',
-                'padding-right': (maxWidth - drag.offsetWidth - left) + 'px',
+            const top = Math.floor((maxHeight - drag.offsetHeight) / 2);
+            // Set top padding so the item is centred.
+            $(drag).width(maxWidth).height(maxHeight).css({
                 'padding-top': top + 'px',
-                'padding-bottom': (maxHeight - drag.offsetHeight - top) + 'px'
             });
         });
 
@@ -176,9 +272,11 @@ define(['jquery', 'core/dragdrop', 'core/key_codes'], function($, dragDrop, keys
             if (label === '') {
                 label = M.util.get_string('blank', 'qtype_ddimageortext');
             }
-            root.find('.dropzones').append('<div class="dropzone active group' + place.group +
-                            ' place' + i + '" tabindex="0">' +
+            if (root.find('.dropzones .dropzone.group' + place.group + '.place' + i).length === 0) {
+                root.find('.dropzones').append('<div class="dropzone active group' + place.group +
+                    ' place' + i + '" tabindex="0">' +
                     '<span class="accesshide">' + label + '</span>&nbsp;</div>');
+            }
             root.find('.dropzone.place' + i).width(maxWidth - 2).height(maxHeight - 2);
         }
     };
@@ -285,6 +383,11 @@ define(['jquery', 'core/dragdrop', 'core/key_codes'], function($, dragDrop, keys
                         cloneDrag.removeClass('beingdragged');
                         cloneDrag.removeAttr('tabindex');
                         hiddenDrag.after(cloneDrag);
+                        // Sometimes, for the question that has a lot of input groups and unlimited draggable items,
+                        // this 'clone' process takes longer than usual, so the questionManager.init() method
+                        // will not add the eventHandler for this cloned drag.
+                        // We need to make sure to add the eventHandler for the cloned drag too.
+                        questionManager.addEventHandlersToDrag(cloneDrag);
                     } else {
                         hiddenDrag.addClass('active');
                     }
@@ -297,6 +400,48 @@ define(['jquery', 'core/dragdrop', 'core/key_codes'], function($, dragDrop, keys
             var drop = root.find('.dropzone.place' + place);
             thisQ.sendDragToDrop(unplacedDrag, drop);
         });
+
+        // Save the question answer.
+        thisQ.questionAnswer = thisQ.getQuestionAnsweredValues();
+    };
+
+    /**
+     * Get the question answered values.
+     *
+     * @return {Object} Contain key-value with key is the input id and value is the input value.
+     */
+    DragDropOntoImageQuestion.prototype.getQuestionAnsweredValues = function() {
+        let result = {};
+        this.getRoot().find('input.placeinput').each((i, inputNode) => {
+            result[inputNode.id] = inputNode.value;
+        });
+
+        return result;
+    };
+
+    /**
+     * Check if the question is being interacted or not.
+     *
+     * @return {boolean} Return true if the user has changed the question-answer.
+     */
+    DragDropOntoImageQuestion.prototype.isQuestionInteracted = function() {
+        const oldAnswer = this.questionAnswer;
+        const newAnswer = this.getQuestionAnsweredValues();
+        let isInteracted = false;
+
+        // First, check both answers have the same structure or not.
+        if (JSON.stringify(newAnswer) !== JSON.stringify(oldAnswer)) {
+            isInteracted = true;
+            return isInteracted;
+        }
+        // Check the values.
+        Object.keys(newAnswer).forEach(key => {
+            if (newAnswer[key] !== oldAnswer[key]) {
+                isInteracted = true;
+            }
+        });
+
+        return isInteracted;
     };
 
     /**
@@ -311,7 +456,7 @@ define(['jquery', 'core/dragdrop', 'core/key_codes'], function($, dragDrop, keys
             newIndex = currentIndex + 2;
 
         var info = dragDrop.prepare(e);
-        if (!info.start) {
+        if (!info.start || drag.hasClass('beingdragged')) {
             return;
         }
 
@@ -364,10 +509,12 @@ define(['jquery', 'core/dragdrop', 'core/key_codes'], function($, dragDrop, keys
      * @param {jQuery} drag the item being moved.
      */
     DragDropOntoImageQuestion.prototype.dragMove = function(pageX, pageY, drag) {
-        var thisQ = this;
+        var thisQ = this,
+            highlighted = false;
         this.getRoot().find('.dropzone.group' + this.getGroup(drag)).each(function(i, dropNode) {
             var drop = $(dropNode);
-            if (thisQ.isPointInDrop(pageX, pageY, drop)) {
+            if (thisQ.isPointInDrop(pageX, pageY, drop) && !highlighted) {
+                highlighted = true;
                 drop.addClass('valid-drag-over-drop');
             } else {
                 drop.removeClass('valid-drag-over-drop');
@@ -375,7 +522,8 @@ define(['jquery', 'core/dragdrop', 'core/key_codes'], function($, dragDrop, keys
         });
         this.getRoot().find('.draghome.placed.group' + this.getGroup(drag)).not('.beingdragged').each(function(i, dropNode) {
             var drop = $(dropNode);
-            if (thisQ.isPointInDrop(pageX, pageY, drop)) {
+            if (thisQ.isPointInDrop(pageX, pageY, drop) && !highlighted && !thisQ.isDragSameAsDrop(drag, drop)) {
+                highlighted = true;
                 drop.addClass('valid-drag-over-drop');
             } else {
                 drop.removeClass('valid-drag-over-drop');
@@ -394,6 +542,8 @@ define(['jquery', 'core/dragdrop', 'core/key_codes'], function($, dragDrop, keys
         var thisQ = this,
             root = this.getRoot(),
             placed = false;
+
+        // Looking for drag that was dropped on a dropzone.
         root.find('.dropzone.group' + this.getGroup(drag)).each(function(i, dropNode) {
             var drop = $(dropNode);
             if (!thisQ.isPointInDrop(pageX, pageY, drop)) {
@@ -408,21 +558,24 @@ define(['jquery', 'core/dragdrop', 'core/key_codes'], function($, dragDrop, keys
             return false; // Stop the each() here.
         });
 
-        root.find('.draghome.placed.group' + this.getGroup(drag)).not('.beingdragged').each(function(i, placedNode) {
-            var placedDrag = $(placedNode);
-            if (!thisQ.isPointInDrop(pageX, pageY, placedDrag)) {
-                // Not this placed drag.
-                return true;
-            }
+        if (!placed) {
+            // Looking for drag that was dropped on a placed drag.
+            root.find('.draghome.placed.group' + this.getGroup(drag)).not('.beingdragged').each(function(i, placedNode) {
+                var placedDrag = $(placedNode);
+                if (!thisQ.isPointInDrop(pageX, pageY, placedDrag) || thisQ.isDragSameAsDrop(drag, placedDrag)) {
+                    // Not this placed drag.
+                    return true;
+                }
 
-            // Now put this drag into the drop.
-            placedDrag.removeClass('valid-drag-over-drop');
-            var currentPlace = thisQ.getClassnameNumericSuffix(placedDrag, 'inplace');
-            var drop = thisQ.getDrop(drag, currentPlace);
-            thisQ.sendDragToDrop(drag, drop);
-            placed = true;
-            return false; // Stop the each() here.
-        });
+                // Now put this drag into the drop.
+                placedDrag.removeClass('valid-drag-over-drop');
+                var currentPlace = thisQ.getClassnameNumericSuffix(placedDrag, 'inplace');
+                var drop = thisQ.getDrop(drag, currentPlace);
+                thisQ.sendDragToDrop(drag, drop);
+                placed = true;
+                return false; // Stop the each() here.
+            });
+        }
 
         if (!placed) {
             this.sendDragHome(drag);
@@ -918,6 +1071,17 @@ define(['jquery', 'core/dragdrop', 'core/key_codes'], function($, dragDrop, keys
     };
 
     /**
+     * Check that the drag is drop to it's clone.
+     *
+     * @param {jQuery} drag The drag.
+     * @param {jQuery} drop The drop.
+     * @returns {boolean}
+     */
+    DragDropOntoImageQuestion.prototype.isDragSameAsDrop = function(drag, drop) {
+        return this.getChoice(drag) === this.getChoice(drop) && this.getGroup(drag) === this.getGroup(drop);
+    };
+
+    /**
      * Singleton object that handles all the DragDropOntoImageQuestions
      * on the page, and deals with event dispatching.
      * @type {Object}
@@ -928,6 +1092,12 @@ define(['jquery', 'core/dragdrop', 'core/key_codes'], function($, dragDrop, keys
          * {boolean} ensures that the event handlers are only initialised once per page.
          */
         eventHandlersInitialised: false,
+
+        /**
+         * {Object} ensures that the drag event handlers are only initialised once per question,
+         * indexed by containerId (id on the .que div).
+         */
+        dragEventHandlersInitialised: {},
 
         /**
          * {boolean} is printing or not.
@@ -947,6 +1117,7 @@ define(['jquery', 'core/dragdrop', 'core/key_codes'], function($, dragDrop, keys
         /**
          * Initialise one question.
          *
+         * @method
          * @param {String} containerId the id of the div.que that contains this question.
          * @param {boolean} readOnly whether the question is read-only.
          * @param {Array} places data.
@@ -958,14 +1129,22 @@ define(['jquery', 'core/dragdrop', 'core/key_codes'], function($, dragDrop, keys
                 questionManager.setupEventHandlers();
                 questionManager.eventHandlersInitialised = true;
             }
+            if (!questionManager.dragEventHandlersInitialised.hasOwnProperty(containerId)) {
+                questionManager.dragEventHandlersInitialised[containerId] = true;
+                // We do not use the body event here to prevent the other event on Mobile device, such as scroll event.
+                var questionContainer = document.getElementById(containerId);
+                if (questionContainer.classList.contains('ddimageortext') &&
+                    !questionContainer.classList.contains('qtype_ddimageortext-readonly')) {
+                    // TODO: Convert all the jQuery selectors and events to native Javascript.
+                    questionManager.addEventHandlersToDrag($(questionContainer).find('.draghome'));
+                }
+            }
         },
 
         /**
          * Set up the event handlers that make this question type work. (Done once per page.)
          */
         setupEventHandlers: function() {
-            // We do not use the body event here to prevent the other event on Mobile device, such as scroll event.
-            questionManager.addEventHandlersToDrag($('.que.ddimageortext:not(.qtype_ddimageortext-readonly) .draghome'));
             $('body')
                 .on('keydown',
                     '.que.ddimageortext:not(.qtype_ddimageortext-readonly) .dropzones .dropzone',
@@ -996,6 +1175,8 @@ define(['jquery', 'core/dragdrop', 'core/key_codes'], function($, dragDrop, keys
          * @param {jQuery} element Element to bind the event
          */
         addEventHandlersToDrag: function(element) {
+            // Unbind all the mousedown and touchstart events to prevent double binding.
+            element.unbind('mousedown touchstart');
             element.on('mousedown touchstart', questionManager.handleDragStart);
         },
 
@@ -1091,6 +1272,12 @@ define(['jquery', 'core/dragdrop', 'core/key_codes'], function($, dragDrop, keys
             if (questionManager.isKeyboardNavigation) {
                 questionManager.isKeyboardNavigation = false;
             }
+            if (thisQ.isQuestionInteracted()) {
+                // The user has interacted with the draggable items. We need to mark the form as dirty.
+                questionManager.handleFormDirty();
+                // Save the new answered value.
+                thisQ.questionAnswer = thisQ.getQuestionAnsweredValues();
+            }
         },
 
         /**
@@ -1101,6 +1288,14 @@ define(['jquery', 'core/dragdrop', 'core/key_codes'], function($, dragDrop, keys
         getQuestionForEvent: function(e) {
             var containerId = $(e.currentTarget).closest('.que.ddimageortext').attr('id');
             return questionManager.questions[containerId];
+        },
+
+        /**
+         * Handle when the form is dirty.
+         */
+        handleFormDirty: function() {
+            const responseForm = document.getElementById('responseform');
+            FormChangeChecker.markFormAsDirty(responseForm);
         }
     };
 
@@ -1108,13 +1303,6 @@ define(['jquery', 'core/dragdrop', 'core/key_codes'], function($, dragDrop, keys
      * @alias module:qtype_ddimageortext/question
      */
     return {
-        /**
-         * Initialise one drag-drop onto image question.
-         *
-         * @param {String} containerId id of the outer div for this question.
-         * @param {boolean} readOnly whether the question is being displayed read-only.
-         * @param {Array} Information about the drop places.
-         */
         init: questionManager.init
     };
 });

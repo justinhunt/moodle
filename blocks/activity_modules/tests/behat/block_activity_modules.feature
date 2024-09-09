@@ -4,6 +4,10 @@ Feature: Block activity modules
   As a manager
   I can add activities block in a course or on the frontpage
 
+  Background:
+    Given I enable "chat" "mod" plugin
+    And I enable "survey" "mod" plugin
+
   Scenario: Add activities block on the frontpage
     Given the following "activities" exist:
       | activity   | name                        | intro                              | course               | idnumber    |
@@ -31,7 +35,7 @@ Feature: Block activity modules
 
     When I log in as "admin"
     And I am on site homepage
-    And I follow "Turn editing on"
+    And I turn editing mode on
     And I add the "Activities" block
     And I click on "Assignments" "link" in the "Activities" "block"
     Then I should see "Frontpage assignment name"

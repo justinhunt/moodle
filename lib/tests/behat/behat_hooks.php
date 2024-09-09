@@ -38,12 +38,10 @@ use Behat\Testwork\Hook\Scope\BeforeSuiteScope,
     Behat\Behat\Hook\Scope\BeforeStepScope,
     Behat\Behat\Hook\Scope\AfterStepScope,
     Behat\Mink\Exception\ExpectationException,
-    Behat\Mink\Exception\DriverException as DriverException,
-    WebDriver\Exception\NoSuchWindow as NoSuchWindow,
-    WebDriver\Exception\UnexpectedAlertOpen as UnexpectedAlertOpen,
-    WebDriver\Exception\UnknownError as UnknownError,
-    WebDriver\Exception\CurlExec as CurlExec,
-    WebDriver\Exception\NoAlertOpenError as NoAlertOpenError;
+    Behat\Mink\Exception\DriverException,
+    Facebook\WebDriver\Exception\UnexpectedAlertOpenException,
+    Facebook\WebDriver\Exception\WebDriverCurlException,
+    Facebook\WebDriver\Exception\UnknownErrorException;
 
 /**
  * Hooks to the behat process.
@@ -82,7 +80,7 @@ class behat_hooks extends behat_base {
      * failure, but we can store them here to fail the step in i_look_for_exceptions()
      * which result will be parsed by the framework as the last step result.
      *
-     * @var Null or the exception last step throw in the before or after hook.
+     * @var ?Exception Null or the exception last step throw in the before or after hook.
      */
     protected static $currentstepexception = null;
 
@@ -290,11 +288,20 @@ EOF;
         if ($session->isStarted()) {
             $session->restart();
         } else {
-            $session->start();
+            $this->start_session();
         }
         if ($this->running_javascript() && $this->getSession()->getDriver()->getWebDriverSessionId() === 'session') {
             throw new DriverException('Unable to create a valid session');
         }
+    }
+
+    /**
+     * Start the Session, applying any initial configuratino required.
+     */
+    protected function start_session(): void {
+        $this->getSession()->start();
+
+        $this->set_test_timeout_factor(1);
     }
 
     /**
@@ -303,7 +310,7 @@ EOF;
      * @BeforeScenario @~javascript
      * @param BeforeScenarioScope $scope scope passed by event fired before scenario.
      */
-    public function before_goutte_scenarios(BeforeScenarioScope $scope) {
+    public function before_browserkit_scenarios(BeforeScenarioScope $scope) {
         if ($this->running_javascript()) {
             // A bug in the BeforeScenario filtering prevents the @~javascript filter on this hook from working
             // properly.
@@ -328,7 +335,6 @@ EOF;
             // The `before_subsequent_scenario_start_session` function will restart the session instead.
             return;
         }
-        self::$firstjavascriptscenarioseen = true;
 
         $docsurl = behat_command::DOCS_URL;
         $driverexceptionmsg = <<<EOF
@@ -340,17 +346,16 @@ The following debugging information is available:
 
 EOF;
 
-
         try {
             $this->restart_session();
-        } catch (CurlExec | DriverException $e) {
-            // The CurlExec Exception is thrown by WebDriver.
+        } catch (WebDriverCurlException | DriverException $e) {
+            // Thrown by WebDriver.
             self::log_and_stop(
                 $driverexceptionmsg . '. ' .
                 $e->getMessage() . "\n\n" .
                 format_backtrace($e->getTrace(), true)
             );
-        } catch (UnknownError $e) {
+        } catch (UnknownErrorException $e) {
             // Generic 'I have no idea' Selenium error. Custom exception to provide more feedback about possible solutions.
             self::log_and_stop(
                 $e->getMessage() . "\n\n" .
@@ -476,6 +481,16 @@ EOF;
     }
 
     /**
+     * Mark the first Javascript Scenario as have been seen.
+     *
+     * @BeforeScenario
+     * @param BeforeScenarioScope $scope scope passed by event fired before scenario.
+     */
+    public function mark_first_js_scenario_as_seen(BeforeScenarioScope $scope) {
+        self::$firstjavascriptscenarioseen = true;
+    }
+
+    /**
      * Hook to open the site root before the first step in the suite.
      * Yes, this is in a strange location and should be in the BeforeScenario hook, but failures in the test setUp lead
      * to the test being incorrectly marked as skipped with no way to force the test to be failed.
@@ -505,7 +520,7 @@ EOF;
                     'or that your web server is correctly set up and started.';
 
                 $this->find(
-                        "xpath", "//head/child::title[normalize-space(.)='" . behat_util::BEHATSITENAME . "']",
+                        "xpath", "//head/child::title[contains(., '" . behat_util::BEHATSITENAME . "')]",
                         new ExpectationException($message, $session)
                     );
 
@@ -531,7 +546,7 @@ EOF;
      *
      * @return array Array where key is tag name and value is an integer
      */
-    public static function get_tags_for_scenario() : array {
+    public static function get_tags_for_scenario(): array {
         return self::$scenariotags;
     }
 
@@ -628,14 +643,14 @@ EOF;
         try {
             $this->wait_for_pending_js();
             self::$currentstepexception = null;
-        } catch (UnexpectedAlertOpen $e) {
+        } catch (UnexpectedAlertOpenException $e) {
             self::$currentstepexception = $e;
 
             // Accepting the alert so the framework can continue properly running
             // the following scenarios. Some browsers already closes the alert, so
             // wrapping in a try & catch.
             try {
-                $this->getSession()->getDriver()->getWebDriverSession()->accept_alert();
+                $this->getSession()->getDriver()->getWebDriver()->switchTo()->alert()->accept();
             } catch (Exception $e) {
                 // Catching the generic one as we never know how drivers reacts here.
             }
@@ -651,7 +666,24 @@ EOF;
      * @AfterScenario
      */
     public function reset_webdriver_between_scenarios(AfterScenarioScope $scope) {
-        $this->getSession()->stop();
+        try {
+            $this->getSession()->stop();
+        } catch (Exception $e) {
+            $error = <<<EOF
+
+Error while stopping WebDriver: %s (%d) '%s'
+Attempting to continue with test run. Stacktrace follows:
+
+%s
+EOF;
+            error_log(sprintf(
+                $error,
+                get_class($e),
+                $e->getCode(),
+                $e->getMessage(),
+                format_backtrace($e->getTrace(), true)
+            ));
+        }
     }
 
     /**
@@ -670,7 +702,7 @@ EOF;
      * @param AfterStepScope $scope scope passed by event after step.
      */
     protected function take_screenshot(AfterStepScope $scope) {
-        // Goutte can't save screenshots.
+        // BrowserKit can't save screenshots.
         if (!$this->running_javascript()) {
             return false;
         }

@@ -1493,6 +1493,17 @@ class model {
     }
 
     /**
+     * Returns the default output directory for prediction processors
+     *
+     * @return string
+     */
+    public static function default_output_dir(): string {
+        global $CFG;
+
+        return $CFG->dataroot . DIRECTORY_SEPARATOR . 'models';
+    }
+
+    /**
      * Returns the output directory for prediction processors.
      *
      * Directory structure as follows:
@@ -1506,8 +1517,6 @@ class model {
      * @return string
      */
     public function get_output_dir($subdirs = array(), $onlymodelid = false) {
-        global $CFG;
-
         $subdirstr = '';
         foreach ($subdirs as $subdir) {
             $subdirstr .= DIRECTORY_SEPARATOR . $subdir;
@@ -1516,7 +1525,7 @@ class model {
         $outputdir = get_config('analytics', 'modeloutputdir');
         if (empty($outputdir)) {
             // Apply default value.
-            $outputdir = rtrim($CFG->dataroot, '/') . DIRECTORY_SEPARATOR . 'models';
+            $outputdir = self::default_output_dir();
         }
 
         // Append model id.
@@ -1588,7 +1597,7 @@ class model {
      * @param bool $includeweights Include the model weights if available
      * @return string Zip file path
      */
-    public function export_model(string $zipfilename, bool $includeweights = true) : string {
+    public function export_model(string $zipfilename, bool $includeweights = true): string {
 
         \core_analytics\manager::check_can_manage_models();
 
@@ -1605,7 +1614,7 @@ class model {
      * @param  string $zipfilepath Zip file path
      * @return \core_analytics\model
      */
-    public static function import_model(string $zipfilepath) : \core_analytics\model {
+    public static function import_model(string $zipfilepath): \core_analytics\model {
 
         \core_analytics\manager::check_can_manage_models();
 
@@ -1618,7 +1627,7 @@ class model {
      *
      * @return bool
      */
-    public function can_export_configuration() : bool {
+    public function can_export_configuration(): bool {
 
         if (empty($this->model->timesplitting)) {
             return false;
@@ -1671,7 +1680,7 @@ class model {
      *
      * @return bool
      */
-    public function trained_locally() : bool {
+    public function trained_locally(): bool {
         global $DB;
 
         if (!$this->is_trained() || $this->is_static()) {
@@ -1819,7 +1828,7 @@ class model {
      */
     public function get_name() {
 
-        if (trim($this->model->name) === '') {
+        if (trim($this->model->name ?? '') === '') {
             return $this->get_target()->get_name();
 
         } else {

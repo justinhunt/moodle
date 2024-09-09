@@ -17,7 +17,6 @@
  * Bulk actions for lists of participants.
  *
  * @module     core_user/local/participants/bulkactions
- * @package    core_user
  * @copyright  2020 Andrew Nicols <andrew@nicols.co.uk>
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
@@ -25,7 +24,8 @@
 import * as Repository from 'core_user/repository';
 import * as Str from 'core/str';
 import ModalEvents from 'core/modal_events';
-import ModalFactory from 'core/modal_factory';
+import SaveCancelModal from 'core/modal_save_cancel';
+import Notification from 'core/notification';
 import Templates from 'core/templates';
 import {add as notifyUser} from 'core/toast';
 
@@ -71,20 +71,17 @@ export const showAddNote = (courseid, users, noteStateNames, stateHelpIcon) => {
         titlePromise = Str.get_string('addbulknote', 'core_notes', users.length);
     }
 
-    return ModalFactory.create({
-        type: ModalFactory.types.SAVE_CANCEL,
+    return SaveCancelModal.create({
         body: Templates.render('core_user/add_bulk_note', context),
         title: titlePromise,
         buttons: {
             save: titlePromise,
         },
         removeOnClose: true,
+        show: true,
     })
     .then(modal => {
         modal.getRoot().on(ModalEvents.save, () => submitAddNote(courseid, users, modal));
-
-        modal.show();
-
         return modal;
     });
 };
@@ -141,21 +138,26 @@ export const showSendMessage = users => {
         titlePromise = Str.get_string('sendbulkmessage', 'core_message', users.length);
     }
 
-    return ModalFactory.create({
-        type: ModalFactory.types.SAVE_CANCEL,
+    return SaveCancelModal.create({
         body: Templates.render('core_user/send_bulk_message', {}),
         title: titlePromise,
         buttons: {
             save: titlePromise,
         },
         removeOnClose: true,
+        show: true,
     })
     .then(modal => {
-        modal.getRoot().on(ModalEvents.save, () => {
-            submitSendMessage(modal, users);
-        });
+        modal.getRoot().on(ModalEvents.save, (e) => {
+            const text = modal.getRoot().find('form textarea').val();
+            if (text.trim() === '') {
+                modal.getRoot().find('[data-role="messagetextrequired"]').removeAttr('hidden');
+                e.preventDefault();
+                return;
+            }
 
-        modal.show();
+            submitSendMessage(modal, users, text);
+        });
 
         return modal;
     });
@@ -166,11 +168,10 @@ export const showSendMessage = users => {
  *
  * @param {Modal} modal
  * @param {Number[]} users
+ * @param {String} text
  * @return {Promise}
  */
-const submitSendMessage = (modal, users) => {
-    const text = modal.getRoot().find('form textarea').val();
-
+const submitSendMessage = (modal, users, text) => {
     const messages = users.map(touserid => {
         return {
             touserid,

@@ -83,7 +83,7 @@ class atto_texteditor extends texteditor {
      * @param array $options
      * @param null $fpoptions
      */
-    public function use_editor($elementid, array $options=null, $fpoptions=null) {
+    public function use_editor($elementid, ?array $options=null, $fpoptions=null) {
         global $PAGE;
 
         if (array_key_exists('atto:toolbar', $options)) {
@@ -140,15 +140,16 @@ class atto_texteditor extends texteditor {
             $jsplugins[] = array('group'=>$group, 'plugins'=>$groupplugins);
         }
 
-        $PAGE->requires->strings_for_js(array(
+        $PAGE->requires->strings_for_js([
                 'editor_command_keycode',
                 'editor_control_keycode',
                 'plugin_title_shortcut',
                 'textrecovered',
                 'autosavefailed',
                 'autosavesucceeded',
-                'errortextrecovery'
-            ), 'editor_atto');
+                'errortextrecovery',
+                'richtexteditor',
+            ], 'editor_atto');
         $PAGE->requires->strings_for_js(array(
                 'warning',
                 'info'
@@ -166,7 +167,7 @@ class atto_texteditor extends texteditor {
      * @param array $options
      * @param array $fpoptions
      */
-    protected function get_init_params($elementid, array $options = null, array $fpoptions = null, $plugins = null) {
+    protected function get_init_params($elementid, ?array $options = null, ?array $fpoptions = null, $plugins = null) {
         global $PAGE;
 
         $directionality = get_string('thisdirection', 'langconfig');

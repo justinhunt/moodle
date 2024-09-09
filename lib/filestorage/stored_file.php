@@ -23,6 +23,8 @@
  * @license   http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
+use Psr\Http\Message\StreamInterface;
+
 defined('MOODLE_INTERNAL') || die();
 
 require_once($CFG->dirroot . '/lib/filestorage/file_progress.php');
@@ -438,6 +440,18 @@ class stored_file {
     }
 
     /**
+     * Get a read-only PSR-7 stream for this file.
+     *
+     * Note: This stream is read-only. If you want to modify the file, create a new file and delete the old one.
+     * The File API creates immutable files.
+     *
+     * @return StreamInterface
+     */
+    public function get_psr_stream(): StreamInterface {
+        return $this->filesystem->get_psr_stream($this);
+    }
+
+    /**
      * Dumps file content to page.
      */
     public function readfile() {
@@ -497,6 +511,27 @@ class stored_file {
     }
 
     /**
+     * Returns the total size (in bytes) of the contents of an archive.
+     *
+     * @param file_packer $packer file packer instance
+     * @return int|null total size in bytes
+     */
+    public function get_total_content_size(file_packer $packer): ?int {
+        // Fetch the contents of the archive.
+        $files = $this->list_files($packer);
+
+        // Early return if the value of $files is not of type array.
+        // This can happen when the utility class is unable to open or read the contents of the archive.
+        if (!is_array($files)) {
+            return null;
+        }
+
+        return array_reduce($files, function ($contentsize, $file) {
+            return $contentsize + $file->size;
+        }, 0);
+    }
+
+    /**
      * Extract file to given file path (real OS filesystem), existing files are overwritten.
      *
      * @param file_packer $packer file packer instance
@@ -505,7 +540,7 @@ class stored_file {
      * @return array|bool list of processed files; false if error
      */
     public function extract_to_pathname(file_packer $packer, $pathname,
-            file_progress $progress = null) {
+            ?file_progress $progress = null) {
         return $this->filesystem->extract_to_pathname($this, $packer, $pathname, $progress);
     }
 
@@ -523,7 +558,7 @@ class stored_file {
      * @return array|bool list of processed files; false if error
      */
     public function extract_to_storage(file_packer $packer, $contextid,
-            $component, $filearea, $itemid, $pathbase, $userid = null, file_progress $progress = null) {
+            $component, $filearea, $itemid, $pathbase, $userid = null, ?file_progress $progress = null) {
 
         return $this->filesystem->extract_to_storage($this, $packer, $contextid, $component, $filearea,
                 $itemid, $pathbase, $userid, $progress);
@@ -1106,6 +1141,9 @@ class stored_file {
 
         // Create a new image from the file.
         $original = @imagecreatefromstring($content);
+        if (empty($original)) {
+            return false;
+        }
 
         // Generate the resized image.
         return resize_image_from_image($original, $imageinfo, $width, $height);

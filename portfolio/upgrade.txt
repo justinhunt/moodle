@@ -1,5 +1,15 @@
+=== 4.5 Onwards ===
+
+This file has been replaced by UPGRADING.md. See MDL-81125 for further information.
+
+===
 This files describes API changes in /portfolio/ portfolio system,
 information provided here is intended especially for developers.
+
+=== 4.0 ===
+
+* The portfolio_boxnet has been completely removed.
+* The portfolio_picasa has been completely removed (Picasa is discontinued since 2016).
 
 === 3.7 ===
 

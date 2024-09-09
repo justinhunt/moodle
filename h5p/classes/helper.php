@@ -26,6 +26,7 @@ namespace core_h5p;
 
 use context_system;
 use core_h5p\local\library\autoloader;
+use core_user;
 
 defined('MOODLE_INTERNAL') || die();
 
@@ -41,8 +42,8 @@ class helper {
      * Store an H5P file.
      *
      * @param factory $factory The \core_h5p\factory object
-     * @param stored_file $file Moodle file instance
-     * @param stdClass $config Button options config
+     * @param \stored_file $file Moodle file instance
+     * @param \stdClass $config Button options config
      * @param bool $onlyupdatelibs Whether new libraries can be installed or only the existing ones can be updated
      * @param bool $skipcontent Should the content be skipped (so only the libraries will be saved)?
      *
@@ -50,23 +51,10 @@ class helper {
      */
     public static function save_h5p(factory $factory, \stored_file $file, \stdClass $config, bool $onlyupdatelibs = false,
             bool $skipcontent = false) {
-        // This may take a long time.
-        \core_php_time_limit::raise();
 
-        $core = $factory->get_core();
-        $core->h5pF->set_file($file);
-        $path = $core->fs->getTmpPath();
-        $core->h5pF->getUploadedH5pFolderPath($path);
-        // Add manually the extension to the file to avoid the validation fails.
-        $path .= '.h5p';
-        $core->h5pF->getUploadedH5pPath($path);
-
-        // Copy the .h5p file to the temporary folder.
-        $file->copy_content_to($path);
-
-        // Check if the h5p file is valid before saving it.
-        $h5pvalidator = $factory->get_validator();
-        if ($h5pvalidator->isValidPackage($skipcontent, $onlyupdatelibs)) {
+        if (api::is_valid_package($file, $onlyupdatelibs, $skipcontent, $factory, false)) {
+            $core = $factory->get_core();
+            $h5pvalidator = $factory->get_validator();
             $h5pstorage = $factory->get_storage();
 
             $content = [
@@ -79,20 +67,47 @@ class helper {
             if (!empty($h5pvalidator->h5pC->mainJsonData['title'])) {
                 $content['title'] = $h5pvalidator->h5pC->mainJsonData['title'];
             }
+
+            // If exists, add the metadata from 'h5p.json' to avoid loosing this information.
+            $data = $h5pvalidator->h5pC->mainJsonData;
+            if (!empty($data)) {
+                // The metadata fields are defined in 'joubel/core/h5p-metadata.class.php'.
+                $metadatafields = [
+                    'title',
+                    'a11yTitle',
+                    'changes',
+                    'authors',
+                    'source',
+                    'license',
+                    'licenseVersion',
+                    'licenseExtras',
+                    'authorComments',
+                    'yearFrom',
+                    'yearTo',
+                    'defaultLanguage',
+                ];
+                $content['metadata'] = array_reduce($metadatafields, function ($array, $field) use ($data) {
+                    if (array_key_exists($field, $data)) {
+                        $array[$field] = $data[$field];
+                    }
+                    return $array;
+                }, []);
+            }
             $h5pstorage->savePackage($content, null, $skipcontent, $options);
 
             return $h5pstorage->contentId;
         }
+
         return false;
     }
 
     /**
      * Get the error messages stored in our H5P framework.
      *
-     * @param stdClass $messages The error, exception and info messages, raised while preparing and running an H5P content.
+     * @param \stdClass $messages The error, exception and info messages, raised while preparing and running an H5P content.
      * @param factory $factory The \core_h5p\factory object
      *
-     * @return stdClass with framework error messages.
+     * @return \stdClass with framework error messages.
      */
     public static function get_messages(\stdClass $messages, factory $factory): \stdClass {
         $core = $factory->get_core();
@@ -148,7 +163,7 @@ class helper {
      *
      * @return int The representation of display options as int
      */
-    public static function decode_display_options(core $core, int $displayint = null): \stdClass {
+    public static function decode_display_options(core $core, ?int $displayint = null): \stdClass {
         $config = new \stdClass();
         if ($displayint === null) {
             $displayint = self::get_display_options($core, $config);
@@ -162,46 +177,50 @@ class helper {
 
     /**
      * Checks if the author of the .h5p file is "trustable". If the file hasn't been uploaded by a user with the
-     * required capability, the content won't be deployed.
+     * required capability, the content won't be deployed, unless the user has been deleted, in this
+     * case we check the capability against current user.
      *
      * @param  stored_file $file The .h5p file to be deployed
      * @return bool Returns true if the file can be deployed, false otherwise.
      */
     public static function can_deploy_package(\stored_file $file): bool {
-        if (null === $file->get_userid()) {
+        $userid = $file->get_userid();
+        if (null === $userid) {
             // If there is no userid, it is owned by the system.
             return true;
         }
 
         $context = \context::instance_by_id($file->get_contextid());
-        if (has_capability('moodle/h5p:deploy', $context, $file->get_userid())) {
-            return true;
+        $fileuser = core_user::get_user($userid);
+        if (empty($fileuser) || $fileuser->deleted) {
+            $userid = null;
         }
-
-        return false;
+        return has_capability('moodle/h5p:deploy', $context, $userid);
     }
 
     /**
      * Checks if the content-type libraries can be upgraded.
      * The H5P content-type libraries can only be upgraded if the author of the .h5p file can manage content-types or if all the
-     * content-types exist, to avoid users without the required capability to upload malicious content.
+     * content-types exist, to avoid users without the required capability to upload malicious content. If user has been deleted
+     * we check against current user.
      *
      * @param  stored_file $file The .h5p file to be deployed
      * @return bool Returns true if the content-type libraries can be created/updated, false otherwise.
      */
     public static function can_update_library(\stored_file $file): bool {
-        if (null === $file->get_userid()) {
+        $userid = $file->get_userid();
+        if (null === $userid) {
             // If there is no userid, it is owned by the system.
             return true;
         }
-
         // Check if the owner of the .h5p file has the capability to manage content-types.
         $context = \context::instance_by_id($file->get_contextid());
-        if (has_capability('moodle/h5p:updatelibraries', $context, $file->get_userid())) {
-            return true;
+        $fileuser = core_user::get_user($userid);
+        if (empty($fileuser) || $fileuser->deleted) {
+            $userid = null;
         }
 
-        return false;
+        return has_capability('moodle/h5p:updatelibraries', $context, $userid);
     }
 
     /**
@@ -210,10 +229,10 @@ class helper {
      * @param string $filepath The filepath of the file
      * @param  int   $userid  The author of the file
      * @param  \context $context The context where the file will be created
-     * @return stored_file The file created
+     * @return \stored_file The file created
      */
     public static function create_fake_stored_file_from_path(string $filepath, int $userid = 0,
-            \context $context = null): \stored_file {
+            ?\context $context = null): \stored_file {
         if (is_null($context)) {
             $context = context_system::instance();
         }
@@ -282,16 +301,16 @@ class helper {
      * @param string $statusaction A link to 'Run now' option for the task
      * @return array
      */
-    static private function convert_info_into_array(string $tool,
+    private static function convert_info_into_array(string $tool,
         \moodle_url $link,
         int $status,
         string $statusaction = ''): array {
 
         $statusclasses = array(
-            TEXTFILTER_DISABLED => 'badge badge-danger',
-            TEXTFILTER_OFF => 'badge badge-warning',
-            0 => 'badge badge-danger',
-            TEXTFILTER_ON => 'badge badge-success',
+            TEXTFILTER_DISABLED => 'badge bg-danger text-white',
+            TEXTFILTER_OFF => 'badge bg-warning text-dark',
+            0 => 'badge bg-danger text-white',
+            TEXTFILTER_ON => 'badge bg-success text-white',
         );
 
         $statuschoices = array(
@@ -326,37 +345,47 @@ class helper {
     /**
      * Get the settings needed by the H5P library.
      *
+     * @param string|null $component
      * @return array The settings.
      */
-    public static function get_core_settings(): array {
+    public static function get_core_settings(?string $component = null): array {
         global $CFG, $USER;
 
         $basepath = $CFG->wwwroot . '/';
         $systemcontext = context_system::instance();
 
-        // Generate AJAX paths.
-        $ajaxpaths = [];
-        $ajaxpaths['xAPIResult'] = '';
-        $ajaxpaths['contentUserData'] = '';
+        // H5P doesn't currently support xAPI State. It implements a mechanism in contentUserDataAjax() in h5p.js to update user
+        // data. However, in our case, we're overriding this method to call the xAPI State web services.
+        $ajaxpaths = [
+            'contentUserData' => '',
+        ];
 
         $factory = new factory();
         $core = $factory->get_core();
 
         // When there is a logged in user, her information will be passed to the player. It will be used for tracking.
-        $usersettings = isloggedin() ? ['name' => $USER->username, 'mail' => $USER->email] : [];
+        $usersettings = [];
+        if (isloggedin()) {
+            $usersettings['name'] = fullname($USER, has_capability('moodle/site:viewfullnames', $systemcontext));
+            $usersettings['id'] = $USER->id;
+        }
+        $savefreq = false;
+        if ($component !== null && get_config($component, 'enablesavestate')) {
+            $savefreq = get_config($component, 'savestatefreq');
+        }
         $settings = array(
             'baseUrl' => $basepath,
             'url' => "{$basepath}pluginfile.php/{$systemcontext->instanceid}/core_h5p",
             'urlLibraries' => "{$basepath}pluginfile.php/{$systemcontext->id}/core_h5p/libraries",
             'postUserStatistics' => false,
             'ajax' => $ajaxpaths,
-            'saveFreq' => false,
+            'saveFreq' => $savefreq,
             'siteUrl' => $CFG->wwwroot,
             'l10n' => array('H5P' => $core->getLocalization()),
             'user' => $usersettings,
-            'hubIsEnabled' => true,
+            'hubIsEnabled' => false,
             'reportingIsEnabled' => false,
-            'crossorigin' => null,
+            'crossorigin' => !empty($CFG->h5pcrossorigin) ? $CFG->h5pcrossorigin : null,
             'libraryConfig' => $core->h5pF->getLibraryConfig(),
             'pluginCacheBuster' => self::get_cache_buster(),
             'libraryUrl' => autoloader::get_h5p_core_library_url('js')->out(),
@@ -368,13 +397,14 @@ class helper {
     /**
      * Get the core H5P assets, including all core H5P JavaScript and CSS.
      *
+     * @param string|null $component
      * @return Array core H5P assets.
      */
-    public static function get_core_assets(): array {
-        global $CFG, $PAGE;
+    public static function get_core_assets(?string $component = null): array {
+        global $PAGE;
 
         // Get core settings.
-        $settings = self::get_core_settings();
+        $settings = self::get_core_settings($component);
         $settings['core'] = [
             'styles' => [],
             'scripts' => []
@@ -421,6 +451,8 @@ class helper {
      * @return array The JS array converted to PHP array.
      */
     public static function parse_js_array(string $jscontent): array {
+        // Convert all line-endings to UNIX format first.
+        $jscontent = str_replace(array("\r\n", "\r"), "\n", $jscontent);
         $jsarray = preg_split('/,\n\s+/', substr($jscontent, 0, -1));
         $jsarray = preg_replace('~{?\\n~', '', $jsarray);
 
@@ -444,7 +476,7 @@ class helper {
      * @param  factory $factory The \core_h5p\factory object
      * @return array|null The information export file otherwise null.
      */
-    public static function get_export_info(string $exportfilename, \moodle_url $url = null, ?factory $factory = null): ?array {
+    public static function get_export_info(string $exportfilename, ?\moodle_url $url = null, ?factory $factory = null): ?array {
 
         if (!$factory) {
             $factory = new factory();

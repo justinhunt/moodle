@@ -26,6 +26,7 @@ form.mform fieldset#id_previewareaheader div.ddarea {
 .que.ddimageortext div.droparea .dropzones {
     position: absolute;
     top: 0;
+    /*rtl:ignore*/
     left: 0;
 }
 
@@ -37,10 +38,6 @@ form.mform fieldset#id_previewareaheader .dropbackground {
 
 form.mform fieldset#id_previewareaheader .dropbackground {
     max-width: none;
-}
-
-.que.ddimageortext .dropbackground.img-responsive.img-fluid {
-    width: 100%;
 }
 
 .que.ddimageortext .dropzone {
@@ -88,6 +85,15 @@ form.mform fieldset#id_previewareaheader .droppreview {
     display: none;
 }
 
+/**
+ * The position of mathjax element in ddimageortext is calculated by javascript in question.js line 254.
+ * So we remove the default margin of Mathjax.
+ */
+.que.ddimageortext .MathJax_Display,
+.que.ddimageortext .MathJax_SVG_Display {
+    margin: 0;
+}
+
 .que.ddimageortext .draghomes .draghome.dragplaceholder.active {
     visibility: hidden;
     display: inline-block;
@@ -102,6 +108,7 @@ form.mform fieldset#id_previewareaheader .dragitems {
 form.mform fieldset#id_previewareaheader .droppreview {
     position: absolute;
     cursor: move;
+    white-space: nowrap;
 }
 
 .que.ddimageortext .dragitems.readonly .drag {

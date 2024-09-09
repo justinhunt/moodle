@@ -27,11 +27,21 @@ define('CLI_SCRIPT', true);
 
 require(__DIR__ . '/../../config.php');
 require_once("$CFG->libdir/clilib.php");
-require_once("$CFG->libdir/cronlib.php");
 
 list($options, $unrecognized) = cli_get_params(
-    array('help' => false, 'list' => false, 'execute' => false, 'showsql' => false, 'showdebugging' => false),
-    array('h' => 'help')
+    [
+        'help' => false,
+        'list' => false,
+        'execute' => false,
+        'showsql' => false,
+        'showdebugging' => false,
+        'force' => false,
+        'disable' => false,
+        'enable' => false,
+    ], [
+        'h' => 'help',
+        'f' => 'force',
+    ]
 );
 
 if ($unrecognized) {
@@ -39,16 +49,21 @@ if ($unrecognized) {
     cli_error(get_string('cliunknowoption', 'admin', $unrecognized));
 }
 
-if ($options['help'] or (!$options['list'] and !$options['execute'])) {
+$commands = ['list', 'execute', 'disable', 'enable'];
+$hascommand = count(array_filter($commands, fn($command) => $options[$command])) > 0;
+if ($options['help'] || !$hascommand) {
     $help =
     "Scheduled cron tasks.
 
     Options:
+    --disable=\\some\\task  Disable scheduled task
+    --enable=\\some\\task  Enable scheduled task
     --execute=\\some\\task  Execute scheduled task manually
     --list                List all scheduled tasks
     --showsql             Show sql queries before they are executed
     --showdebugging       Show developer level debugging information
     -h, --help            Print out this help
+    -f, --force           Execute task even if cron is disabled
 
     Example:
     \$sudo -u www-data /usr/bin/php admin/cli/scheduled_task.php --execute=\\core\\task\\session_cleanup_task
@@ -59,11 +74,11 @@ if ($options['help'] or (!$options['list'] and !$options['execute'])) {
     die;
 }
 
-if ($options['showdebugging']) {
+if ($options['showdebugging'] || !empty($CFG->showcrondebugging)) {
     set_debugging(DEBUG_DEVELOPER, true);
 }
 
-if ($options['showsql']) {
+if ($options['showsql'] || !empty($CFG->showcronsql)) {
     $DB->set_debug(true);
 }
 if ($options['list']) {
@@ -110,22 +125,55 @@ if ($options['list']) {
     exit(0);
 }
 
-if ($execute = $options['execute']) {
+if (moodle_needs_upgrading()) {
+    mtrace("Moodle upgrade pending, cannot manage tasks.");
+    exit(1);
+}
+
+if ($disable = $options['disable']) {
+    if (!$task = \core\task\manager::get_scheduled_task($disable)) {
+        mtrace("Task '$disable' not found");
+        exit(1);
+    }
+
+    try {
+        $task->disable();
+        mtrace("Disabled '$disable'");
+    } catch (Exception $e) {
+        mtrace("$e->getMessage()");
+        exit(1);
+    }
+} else if ($enable = $options['enable']) {
+    if (!$task = \core\task\manager::get_scheduled_task($enable)) {
+        mtrace("Task '$enable' not found");
+        exit(1);
+    }
+
+    try {
+        $task->enable();
+        mtrace("Enabled '$enable'");
+    } catch (Exception $e) {
+        mtrace("$e->getMessage()");
+        exit(1);
+    }
+} else if ($execute = $options['execute']) {
     if (!$task = \core\task\manager::get_scheduled_task($execute)) {
         mtrace("Task '$execute' not found");
         exit(1);
     }
 
-    if (moodle_needs_upgrading()) {
-        mtrace("Moodle upgrade pending, cannot execute tasks.");
+    if (!get_config('core', 'cron_enabled') && !$options['force']) {
+        mtrace('Cron is disabled. Use --force to override.');
         exit(1);
     }
+
+    \core\task\manager::scheduled_task_starting($task);
 
     // Increase memory limit.
     raise_memory_limit(MEMORY_EXTRA);
 
     // Emulate normal session - we use admin account by default.
-    cron_setup_user();
+    \core\cron::setup_user();
 
     // Execute the task.
     \core\local\cli\shutdown::script_supports_graceful_exit();
@@ -141,11 +189,7 @@ if ($execute = $options['execute']) {
     }
 
     $task->set_lock($lock);
-    if (!$task->is_blocking()) {
-        $cronlock->release();
-    } else {
-        $task->set_cron_lock($cronlock);
-    }
+    $cronlock->release();
 
-    cron_run_inner_scheduled_task($task);
+    \core\cron::run_inner_scheduled_task($task);
 }

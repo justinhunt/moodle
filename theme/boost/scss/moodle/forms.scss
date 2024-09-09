@@ -22,23 +22,32 @@
     margin-bottom: 4px;
 }
 
-.mform .form-inline {
-    .form-control,
-    .custom-select {
-        max-width: 100%;
-    }
-    .form-group {
-        margin: 0.1rem 0.25rem 0.1rem 0;
+.mform .d-flex {
+    .fitem {
+        margin: 0.1rem 0.25rem 0.1rem 0 !important; /* stylelint-disable-line declaration-no-important */
     }
     br + label {
         justify-content: flex-start;
         width: 100%;
+        margin-right: 0;
     }
 }
 
-.unresponsive.mform .form-inline,
-.unresponsive.mform .form-inline label {
-    display: inline-flex;
+// Override the default bootstrap form-control width.
+.d-flex {
+    & > .form-control {
+        width: auto;
+        max-width: 100%;
+    }
+    & > textarea.form-control {
+        width: 100%;
+    }
+}
+
+// Override the default bootstrap custom-select width.
+.custom-select {
+    width: auto;
+    max-width: 100%;
 }
 
 #jump-to-activity.custom-select {
@@ -46,30 +55,16 @@
 }
 
 .mform fieldset {
-    margin-bottom: $spacer / 2;
+    margin-bottom: $spacer * 0.5;
     border-bottom: $border-width solid $table-border-color;
-}
-
-@include media-breakpoint-up(sm) {
-    .mform > .form-group {
-        margin-left: $spacer * 1.5;
-    }
-}
-
-.editor_atto_content.form-control {
-    width: 100%;
 }
 
 #adminsettings .form-control[size] {
     width: auto;
 }
 
-.jsenabled .mform .collapsed .fcontainer {
-    display: none;
-}
-
 #adminsettings .error {
-    color: $state-danger-text;
+    color: $danger;
 }
 
 .mform ul.file-list {
@@ -99,14 +94,6 @@ input#id_externalurl {
 .form-label .form-shortname {
     font-size: $font-size-xs;
     display: block;
-}
-
-.form-item .form-inline {
-    display: inline;
-}
-
-.form-inline label:not(.sr-only):not(.accesshide) + select {
-    margin-left: 0.5rem;
 }
 
 .formsettingheading .form-horizontal {
@@ -147,7 +134,7 @@ input#id_externalurl {
     font-size: $font-size-lg;
     line-height: $line-height-base * 2;
     border: 0;
-    border-bottom: 1px solid #e5e5e5;
+    border-bottom: 1px solid $forms-adminsettings-border-bottom-color;
 }
 
 // I think this could be avoided (or at least tidied up) ifr
@@ -213,10 +200,6 @@ div#dateselector-calendar-panel {
     z-index: 3100; /* Set higher than the z-index of the filemanager - see MDL-39047. */
 }
 
-fieldset.coursesearchbox label {
-    display: inline;
-}
-
 /**
  * Show the labels above text editors and file managers except on wide screens.
  */
@@ -229,13 +212,9 @@ fieldset.coursesearchbox label {
     display: none;
 }
 
-.availability-field {
-    label {
-        display: inline-flex;
-    }
-    .availability-group label {
-        vertical-align: top;
-    }
+.availability-field img {
+    width: 16px;
+    height: 16px;
 }
 
 .availability-eye {
@@ -274,12 +253,12 @@ fieldset.coursesearchbox label {
     vertical-align: bottom;
 }
 .form-autocomplete-selection {
-    margin: $input-padding-y-sm;
+    margin: $input-padding-y-sm 0;
     // Padding top and bottom, plus mb-1 and the 100% lineheight.
     min-height: 2 * $input-padding-y-sm + 2 * $font-size-base;
 }
 
-.form-autocomplete-selection [role=listitem] {
+.form-autocomplete-selection [role=option] {
     cursor: pointer;
     white-space: inherit;
     word-break: break-word;
@@ -289,34 +268,46 @@ fieldset.coursesearchbox label {
 
 .form-autocomplete-suggestions {
     position: absolute;
-    background-color: white;
-    border: 2px solid $gray-lighter;
-    border-radius: 3px;
+    background-color: $forms-autocomplete-bg;
+    border: $border-width solid $input-border-color;
     min-width: 206px;
     max-height: 20em;
     overflow: auto;
-    margin: 0;
-    padding: 0;
-    margin-top: 0.4em;
-    z-index: 1;
+    margin: $dropdown-spacer 0 0;
+    padding: $dropdown-padding-y 0;
+    z-index: 3;
 }
 
 .form-autocomplete-suggestions li {
     list-style-type: none;
-    padding: 0.2em;
+    padding: $dropdown-item-padding-y $dropdown-item-padding-x;
     margin: 0;
     cursor: pointer;
     color: $body-color;
-}
-
-.form-autocomplete-suggestions li:hover {
-    background-color: lighten($dropdown-link-active-bg, 15%);
-    color: $dropdown-link-active-color;
-}
-
-.form-autocomplete-suggestions li[aria-selected=true] {
-    background-color: darken($dropdown-bg, 5%);
-    color: $gray;
+    word-break: normal;
+    overflow-wrap: anywhere;
+    white-space: normal;
+    &:hover,
+    &:focus,
+    &[aria-selected="true"] {
+        background-color: $dropdown-link-active-bg;
+        color: $dropdown-link-active-color;
+    }
+    &[aria-disabled="true"] {
+        pointer-events: none;
+        color: $custom-select-disabled-color;
+        background-color: $custom-select-disabled-bg;
+    }
+    &.suggestions-heading {
+        pointer-events: none;
+        font-weight: bold;
+        color: $body-color;
+        background-color: $body-bg;
+        padding-left: calc(#{$dropdown-item-padding-x} / 2);
+    }
+    &::before {
+        content: "\200B";
+    }
 }
 
 .form-autocomplete-downarrow {
@@ -332,9 +323,6 @@ fieldset.coursesearchbox label {
     }
 }
 
-.form-autocomplete-selection:focus {
-    outline: none;
-}
 /** Undo some bootstrap things */
 .form-autocomplete-selection + input.form-control {
     width: auto;
@@ -343,8 +331,17 @@ fieldset.coursesearchbox label {
 }
 
 .form-autocomplete-selection [data-active-selection=true] {
-    padding: 0.5em;
-    font-size: large;
+    box-shadow: $input-btn-focus-box-shadow;
+}
+
+select.form-control {
+    &[size],
+    &[multiple] {
+        padding-right: 0;
+        option {
+            width: fit-content;
+        }
+    }
 }
 
 /* Non-bootstrap selects with a size show their contents outside of the element.
@@ -370,7 +367,8 @@ textarea[data-auto-rows] {
         margin-right: 0;
         & > .col-md-3,
         & > .col-md-9 {
-            float: none;
+            flex: 0 0 100%;
+            max-width: 100%;
             width: inherit;
             padding-right: 0;
             padding-left: 0;
@@ -378,24 +376,23 @@ textarea[data-auto-rows] {
         &.femptylabel > .col-md-3 {
             display: none;
         }
-    }
-}
-
-/** Allow wrapping an mform in a div with the form-inline class to have an inline, responsive form. */
-.form-inline {
-    @include media-breakpoint-up(md) {
-        .col-md-9,
-        .col-md-3 {
-            label {
-                margin-left: 1rem;
-            }
-            margin-bottom: 1rem;
-            width: auto;
+        .form-control {
+            width: 100%;
         }
     }
 }
 
-[data-fieldtype="modgrade"] .form-group {
+.mform .col-form-label .form-label-addon {
+    margin-left: 0.25rem;
+}
+
+@include media-breakpoint-up(sm) {
+    .mform:not(.full-width-labels) .col-form-label .form-label-addon {
+        margin-left: auto;
+    }
+}
+
+[data-fieldtype="modgrade"] .fitem {
     padding-bottom: $input-padding-y;
 }
 
@@ -405,20 +402,8 @@ textarea[data-auto-rows] {
     @include border-radius($card-border-radius);
     border: $card-border-width solid $card-border-color;
     padding: $card-spacer-x;
-    margin-left: $grid-gutter-width / 2;
+    margin-left: $grid-gutter-width * 0.5;
     max-width: 30rem;
-}
-
-/** Atto fields do not have form-control because that would break the layout of the editor.
-    So they need these extra styles to highlight the editor when there is a validation error. */
-.has-danger .editor_atto_content.form-control,
-.has-danger .editor_atto_content.form-control-danger {
-    @include form-control-validation($brand-danger);
-    background-image: $form-icon-danger;
-    padding-right: ($input-padding-x * 3);
-    background-repeat: no-repeat;
-    background-position: center right 1rem;
-    background-size: 1.5rem;
 }
 
 // Styles for the JS file types browser provided by the "filetypes" element.
@@ -431,9 +416,9 @@ textarea[data-auto-rows] {
 }
 
 // The autocomplete popup needs a display:block container to correctly position to popup.
-.form-inline[data-fieldtype="autocomplete"],
-.form-inline[data-fieldtype="tags"] {
-    display: block;
+.felement[data-fieldtype="autocomplete"],
+.felement[data-fieldtype="tags"] {
+    display: block !important; /* stylelint-disable-line declaration-no-important */
 }
 
 // Show editor at 100% width by default.
@@ -441,31 +426,28 @@ textarea[data-auto-rows] {
     flex-grow: 1;
 }
 
-@include media-breakpoint-up(sm) {
-    .mform fieldset {
-        margin-left: $spacer * 1.5;
+@include media-breakpoint-up(md) {
+    .mform fieldset .fcontainer.collapseable .col-form-label {
+        padding-left: ($spacer * 2.5);
     }
-    .mform fieldset.collapsible legend a.fheader {
-        padding: 0 5px 0 ($spacer * 1.5);
-        margin-left: -($spacer * 1.5);
-        background: url([[pix:t/expanded]]) 0 center no-repeat;
+}
+
+.collapsemenu {
+    .collapseall {
+        display: block;
     }
 
-    .mform fieldset.collapsed legend a.fheader {
-        /*rtl:raw:
-        background-image: url([[pix:t/collapsed_rtl]]);
-        */
-        /*rtl:remove*/
-        background-image: url([[pix:t/collapsed]]);
+    .expandall {
+        display: none;
     }
 
-    .mform {
-        .form-inline {
-            .fdefaultcustom {
-                label {
-                    justify-content: initial;
-                }
-            }
+    &.collapsed {
+        .collapseall {
+            display: none;
+        }
+
+        .expandall {
+            display: block;
         }
     }
 }
@@ -493,6 +475,34 @@ textarea[data-auto-rows] {
             .form-inset-item {
                 right: 0;
             }
+        }
+    }
+}
+
+// For form elements aligned to the left with no padding (e.g. Completion conditions activity settings).
+.form-check {
+    &.left-indented {
+        padding-left: 0;
+    }
+}
+
+// Remove the margins that come with the icon.
+.toggle-sensitive-btn .icon {
+    margin-right: 0;
+}
+
+// Input group elements display border radius depending on the proximity of other elements.
+// This corrects border radius of the input when 'small screen only' mode hides the toggle button.
+@media (min-width: 576px) {
+    .toggle-sensitive-wrapper.small-screens-only.input-group:not(.has-validation) > {
+        .form-control:not(:last-child) {
+            @include border-radius($input-border-radius);
+        }
+        .form-control-lg:not(:last-child) {
+            @include border-radius($input-border-radius-lg);
+        }
+        .input-group-append .toggle-sensitive-btn {
+            display: none;
         }
     }
 }

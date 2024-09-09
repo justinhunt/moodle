@@ -21,14 +21,14 @@ Feature: Test exporting questions using Aiken format.
       | questioncategory | qtype        | name             | template    |
       | Test questions   | multichoice  | Multi-choice-001 | two_of_four |
       | Test questions   | multichoice  | Multi-choice-002 | one_of_four |
-    And I log in as "teacher1"
-    And I am on "Course 1" course homepage
 
   Scenario: Aiken export
-    When I navigate to "Question bank > Export" in current page administration
+    When I am on the "Course 1" "core_question > course question export" page logged in as "teacher1"
     And I set the field "id_format_aiken" to "1"
     When I press "Export questions to file"
-    Then following "click here" should download between "68" and "70" bytes
+    Then following "click here" should download a file that:
+      | Has mimetype  | text/plain                  |
+      | Contains text | Which is the oddest number? |
     # If the download step is the last in the scenario then we can sometimes run
     # into the situation where the download page causes a http redirect but behat
     # has already conducted its reset (generating an error). By putting a logout

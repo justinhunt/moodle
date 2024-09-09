@@ -19,6 +19,7 @@
  *
  * @copyright  2019 Ryan Wyllie <ryan@moodle.com>
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
+ * @package core
  */
 
 namespace core\output;
@@ -28,6 +29,7 @@ namespace core\output;
  *
  * @copyright  2019 Ryan Wyllie <ryan@moodle.com>
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
+ * @package core
  */
 class mustache_engine extends \Mustache_Engine {
     /**
@@ -38,7 +40,7 @@ class mustache_engine extends \Mustache_Engine {
     /**
      * @var string[] Names of helpers that aren't allowed to be called within other helpers.
      */
-    private $blacklistednestedhelpers = [];
+    private $disallowednestedhelpers = [];
 
     /**
      * Mustache engine constructor.
@@ -47,13 +49,19 @@ class mustache_engine extends \Mustache_Engine {
      * $options = [
      *      // A list of helpers (by name) to prevent from executing within the rendering
      *      // of other helpers.
-     *      'blacklistednestedhelpers' => ['js']
+     *      'disallowednestedhelpers' => ['js']
      * ];
      * @param array $options [description]
      */
     public function __construct(array $options = []) {
+
         if (isset($options['blacklistednestedhelpers'])) {
-            $this->blacklistednestedhelpers = $options['blacklistednestedhelpers'];
+            debugging('blacklistednestedhelpers option is deprecated. Use disallowednestedhelpers instead.', DEBUG_DEVELOPER);
+            $this->disallowednestedhelpers = $options['blacklistednestedhelpers'];
+        }
+
+        if (isset($options['disallowednestedhelpers'])) {
+            $this->disallowednestedhelpers = $options['disallowednestedhelpers'];
         }
 
         parent::__construct($options);
@@ -62,14 +70,13 @@ class mustache_engine extends \Mustache_Engine {
     /**
      * Get the current set of Mustache helpers.
      *
-     * @see Mustache_Engine::setHelpers
+     * @see \Mustache_Engine::setHelpers
      *
      * @return \Mustache_HelperCollection
      */
-    public function getHelpers()
-    {
+    public function gethelpers() {
         if (!isset($this->helpers)) {
-            $this->helpers = new mustache_helper_collection(null, $this->blacklistednestedhelpers);
+            $this->helpers = new mustache_helper_collection(null, $this->disallowednestedhelpers);
         }
 
         return $this->helpers;

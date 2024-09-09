@@ -182,7 +182,8 @@ function forum_rss_feed_discussions_sql($forum, $cm, $newsince=0) {
 
     $forumsort = "d.timemodified DESC";
     $postdata = "p.id AS postid, p.subject, p.created as postcreated, p.modified, p.discussion, p.userid, p.message as postmessage, p.messageformat AS postformat, p.messagetrust AS posttrust";
-    $userpicturefields = user_picture::fields('u', null, 'userid');
+    $userfieldsapi = \core_user\fields::for_userpic();
+    $userpicturefields = $userfieldsapi->get_sql('u', false, '', 'userid', false)->selects;
 
     $sql = "SELECT $postdata, d.id as discussionid, d.name as discussionname, d.timemodified, d.usermodified, d.groupid,
                    d.timestart, d.timeend, $userpicturefields
@@ -235,7 +236,8 @@ function forum_rss_feed_posts_sql($forum, $cm, $newsince=0) {
         $privatewhere = '';
     }
 
-    $usernamefields = get_all_user_name_fields(true, 'u');
+    $userfieldsapi = \core_user\fields::for_name();
+    $usernamefields = $userfieldsapi->get_sql('u', false, '', '', false)->selects;
     $sql = "SELECT p.id AS postid,
                  d.id AS discussionid,
                  d.name AS discussionname,
@@ -312,8 +314,6 @@ function forum_rss_get_group_sql($cm, $groupmode, $currentgroup, $modcontext=nul
 function forum_rss_feed_contents($forum, $sql, $params, $context) {
     global $CFG, $DB, $USER;
 
-    $status = true;
-
     $recs = $DB->get_recordset_sql($sql, $params, 0, $forum->rssarticles);
 
     //set a flag. Are we displaying discussions or posts?
@@ -323,10 +323,9 @@ function forum_rss_feed_contents($forum, $sql, $params, $context) {
     }
 
     if (!$cm = get_coursemodule_from_instance('forum', $forum->id, $forum->course)) {
-        print_error('invalidcoursemodule');
+        throw new \moodle_exception('invalidcoursemodule');
     }
 
-    $formatoptions = new stdClass();
     $items = array();
     foreach ($recs as $rec) {
             $item = new stdClass();
@@ -358,8 +357,8 @@ function forum_rss_feed_contents($forum, $sql, $params, $context) {
                     $item->author = get_string('forumauthorhidden', 'forum');
                 } else {
                     // This is a post which has been deleted.
-                    $item->title = get_string('privacy:request:delete:post:subject', 'mod_forum');
-                    $message = get_string('privacy:request:delete:post:subject', 'mod_forum');
+                    $item->title = get_string('forumsubjectdeleted', 'mod_forum');
+                    $message = get_string('forumbodydeleted', 'mod_forum');
                     $item->author = get_string('forumauthorhidden', 'forum');
                 }
             } else {
@@ -375,7 +374,6 @@ function forum_rss_feed_contents($forum, $sql, $params, $context) {
                 $item->author = fullname($rec);
                 $message = file_rewrite_pluginfile_urls($rec->postmessage, 'pluginfile.php', $context->id,
                         'mod_forum', 'post', $rec->postid);
-                $formatoptions->trusted = $rec->posttrust;
             }
 
             if ($isdiscussion) {
@@ -384,8 +382,10 @@ function forum_rss_feed_contents($forum, $sql, $params, $context) {
                 $item->link = $CFG->wwwroot."/mod/forum/discuss.php?d=".$rec->discussionid."&parent=".$rec->postid;
             }
 
-            $formatoptions->trusted = $rec->posttrust;
-            $item->description = format_text($message, $rec->postformat, $formatoptions, $forum->course);
+            $item->description = format_text($message, $rec->postformat, [
+                'context' => $context,
+                'trusted' => $rec->posttrust,
+            ]);
 
             //TODO: MDL-31129 implement post attachment handling
             /*if (!$isdiscussion) {

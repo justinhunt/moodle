@@ -89,7 +89,7 @@ class discussion_list extends db_table_vault {
      *
      * @return string
      */
-    protected function get_table_alias() : string {
+    protected function get_table_alias(): string {
         return 'd';
     }
 
@@ -98,7 +98,7 @@ class discussion_list extends db_table_vault {
      *
      * @return string
      */
-    protected function get_favourite_alias() : string {
+    protected function get_favourite_alias(): string {
         return 'favalias';
     }
 
@@ -111,7 +111,7 @@ class discussion_list extends db_table_vault {
      *
      * @return string
      */
-    protected function generate_get_records_sql(string $wheresql = null, ?string $sortsql = null, ?int $userid = null) : string {
+    protected function generate_get_records_sql(?string $wheresql = null, ?string $sortsql = null, ?int $userid = null): string {
         $alias = $this->get_table_alias();
 
         $includefavourites = $userid ? true : false;
@@ -131,8 +131,11 @@ class discussion_list extends db_table_vault {
         // - Most recent editor.
         $thistable = new dml_table(self::TABLE, $alias, $alias);
         $posttable = new dml_table('forum_posts', 'fp', 'p_');
-        $firstauthorfields = \user_picture::fields('fa', ['deleted'], self::FIRST_AUTHOR_ID_ALIAS, self::FIRST_AUTHOR_ALIAS);
-        $latestuserfields = \user_picture::fields('la', ['deleted'], self::LATEST_AUTHOR_ID_ALIAS, self::LATEST_AUTHOR_ALIAS);
+        $userfieldsapi = \core_user\fields::for_userpic()->including('deleted');
+        $firstauthorfields = $userfieldsapi->get_sql('fa', false,
+                self::FIRST_AUTHOR_ALIAS, self::FIRST_AUTHOR_ID_ALIAS, false)->selects;
+        $latestuserfields = $userfieldsapi->get_sql('la', false,
+                self::LATEST_AUTHOR_ALIAS, self::LATEST_AUTHOR_ID_ALIAS, false)->selects;
 
         $fields = implode(', ', [
             $thistable->get_field_select(),
@@ -189,7 +192,7 @@ class discussion_list extends db_table_vault {
      * @param string|null $wheresql Where conditions for the SQL
      * @return string
      */
-    protected function generate_count_records_sql(string $wheresql = null) : string {
+    protected function generate_count_records_sql(?string $wheresql = null): string {
         $alias = $this->get_table_alias();
         $db = $this->get_db();
 
@@ -205,7 +208,7 @@ class discussion_list extends db_table_vault {
      *
      * @return array
      */
-    protected function get_preprocessors() : array {
+    protected function get_preprocessors(): array {
         return array_merge(
             parent::get_preprocessors(),
             [
@@ -248,7 +251,7 @@ class discussion_list extends db_table_vault {
      * @param int|null $sortmethod
      * @return string
      */
-    protected function get_keyfield(?int $sortmethod) : string {
+    protected function get_keyfield(?int $sortmethod): string {
         global $CFG;
 
         switch ($sortmethod) {
@@ -271,7 +274,7 @@ class discussion_list extends db_table_vault {
                     $nameformat = get_string('fullnamedisplay', '', (object)['firstname' => 'firstname', 'lastname' => 'lastname']);
                 }
                 // Fetch all the available user name fields.
-                $availablefields = order_in_string(get_all_user_name_fields(), $nameformat);
+                $availablefields = order_in_string(\core_user\fields::get_name_fields(), $nameformat);
                 // We'll default to the first name if there's no available name field.
                 $returnfield = 'firstname';
                 if (!empty($availablefields)) {
@@ -299,7 +302,7 @@ class discussion_list extends db_table_vault {
      * @param int|null $sortmethod
      * @return string
      */
-    protected function get_sort_direction(?int $sortmethod) : string {
+    protected function get_sort_direction(?int $sortmethod): string {
         switch ($sortmethod) {
             case self::SORTORDER_LASTPOST_ASC:
             case self::SORTORDER_CREATED_ASC:
@@ -326,7 +329,7 @@ class discussion_list extends db_table_vault {
      * @param bool|null $includefavourites
      * @return string
      */
-    private function get_sort_order(?int $sortmethod, bool $includefavourites = true) : string {
+    private function get_sort_order(?int $sortmethod, bool $includefavourites = true): string {
 
         $alias = $this->get_table_alias();
         // TODO consider user favourites...
@@ -347,7 +350,7 @@ class discussion_list extends db_table_vault {
             $favouritesort .= ", {$favalias}.itemtype DESC";
         }
 
-        return "{$alias}.pinned DESC $favouritesort , {$keyfield} {$direction}";
+        return "{$alias}.pinned DESC $favouritesort , {$keyfield} {$direction}, {$alias}.id {$direction}";
     }
 
     /**

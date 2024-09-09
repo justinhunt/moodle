@@ -38,7 +38,7 @@ use core_grades\component_gradeitems;
  * @category grading
  * @example $manager = get_grading_manager($areaid);
  * @example $manager = get_grading_manager(context_system::instance());
- * @example $manager = get_grading_manager($context, 'mod_assignment', 'submission');
+ * @example $manager = get_grading_manager($context, 'mod_assign', 'submission');
  * @param stdClass|int|null $context_or_areaid if $areaid is passed, no other parameter is needed
  * @param string|null $component the frankenstyle name of the component
  * @param string|null $area the name of the gradable area
@@ -443,7 +443,7 @@ class grading_manager {
      * @param settings_navigation $settingsnav {@link settings_navigation}
      * @param navigation_node $modulenode {@link navigation_node}
      */
-    public function extend_settings_navigation(settings_navigation $settingsnav, navigation_node $modulenode=null) {
+    public function extend_settings_navigation(settings_navigation $settingsnav, ?navigation_node $modulenode=null) {
 
         $this->ensure_isset(array('context', 'component'));
 
@@ -453,33 +453,13 @@ class grading_manager {
             // no money, no funny
             return;
 
-        } else if (count($areas) == 1) {
+        } else {
             // make just a single node for the management screen
             $areatitle = reset($areas);
             $areaname  = key($areas);
             $this->set_area($areaname);
-            $method = $this->get_active_method();
             $managementnode = $modulenode->add(get_string('gradingmanagement', 'core_grading'),
-                $this->get_management_url(), settings_navigation::TYPE_CUSTOM);
-            if ($method) {
-                $controller = $this->get_controller($method);
-                $controller->extend_settings_navigation($settingsnav, $managementnode);
-            }
-
-        } else {
-            // make management screen node for each area
-            $managementnode = $modulenode->add(get_string('gradingmanagement', 'core_grading'),
-                null, settings_navigation::TYPE_CUSTOM);
-            foreach ($areas as $areaname => $areatitle) {
-                $this->set_area($areaname);
-                $method = $this->get_active_method();
-                $node = $managementnode->add($areatitle,
-                    $this->get_management_url(), settings_navigation::TYPE_CUSTOM);
-                if ($method) {
-                    $controller = $this->get_controller($method);
-                    $controller->extend_settings_navigation($settingsnav, $node);
-                }
-            }
+                $this->get_management_url(), settings_navigation::TYPE_CUSTOM, null, 'advgrading');
         }
     }
 
@@ -492,7 +472,7 @@ class grading_manager {
      * @param global_navigation $navigation
      * @param navigation_node $modulenode
      */
-    public function extend_navigation(global_navigation $navigation, navigation_node $modulenode=null) {
+    public function extend_navigation(global_navigation $navigation, ?navigation_node $modulenode=null) {
         $this->ensure_isset(array('context', 'component'));
 
         $areas = $this->get_available_areas();
@@ -571,7 +551,7 @@ class grading_manager {
      * @param moodle_url $returnurl optional URL of the page where the user should be sent back to
      * @return moodle_url
      */
-    public function get_management_url(moodle_url $returnurl = null) {
+    public function get_management_url(?moodle_url $returnurl = null) {
 
         $this->ensure_isset(array('context', 'component'));
 

@@ -23,7 +23,7 @@
  * @category  files
  * @param stdClass $course course object
  * @param stdClass $birecord_or_cm block instance record
- * @param stdClass $context context object
+ * @param context $context context object
  * @param string $filearea file area
  * @param array $args extra arguments
  * @param bool $forcedownload whether or not force download
@@ -100,7 +100,7 @@ function block_html_global_db_replace($search, $replace) {
     $instances = $DB->get_recordset('block_instances', array('blockname' => 'html'));
     foreach ($instances as $instance) {
         // TODO: intentionally hardcoded until MDL-26800 is fixed
-        $config = unserialize(base64_decode($instance->configdata));
+        $config = unserialize_object(base64_decode($instance->configdata));
         if (isset($config->text) and is_string($config->text)) {
             $config->text = str_replace($search, $replace, $config->text);
             $DB->update_record('block_instances', ['id' => $instance->id,
@@ -117,7 +117,7 @@ function block_html_global_db_replace($search, $replace) {
  * @param  array  $args The path (the part after the filearea and before the filename).
  * @return array The itemid and the filepath inside the $args path, for the defined filearea.
  */
-function block_html_get_path_from_pluginfile(string $filearea, array $args) : array {
+function block_html_get_path_from_pluginfile(string $filearea, array $args): array {
     // This block never has an itemid (the number represents the revision but it's not stored in database).
     array_shift($args);
 

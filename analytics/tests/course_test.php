@@ -14,15 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
-/**
- * Unit tests for course.
- *
- * @package   core_analytics
- * @copyright 2016 David Monllaó {@link http://www.davidmonllao.com}
- * @license   http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
- */
-
-defined('MOODLE_INTERNAL') || die();
+namespace core_analytics;
 
 /**
  * Unit tests for course.
@@ -31,10 +23,38 @@ defined('MOODLE_INTERNAL') || die();
  * @copyright 2016 David Monllaó {@link http://www.davidmonllao.com}
  * @license   http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
-class core_analytics_course_testcase extends advanced_testcase {
+class course_test extends \advanced_testcase {
 
-    public function setUp() {
+    /** @var \stdClass Course record. */
+    protected $course;
+
+    /** @var \stdClass Student 1 user record. */
+    protected $stu1;
+
+    /** @var \stdClass Student 2 user record. */
+    protected $stu2;
+
+    /** @var \stdClass Student both user record. */
+    protected $both;
+
+    /** @var \stdClass Editing teacher user record. */
+    protected $editingteacher;
+
+    /** @var \stdClass Teacher user record. */
+    protected $teacher;
+
+    /** @var int Student role ID record. */
+    protected $studentroleid;
+
+    /** @var int Editing teacher role ID record. */
+    protected $editingteacherroleid;
+
+    /** @var int Teacher role ID record. */
+    protected $teacherroleid;
+
+    public function setUp(): void {
         global $DB;
+        parent::setUp();
 
         $this->course = $this->getDataGenerator()->create_course(['startdate' => 0]);
         $this->stu1 = $this->getDataGenerator()->create_user();
@@ -58,7 +78,7 @@ class core_analytics_course_testcase extends advanced_testcase {
     /**
      * Users tests.
      */
-    public function test_users() {
+    public function test_users(): void {
         global $DB;
 
         $this->resetAfterTest(true);
@@ -78,7 +98,7 @@ class core_analytics_course_testcase extends advanced_testcase {
      *
      * @return void
      */
-    public function test_course_validation() {
+    public function test_course_validation(): void {
         global $DB;
 
         $this->resetAfterTest(true);

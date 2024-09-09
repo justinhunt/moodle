@@ -14,14 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
-/**
- * Content bank class
- *
- * @package    core_contentbank
- * @copyright  2020 Amaia Anabitarte <amaia@moodle.com>
- * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
- */
-
 namespace core_contentbank;
 
 use core_plugin_manager;
@@ -36,6 +28,10 @@ use context;
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 class contentbank {
+
+    /** @var array All the context levels allowed in the content bank */
+    private const ALLOWED_CONTEXT_LEVELS = [CONTEXT_SYSTEM, CONTEXT_COURSECAT, CONTEXT_COURSE];
+
     /** @var array Enabled content types. */
     private $enabledcontenttypes = null;
 
@@ -99,7 +95,7 @@ class contentbank {
      * @param context $context Optional context to check (default null)
      * @return array The array with all the extensions supported and the supporting plugin names.
      */
-    public function load_context_supported_extensions(context $context = null): array {
+    public function load_context_supported_extensions(?context $context = null): array {
         $extensionscache = \cache::make('core', 'contentbank_context_extensions');
 
         $contextextensions = $extensionscache->get($context->id);
@@ -128,7 +124,7 @@ class contentbank {
      * @param context $context   Optional context to check (default null)
      * @return string A string with all the extensions supported.
      */
-    public function get_supported_extensions_as_string(context $context = null) {
+    public function get_supported_extensions_as_string(?context $context = null) {
         $supported = $this->load_context_supported_extensions($context);
         $extensions = array_keys($supported);
         return implode(',', $extensions);
@@ -155,7 +151,7 @@ class contentbank {
      * @param context $context $context     Optional context to check (default null)
      * @return string contenttype name supports the file extension or null if the extension is not supported by any allowed plugin.
      */
-    public function get_extension_supporter(string $extension, context $context = null): ?string {
+    public function get_extension_supporter(string $extension, ?context $context = null): ?string {
         $supporters = $this->load_context_supported_extensions($context);
         if (array_key_exists($extension, $supporters)) {
             return $supporters[$extension];
@@ -211,14 +207,47 @@ class contentbank {
 
         $records = $DB->get_records_select('contentbank_content', $sql, $params, 'name ASC');
         foreach ($records as $record) {
-            $contentclass = "\\$record->contenttype\\content";
-            $content = new $contentclass($record);
+            $content = $this->get_content_from_id($record->id);
             if ($content->is_view_allowed()) {
                 $contents[] = $content;
             }
         }
 
         return $contents;
+    }
+
+
+    /**
+     * Return all the context where a user has all the given capabilities.
+     *
+     * @param  string $capability The capability the user needs to have.
+     * @param  int|null $userid Optional userid. $USER by default.
+     * @return array Array of the courses and course categories where the user has the given capability.
+     */
+    public function get_contexts_with_capabilities_by_user($capability = 'moodle/contentbank:access', $userid = null): array {
+        global $USER;
+
+        if (!$userid) {
+            $userid = $USER->id;
+        }
+
+        $categoriescache = \cache::make('core', 'contentbank_allowed_categories');
+        $coursescache = \cache::make('core', 'contentbank_allowed_courses');
+
+        $categories = $categoriescache->get($userid);
+        $courses = $coursescache->get($userid);
+
+        if ($categories === false || $courses === false) {
+            // Required fields for preloading the context record.
+            $contextfields = 'ctxid, ctxpath, ctxdepth, ctxlevel, ctxinstance, ctxlocked';
+
+            list($categories, $courses) = get_user_capability_contexts($capability, true, $userid, true,
+                "fullname, {$contextfields}", "name, {$contextfields}", 'fullname', 'name');
+            $categoriescache->set($userid, $categories);
+            $coursescache->set($userid, $courses);
+        }
+
+        return [$categories, $courses];
     }
 
     /**
@@ -243,7 +272,7 @@ class contentbank {
         $record->name = $filename;
         $record->usercreated = $userid;
         $contentype = new $classname($context);
-        $content = $contentype->create_content($record);
+        $content = $contentype->upload_content($file, $record);
         $event = \core\event\contentbank_content_uploaded::create_from_record($content->get_content());
         $event->trigger();
         return $content;
@@ -261,14 +290,10 @@ class contentbank {
         $result = true;
         $records = $DB->get_records('contentbank_content', ['contextid' => $context->id]);
         foreach ($records as $record) {
-            $contenttypeclass = "\\$record->contenttype\\contenttype";
-            if (class_exists($contenttypeclass)) {
-                $contenttype = new $contenttypeclass($context);
-                $contentclass = "\\$record->contenttype\\content";
-                $content = new $contentclass($record);
-                if (!$contenttype->delete_content($content)) {
-                    $result = false;
-                }
+            $content = $this->get_content_from_id($record->id);
+            $contenttype = $content->get_content_type_instance();
+            if (!$contenttype->delete_content($content)) {
+                $result = false;
             }
         }
         return $result;
@@ -287,14 +312,10 @@ class contentbank {
         $result = true;
         $records = $DB->get_records('contentbank_content', ['contextid' => $from->id]);
         foreach ($records as $record) {
-            $contenttypeclass = "\\$record->contenttype\\contenttype";
-            if (class_exists($contenttypeclass)) {
-                $contenttype = new $contenttypeclass($from);
-                $contentclass = "\\$record->contenttype\\content";
-                $content = new $contentclass($record);
-                if (!$contenttype->move_content($content, $to)) {
-                    $result = false;
-                }
+            $content = $this->get_content_from_id($record->id);
+            $contenttype = $content->get_content_type_instance();
+            if (!$contenttype->move_content($content, $to)) {
+                $result = false;
             }
         }
         return $result;
@@ -309,7 +330,7 @@ class contentbank {
      *
      * @return string[] List of content types where the user has permission to access the feature.
      */
-    public function get_contenttypes_with_capability_feature(string $feature, \context $context = null, bool $enabled = true): array {
+    public function get_contenttypes_with_capability_feature(string $feature, ?\context $context = null, bool $enabled = true): array {
         $contenttypes = [];
         // Check enabled content types or all of them.
         if ($enabled) {
@@ -331,5 +352,29 @@ class contentbank {
         }
 
         return $contenttypes;
+    }
+
+    /**
+     * Return a content class form a content id.
+     *
+     * @throws coding_exception if the ID is not valid or some class does no exists
+     * @param int $id the content id
+     * @return content the content class instance
+     */
+    public function get_content_from_id(int $id): content {
+        global $DB;
+        $record = $DB->get_record('contentbank_content', ['id' => $id], '*', MUST_EXIST);
+        $contentclass = "\\$record->contenttype\\content";
+        return new $contentclass($record);
+    }
+
+    /**
+     * Whether the context is allowed.
+     *
+     * @param context $context Context to check.
+     * @return bool
+     */
+    public function is_context_allowed(context $context): bool {
+        return in_array($context->contextlevel, self::ALLOWED_CONTEXT_LEVELS);
     }
 }

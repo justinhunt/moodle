@@ -44,10 +44,12 @@ class block_section_links extends block_base {
      * @return array
      */
     public function applicable_formats() {
-        return array(
+        return [
             'course-view-weeks' => true,
-            'course-view-topics' => true
-        );
+            'course-view-topics' => true,
+            'course-view-section-weeks' => true,
+            'course-view-section-topics' => true,
+        ];
     }
 
     /**
@@ -105,6 +107,9 @@ class block_section_links extends block_base {
             }
         }
 
+        // Whether or not section name should be displayed.
+        $showsectionname = !empty($config->showsectionname) ? true : false;
+
         // Prepare an array of sections to create links for.
         $sections = array();
         $canviewhidden = has_capability('moodle/course:update', $context);
@@ -126,13 +131,17 @@ class block_section_links extends block_base {
                     $sections[$i]->highlight = true;
                     $sectiontojumpto = $section->section;
                 }
+                if ($showsectionname) {
+                    $sections[$i]->name = $courseformat->get_section_name($i);
+                }
             }
         }
 
         if (!empty($sections)) {
             // Render the sections.
             $renderer = $this->page->get_renderer('block_section_links');
-            $this->content->text = $renderer->render_section_links($this->page->course, $sections, $sectiontojumpto);
+            $this->content->text = $renderer->render_section_links($this->page->course, $sections,
+                $sectiontojumpto, $showsectionname);
         }
 
         return $this->content;
@@ -172,5 +181,3 @@ class block_section_links extends block_base {
         ];
     }
 }
-
-

@@ -86,7 +86,11 @@ if ($ADMIN->fulltree) {
         $options = get_default_enrol_roles(context_system::instance());
         $student = get_archetype_roles('student');
         $student = reset($student);
-        $settings->add(new admin_setting_configselect('enrol_database/defaultrole', get_string('defaultrole', 'enrol_database'), get_string('defaultrole_desc', 'enrol_database'), $student->id, $options));
+        $settings->add(new admin_setting_configselect('enrol_database/defaultrole',
+            get_string('defaultrole', 'enrol_database'),
+            get_string('defaultrole_desc', 'enrol_database'),
+            $student->id ?? null,
+            $options));
     }
 
     $settings->add(new admin_setting_configcheckbox('enrol_database/ignorehiddencourses', get_string('ignorehiddencourses', 'enrol_database'), get_string('ignorehiddencourses_desc', 'enrol_database'), 0));
@@ -108,6 +112,16 @@ if ($ADMIN->fulltree) {
     $settings->add(new admin_setting_configtext('enrol_database/newcourseshortname', get_string('newcourseshortname', 'enrol_database'), '', 'shortname'));
 
     $settings->add(new admin_setting_configtext('enrol_database/newcourseidnumber', get_string('newcourseidnumber', 'enrol_database'), '', 'idnumber'));
+
+    $settings->add(new admin_setting_configtext(
+        'enrol_database/newcoursestartdate',
+        get_string('newcoursestartdate', 'enrol_database'),
+        get_string('newcoursestartdate_desc', 'enrol_database'), ''));
+
+    $settings->add(new admin_setting_configtext(
+        'enrol_database/newcourseenddate',
+        get_string('newcourseenddate', 'enrol_database'),
+        get_string('newcourseenddate_desc', 'enrol_database'), ''));
 
     $settings->add(new admin_setting_configtext('enrol_database/newcoursecategory', get_string('newcoursecategory', 'enrol_database'), '', ''));
 

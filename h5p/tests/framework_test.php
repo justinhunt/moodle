@@ -14,29 +14,26 @@
 // You should have received a copy of the GNU General Public License
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
-/**
- * Testing the H5PFrameworkInterface interface implementation.
- *
- * @package    core_h5p
- * @category   test
- * @copyright  2019 Mihail Geshoski <mihail@moodle.com>
- * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
- */
-
 namespace core_h5p;
 
-defined('MOODLE_INTERNAL') || die();
+use core_collator;
+use Moodle\H5PCore;
+use Moodle\H5PDisplayOptionBehaviour;
+
+// phpcs:disable moodle.NamingConventions.ValidFunctionName.LowercaseMethod
 
 /**
  *
  * Test class covering the H5PFrameworkInterface interface implementation.
  *
  * @package    core_h5p
+ * @category   test
  * @copyright  2019 Mihail Geshoski <mihail@moodle.com>
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
+ * @covers     \core_h5p\framework
  * @runTestsInSeparateProcesses
  */
-class framework_testcase extends \advanced_testcase {
+class framework_test extends \advanced_testcase {
 
     /** @var \core_h5p\framework */
     private $framework;
@@ -44,7 +41,8 @@ class framework_testcase extends \advanced_testcase {
     /**
      * Set up function for tests.
      */
-    public function setUp() {
+    public function setUp(): void {
+        parent::setUp();
         $factory = new \core_h5p\factory();
         $this->framework = $factory->get_framework();
     }
@@ -52,7 +50,7 @@ class framework_testcase extends \advanced_testcase {
     /**
      * Test the behaviour of getPlatformInfo().
      */
-    public function test_getPlatformInfo() {
+    public function test_getPlatformInfo(): void {
         global $CFG;
 
         $platforminfo = $this->framework->getPlatformInfo();
@@ -73,7 +71,7 @@ class framework_testcase extends \advanced_testcase {
      * therefore it might take longer time to execute.
      * In order to execute this test PHPUNIT_LONGTEST should be set to true in phpunit.xml or directly in config.php.
      */
-    public function test_fetchExternalData_no_path_defined() {
+    public function test_fetchExternalData_no_path_defined(): void {
 
         if (!PHPUNIT_LONGTEST) {
             $this->markTestSkipped('PHPUNIT_LONGTEST is not defined');
@@ -104,7 +102,7 @@ class framework_testcase extends \advanced_testcase {
      * therefore it might take longer time to execute.
      * In order to execute this test PHPUNIT_LONGTEST should be set to true in phpunit.xml or directly in config.php.
      */
-    public function test_fetchExternalData_path_defined() {
+    public function test_fetchExternalData_path_defined(): void {
         global $CFG;
 
         if (!PHPUNIT_LONGTEST) {
@@ -137,7 +135,7 @@ class framework_testcase extends \advanced_testcase {
      * therefore it might take longer time to execute.
      * In order to execute this test PHPUNIT_LONGTEST should be set to true in phpunit.xml or directly in config.php.
      */
-    public function test_fetchExternalData_url_not_h5p() {
+    public function test_fetchExternalData_url_not_h5p(): void {
 
         if (!PHPUNIT_LONGTEST) {
             // This test is intensive and requires downloading the content of an external file.
@@ -164,7 +162,7 @@ class framework_testcase extends \advanced_testcase {
     /**
      * Test the behaviour of fetchExternalData() when the URL is invalid.
      */
-    public function test_fetchExternalData_url_invalid() {
+    public function test_fetchExternalData_url_invalid(): void {
         // Provide an invalid URL to an external file.
         $url = "someprotocol://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf";
 
@@ -175,9 +173,58 @@ class framework_testcase extends \advanced_testcase {
     }
 
     /**
+     * Test the behaviour of setLibraryTutorialUrl().
+     */
+    public function test_setLibraryTutorialUrl(): void {
+        global $DB;
+
+        $this->resetAfterTest();
+
+        $generator = $this->getDataGenerator()->get_plugin_generator('core_h5p');
+
+        // Create several libraries records.
+        $lib1 = $generator->create_library_record('Library1', 'Lib1', 1, 0, 1, '', null, 'http://tutorial1.org',
+            'http://example.org');
+        $lib2 = $generator->create_library_record('Library2', 'Lib2', 2, 0, 1, '', null, 'http://tutorial2.org');
+        $lib3 = $generator->create_library_record('Library3', 'Lib3', 3, 0);
+
+        // Check only lib1 tutorial URL is updated.
+        $url = 'https://newtutorial.cat';
+        $this->framework->setLibraryTutorialUrl($lib1->machinename, $url);
+
+        $libraries = $DB->get_records('h5p_libraries');
+        $this->assertEquals($libraries[$lib1->id]->tutorial, $url);
+        $this->assertNotEquals($libraries[$lib2->id]->tutorial, $url);
+
+        // Check lib1 tutorial URL is set to null.
+        $this->framework->setLibraryTutorialUrl($lib1->machinename, null);
+
+        $libraries = $DB->get_records('h5p_libraries');
+        $this->assertCount(3, $libraries);
+        $this->assertNull($libraries[$lib1->id]->tutorial);
+
+        // Check no tutorial URL is set if library name doesn't exist.
+        $this->framework->setLibraryTutorialUrl('Unexisting library', $url);
+
+        $libraries = $DB->get_records('h5p_libraries');
+        $this->assertCount(3, $libraries);
+        $this->assertNull($libraries[$lib1->id]->tutorial);
+        $this->assertEquals($libraries[$lib2->id]->tutorial, 'http://tutorial2.org');
+        $this->assertNull($libraries[$lib3->id]->tutorial);
+
+        // Check tutorial is set as expected when it was null.
+        $this->framework->setLibraryTutorialUrl($lib3->machinename, $url);
+
+        $libraries = $DB->get_records('h5p_libraries');
+        $this->assertEquals($libraries[$lib3->id]->tutorial, $url);
+        $this->assertNull($libraries[$lib1->id]->tutorial);
+        $this->assertEquals($libraries[$lib2->id]->tutorial, 'http://tutorial2.org');
+    }
+
+    /**
      * Test the behaviour of setErrorMessage().
      */
-    public function test_setErrorMessage() {
+    public function test_setErrorMessage(): void {
         // Set an error message and an error code.
         $message = "Error message";
         $code = '404';
@@ -198,7 +245,7 @@ class framework_testcase extends \advanced_testcase {
     /**
      * Test the behaviour of setInfoMessage().
      */
-    public function test_setInfoMessage() {
+    public function test_setInfoMessage(): void {
         $message = "Info message";
 
         // Set an info message.
@@ -215,7 +262,7 @@ class framework_testcase extends \advanced_testcase {
     /**
      * Test the behaviour of getMessages() when requesting the info messages.
      */
-    public function test_getMessages_info() {
+    public function test_getMessages_info(): void {
         // Set an info message.
         $this->framework->setInfoMessage("Info message");
         // Set an error message.
@@ -239,7 +286,7 @@ class framework_testcase extends \advanced_testcase {
     /**
      * Test the behaviour of getMessages() when requesting the error messages.
      */
-    public function test_getMessages_error() {
+    public function test_getMessages_error(): void {
         // Set an info message.
         $this->framework->setInfoMessage("Info message");
         // Set an error message.
@@ -275,7 +322,7 @@ class framework_testcase extends \advanced_testcase {
     /**
      * Test the behaviour of t() when translating existing string that does not require any arguments.
      */
-    public function test_t_existing_string_no_args() {
+    public function test_t_existing_string_no_args(): void {
         // Existing language string without passed arguments.
         $translation = $this->framework->t('No copyright information available for this content.');
 
@@ -286,7 +333,7 @@ class framework_testcase extends \advanced_testcase {
     /**
      * Test the behaviour of t() when translating existing string that does require parameters.
      */
-    public function test_t_existing_string_args() {
+    public function test_t_existing_string_args(): void {
         // Existing language string with passed arguments.
         $translation = $this->framework->t('Illegal option %option in %library',
             ['%option' => 'example', '%library' => 'Test library']);
@@ -298,7 +345,7 @@ class framework_testcase extends \advanced_testcase {
     /**
      * Test the behaviour of t() when translating non-existent string.
      */
-    public function test_t_non_existent_string() {
+    public function test_t_non_existent_string(): void {
         // Non-existing language string.
         $message = 'Random message %option';
 
@@ -315,7 +362,7 @@ class framework_testcase extends \advanced_testcase {
      * Test the behaviour of getLibraryFileUrl() when requesting a file URL from an existing library and
      * the folder name is parsable.
      **/
-    public function test_getLibraryFileUrl() {
+    public function test_getLibraryFileUrl(): void {
         global $CFG;
 
         $this->resetAfterTest();
@@ -337,7 +384,7 @@ class framework_testcase extends \advanced_testcase {
      * Test the behaviour of getLibraryFileUrl() when requesting a file URL from a non-existent library and
      * the folder name is parsable.
      **/
-    public function test_getLibraryFileUrl_non_existent_library() {
+    public function test_getLibraryFileUrl_non_existent_library(): void {
         $this->resetAfterTest();
 
         $generator = $this->getDataGenerator()->get_plugin_generator('core_h5p');
@@ -358,7 +405,7 @@ class framework_testcase extends \advanced_testcase {
      * Test the behaviour of getLibraryFileUrl() when requesting a file URL from an existing library and
      * the folder name is not parsable.
      **/
-    public function test_getLibraryFileUrl_not_parsable_folder_name() {
+    public function test_getLibraryFileUrl_not_parsable_folder_name(): void {
         $this->resetAfterTest();
 
         $generator = $this->getDataGenerator()->get_plugin_generator('core_h5p');
@@ -380,7 +427,7 @@ class framework_testcase extends \advanced_testcase {
      * Test the behaviour of getLibraryFileUrl() when requesting a file URL from a library that has multiple
      * versions and the folder name is parsable.
      **/
-    public function test_getLibraryFileUrl_library_has_multiple_versions() {
+    public function test_getLibraryFileUrl_library_has_multiple_versions(): void {
         global $CFG;
 
         $this->resetAfterTest();
@@ -403,7 +450,7 @@ class framework_testcase extends \advanced_testcase {
      * Test the behaviour of getLibraryFileUrl() when requesting a file URL from a library that has multiple
      * patch versions and the folder name is parsable.
      **/
-    public function test_getLibraryFileUrl_library_has_multiple_patch_versions() {
+    public function test_getLibraryFileUrl_library_has_multiple_patch_versions(): void {
         global $CFG;
 
         $this->resetAfterTest();
@@ -427,7 +474,7 @@ class framework_testcase extends \advanced_testcase {
      * Test the behaviour of getLibraryFileUrl() when requesting a file URL from a sub-folder
      * of an existing library and the folder name is parsable.
      **/
-    public function test_getLibraryFileUrl_library_subfolder() {
+    public function test_getLibraryFileUrl_library_subfolder(): void {
         global $CFG;
 
         $this->resetAfterTest();
@@ -448,7 +495,7 @@ class framework_testcase extends \advanced_testcase {
     /**
      * Test the behaviour of loadAddons().
      */
-    public function test_loadAddons() {
+    public function test_loadAddons(): void {
         $this->resetAfterTest();
 
         $generator = $this->getDataGenerator()->get_plugin_generator('core_h5p');
@@ -472,21 +519,25 @@ class framework_testcase extends \advanced_testcase {
         // The addons array should return 2 results (Library and Library1 addon).
         $this->assertCount(2, $addons);
 
+        // Ensure the addons array is consistently ordered before asserting their contents.
+        core_collator::asort_array_of_arrays_by_key($addons, 'machineName');
+        [$addonone, $addontwo] = array_values($addons);
+
         // Make sure the version 1.3 is the latest 'Library' addon version.
-        $this->assertEquals('Library', $addons[0]['machineName']);
-        $this->assertEquals(1, $addons[0]['majorVersion']);
-        $this->assertEquals(3, $addons[0]['minorVersion']);
+        $this->assertEquals('Library', $addonone['machineName']);
+        $this->assertEquals(1, $addonone['majorVersion']);
+        $this->assertEquals(3, $addonone['minorVersion']);
 
         // Make sure the version 1.2 is the latest 'Library1' addon version.
-        $this->assertEquals('Library1', $addons[1]['machineName']);
-        $this->assertEquals(1, $addons[1]['majorVersion']);
-        $this->assertEquals(2, $addons[1]['minorVersion']);
+        $this->assertEquals('Library1', $addontwo['machineName']);
+        $this->assertEquals(1, $addontwo['majorVersion']);
+        $this->assertEquals(2, $addontwo['minorVersion']);
     }
 
     /**
      * Test the behaviour of loadLibraries().
      */
-    public function test_loadLibraries() {
+    public function test_loadLibraries(): void {
         $this->resetAfterTest();
 
         $generator = $this->getDataGenerator()->get_plugin_generator('core_h5p');
@@ -504,13 +555,12 @@ class framework_testcase extends \advanced_testcase {
         $this->assertEquals('1', $libraries['MainLibrary'][0]->major_version);
         $this->assertEquals('0', $libraries['MainLibrary'][0]->minor_version);
         $this->assertEquals('1', $libraries['MainLibrary'][0]->patch_version);
-        $this->assertEquals('MainLibrary', $libraries['MainLibrary'][0]->machine_name);
     }
 
     /**
      * Test the behaviour of test_getLibraryId() when requesting an existing machine name.
      */
-    public function test_getLibraryId_existing_machine_name() {
+    public function test_getLibraryId_existing_machine_name(): void {
         $this->resetAfterTest();
 
         $generator = $this->getDataGenerator()->get_plugin_generator('core_h5p');
@@ -529,7 +579,7 @@ class framework_testcase extends \advanced_testcase {
     /**
      * Test the behaviour of test_getLibraryId() when requesting a non-existent machine name.
      */
-    public function test_getLibraryId_non_existent_machine_name() {
+    public function test_getLibraryId_non_existent_machine_name(): void {
         $this->resetAfterTest();
 
         $generator = $this->getDataGenerator()->get_plugin_generator('core_h5p');
@@ -547,7 +597,7 @@ class framework_testcase extends \advanced_testcase {
     /**
      * Test the behaviour of test_getLibraryId() when requesting a non-existent major version.
      */
-    public function test_getLibraryId_non_existent_major_version() {
+    public function test_getLibraryId_non_existent_major_version(): void {
         $this->resetAfterTest();
 
         $generator = $this->getDataGenerator()->get_plugin_generator('core_h5p');
@@ -565,7 +615,7 @@ class framework_testcase extends \advanced_testcase {
     /**
      * Test the behaviour of test_getLibraryId() when requesting a non-existent minor version.
      */
-    public function test_getLibraryId_non_existent_minor_version() {
+    public function test_getLibraryId_non_existent_minor_version(): void {
         $this->resetAfterTest();
 
         $generator = $this->getDataGenerator()->get_plugin_generator('core_h5p');
@@ -584,7 +634,7 @@ class framework_testcase extends \advanced_testcase {
     /**
      * Test the behaviour of isPatchedLibrary().
      *
-     * @dataProvider test_isPatchedLibrary_provider
+     * @dataProvider isPatchedLibrary_provider
      * @param array $libraryrecords Array containing data for the library creation
      * @param array $testlibrary Array containing the test library data
      * @param bool $expected The expectation whether the library is patched or not
@@ -606,7 +656,7 @@ class framework_testcase extends \advanced_testcase {
      *
      * @return array
      */
-    public function test_isPatchedLibrary_provider(): array {
+    public function isPatchedLibrary_provider(): array {
         return [
             'Unpatched library. No different versioning' => [
                 [
@@ -723,7 +773,7 @@ class framework_testcase extends \advanced_testcase {
     /**
      * Test the behaviour of isInDevMode().
      */
-    public function test_isInDevMode() {
+    public function test_isInDevMode(): void {
         $isdevmode = $this->framework->isInDevMode();
 
         $this->assertFalse($isdevmode);
@@ -838,7 +888,7 @@ class framework_testcase extends \advanced_testcase {
     /**
      * Test the behaviour of saveLibraryData() when saving data for a new library.
      */
-    public function test_saveLibraryData_new_library() {
+    public function test_saveLibraryData_new_library(): void {
         global $DB;
 
         $this->resetAfterTest();
@@ -889,7 +939,7 @@ class framework_testcase extends \advanced_testcase {
     /**
      * Test the behaviour of saveLibraryData() when saving (updating) data for an existing library.
      */
-    public function test_saveLibraryData_existing_library() {
+    public function test_saveLibraryData_existing_library(): void {
         global $DB;
 
         $this->resetAfterTest();
@@ -946,7 +996,7 @@ class framework_testcase extends \advanced_testcase {
     /**
      * Test the behaviour of insertContent().
      */
-    public function test_insertContent() {
+    public function test_insertContent(): void {
         global $DB;
 
         $this->resetAfterTest();
@@ -975,7 +1025,7 @@ class framework_testcase extends \advanced_testcase {
     /**
      * Test the behaviour of insertContent().
      */
-    public function test_insertContent_latestlibrary() {
+    public function test_insertContent_latestlibrary(): void {
         global $DB;
 
         $this->resetAfterTest();
@@ -1010,11 +1060,12 @@ class framework_testcase extends \advanced_testcase {
     /**
      * Test the behaviour of updateContent().
      */
-    public function test_updateContent() {
+    public function test_updateContent(): void {
         global $DB;
 
         $this->resetAfterTest();
 
+        /** @var \core_h5p_generator $generator */
         $generator = $this->getDataGenerator()->get_plugin_generator('core_h5p');
 
         // Create a library record.
@@ -1039,7 +1090,58 @@ class framework_testcase extends \advanced_testcase {
 
         // Make sure the h5p content was properly updated.
         $this->assertNotEmpty($h5pcontent);
+        $this->assertNotEmpty($h5pcontent->pathnamehash);
+        $this->assertNotEmpty($h5pcontent->contenthash);
         $this->assertEquals($content['params'], $h5pcontent->jsoncontent);
+        $this->assertEquals($content['library']['libraryId'], $h5pcontent->mainlibraryid);
+        $this->assertEquals($content['disable'], $h5pcontent->displayoptions);
+    }
+
+    /**
+     * Test the behaviour of updateContent() with metadata.
+     */
+    public function test_updateContent_withmetadata(): void {
+        global $DB;
+
+        $this->resetAfterTest();
+
+        /** @var \core_h5p_generator $generator */
+        $generator = $this->getDataGenerator()->get_plugin_generator('core_h5p');
+
+        // Create a library record.
+        $lib = $generator->create_library_record('TestLibrary', 'Test', 1, 1, 2);
+
+        // Create an h5p content with 'TestLibrary' as it's main library.
+        $contentid = $generator->create_h5p_record($lib->id);
+
+        $params = ['param2' => 'Test2'];
+        $metadata = [
+            'license' => 'CC BY',
+            'licenseVersion' => '4.0',
+            'yearFrom' => 2000,
+            'yearTo' => 2023,
+            'defaultLanguage' => 'ca',
+        ];
+        $content = [
+            'id' => $contentid,
+            'params' => json_encode($params),
+            'library' => [
+                'libraryId' => $lib->id,
+            ],
+            'disable' => 8,
+            'metadata' => $metadata,
+        ];
+
+        // Update the h5p content.
+        $this->framework->updateContent($content);
+
+        $h5pcontent = $DB->get_record('h5p', ['id' => $contentid]);
+
+        // Make sure the h5p content was properly updated.
+        $this->assertNotEmpty($h5pcontent);
+        $this->assertNotEmpty($h5pcontent->pathnamehash);
+        $this->assertNotEmpty($h5pcontent->contenthash);
+        $this->assertEquals(json_encode(array_merge($params, ['metadata' => $metadata])), $h5pcontent->jsoncontent);
         $this->assertEquals($content['library']['libraryId'], $h5pcontent->mainlibraryid);
         $this->assertEquals($content['disable'], $h5pcontent->displayoptions);
     }
@@ -1047,7 +1149,7 @@ class framework_testcase extends \advanced_testcase {
     /**
      * Test the behaviour of saveLibraryDependencies().
      */
-    public function test_saveLibraryDependencies() {
+    public function test_saveLibraryDependencies(): void {
         global $DB;
 
         $this->resetAfterTest();
@@ -1088,44 +1190,113 @@ class framework_testcase extends \advanced_testcase {
     /**
      * Test the behaviour of deleteContentData().
      */
-    public function test_deleteContentData() {
+    public function test_deleteContentData(): void {
         global $DB;
 
         $this->resetAfterTest();
 
+        /** @var \core_h5p_generator $generator */
         $generator = $this->getDataGenerator()->get_plugin_generator('core_h5p');
+        // For the mod_h5pactivity component, the activity needs to be created too.
+        $course = $this->getDataGenerator()->create_course();
+        $user = $this->getDataGenerator()->create_and_enrol($course, 'student');
+        $this->setUser($user);
+        $activity = $this->getDataGenerator()->create_module('h5pactivity', ['course' => $course]);
+        $activitycontext = \context_module::instance($activity->cmid);
+        $filerecord = [
+            'contextid' => $activitycontext->id,
+            'component' => 'mod_h5pactivity',
+            'filearea' => 'package',
+            'itemid' => 0,
+            'filepath' => '/',
+            'filename' => 'dummy.h5p',
+            'addxapistate' => true,
+        ];
 
         // Generate some h5p related data.
-        $data = $generator->generate_h5p_data();
+        $data = $generator->generate_h5p_data(false, $filerecord);
         $h5pid = $data->h5pcontent->h5pid;
 
-        $h5pcontent = $DB->get_record('h5p', ['id' => $h5pid]);
         // Make sure the particular h5p content exists in the DB.
-        $this->assertNotEmpty($h5pcontent);
-
-        // Get the h5p content libraries from the DB.
-        $h5pcontentlibraries = $DB->get_records('h5p_contents_libraries', ['h5pid' => $h5pid]);
-
+        $this->assertNotEmpty($DB->get_record('h5p', ['id' => $h5pid]));
         // Make sure the content libraries exists in the DB.
-        $this->assertNotEmpty($h5pcontentlibraries);
-        $this->assertCount(5, $h5pcontentlibraries);
+        $this->assertCount(5, $DB->get_records('h5p_contents_libraries', ['h5pid' => $h5pid]));
+        // Make sure the particular xAPI state exists in the DB.
+        $records = $DB->get_records('xapi_states');
+        $record = reset($records);
+        $this->assertCount(1, $records);
+        $this->assertNotNull($record->statedata);
 
         // Delete the h5p content and it's related data.
         $this->framework->deleteContentData($h5pid);
 
-        $h5pcontent = $DB->get_record('h5p', ['id' => $h5pid]);
-        $h5pcontentlibraries = $DB->get_record('h5p_contents_libraries', ['h5pid' => $h5pid]);
-
         // The particular h5p content should no longer exist in the db.
-        $this->assertEmpty($h5pcontent);
+        $this->assertEmpty($DB->get_record('h5p', ['id' => $h5pid]));
         // The particular content libraries should no longer exist in the db.
-        $this->assertEmpty($h5pcontentlibraries);
+        $this->assertEmpty($DB->get_record('h5p_contents_libraries', ['h5pid' => $h5pid]));
+        // The xAPI state should be reseted.
+        $records = $DB->get_records('xapi_states');
+        $record = reset($records);
+        $this->assertCount(1, $records);
+        $this->assertNull($record->statedata);
+    }
+
+    /**
+     * Test the behaviour of resetContentUserData().
+     */
+    public function test_resetContentUserData(): void {
+        global $DB;
+
+        $this->resetAfterTest();
+
+        /** @var \core_h5p_generator $generator */
+        $generator = $this->getDataGenerator()->get_plugin_generator('core_h5p');
+        // For the mod_h5pactivity component, the activity needs to be created too.
+        $course = $this->getDataGenerator()->create_course();
+        $user = $this->getDataGenerator()->create_and_enrol($course, 'student');
+        $this->setUser($user);
+        $activity = $this->getDataGenerator()->create_module('h5pactivity', ['course' => $course]);
+        $activitycontext = \context_module::instance($activity->cmid);
+        $filerecord = [
+            'contextid' => $activitycontext->id,
+            'component' => 'mod_h5pactivity',
+            'filearea' => 'package',
+            'itemid' => 0,
+            'filepath' => '/',
+            'filename' => 'dummy.h5p',
+            'addxapistate' => true,
+        ];
+
+        // Generate some h5p related data.
+        $data = $generator->generate_h5p_data(false, $filerecord);
+        $h5pid = $data->h5pcontent->h5pid;
+
+        // Make sure the H5P content, libraries and xAPI state exist in the DB.
+        $this->assertNotEmpty($DB->get_record('h5p', ['id' => $h5pid]));
+        $this->assertCount(5, $DB->get_records('h5p_contents_libraries', ['h5pid' => $h5pid]));
+        $records = $DB->get_records('xapi_states');
+        $record = reset($records);
+        $this->assertCount(1, $records);
+        $this->assertNotNull($record->statedata);
+
+        // Reset the user data associated to this H5P content.
+        $this->framework->resetContentUserData($h5pid);
+
+        // The H5P content should still exist in the db.
+        $this->assertNotEmpty($DB->get_record('h5p', ['id' => $h5pid]));
+        // The particular content libraries should still exist in the db.
+        $this->assertCount(5, $DB->get_records('h5p_contents_libraries', ['h5pid' => $h5pid]));
+        // The xAPI state should still exist in the db, but should be reset.
+        $records = $DB->get_records('xapi_states');
+        $record = reset($records);
+        $this->assertCount(1, $records);
+        $this->assertNull($record->statedata);
     }
 
     /**
      * Test the behaviour of deleteLibraryUsage().
      */
-    public function test_deleteLibraryUsage() {
+    public function test_deleteLibraryUsage(): void {
         global $DB;
 
         $this->resetAfterTest();
@@ -1156,7 +1327,7 @@ class framework_testcase extends \advanced_testcase {
     /**
      * Test the behaviour of test_saveLibraryUsage().
      */
-    public function test_saveLibraryUsage() {
+    public function test_saveLibraryUsage(): void {
         global $DB;
 
         $this->resetAfterTest();
@@ -1208,7 +1379,7 @@ class framework_testcase extends \advanced_testcase {
     /**
      * Test the behaviour of getLibraryUsage() without skipping a particular h5p content.
      */
-    public function test_getLibraryUsage_no_skip_content() {
+    public function test_getLibraryUsage_no_skip_content(): void {
         $this->resetAfterTest();
 
         $generator = $this->getDataGenerator()->get_plugin_generator('core_h5p');
@@ -1259,7 +1430,7 @@ class framework_testcase extends \advanced_testcase {
     /**
      * Test the behaviour of getLibraryUsage() when skipping a particular content.
      */
-    public function test_getLibraryUsage_skip_content() {
+    public function test_getLibraryUsage_skip_content(): void {
         $this->resetAfterTest();
 
         $generator = $this->getDataGenerator()->get_plugin_generator('core_h5p');
@@ -1283,7 +1454,7 @@ class framework_testcase extends \advanced_testcase {
     /**
      * Test the behaviour of loadLibrary() when requesting an existing library.
      */
-    public function test_loadLibrary_existing_library() {
+    public function test_loadLibrary_existing_library(): void {
         $this->resetAfterTest();
 
         $generator = $this->getDataGenerator()->get_plugin_generator('core_h5p');
@@ -1344,7 +1515,7 @@ class framework_testcase extends \advanced_testcase {
     /**
      * Test the behaviour of loadLibrary() when requesting a non-existent library.
      */
-    public function test_loadLibrary_non_existent_library() {
+    public function test_loadLibrary_non_existent_library(): void {
         $this->resetAfterTest();
 
         $generator = $this->getDataGenerator()->get_plugin_generator('core_h5p');
@@ -1362,7 +1533,7 @@ class framework_testcase extends \advanced_testcase {
     /**
      * Test the behaviour of loadLibrarySemantics().
      *
-     * @dataProvider test_loadLibrarySemantics_provider
+     * @dataProvider loadLibrarySemantics_provider
      * @param array $libraryrecords Array containing data for the library creation
      * @param array $testlibrary Array containing the test library data
      * @param string $expected The expected semantics value
@@ -1385,7 +1556,7 @@ class framework_testcase extends \advanced_testcase {
      *
      * @return array
      */
-    public function test_loadLibrarySemantics_provider(): array {
+    public function loadLibrarySemantics_provider(): array {
 
         $semantics = json_encode(
             [
@@ -1425,7 +1596,7 @@ class framework_testcase extends \advanced_testcase {
     /**
      * Test the behaviour of alterLibrarySemantics().
      */
-    public function test_alterLibrarySemantics() {
+    public function test_alterLibrarySemantics(): void {
         global $DB;
 
         $this->resetAfterTest();
@@ -1457,15 +1628,15 @@ class framework_testcase extends \advanced_testcase {
         // Get the semantics of 'Library1' from the DB.
         $currentsemantics = $DB->get_field('h5p_libraries', 'semantics', array('id' => $library1->id));
 
-        // The semantics for Library1 should be successfully updated.
-        $this->assertEquals(json_encode($updatedsemantics), $currentsemantics);
+        // The semantics for Library1 shouldn't be updated.
+        $this->assertEquals($semantics, $currentsemantics);
     }
 
     /**
      * Test the behaviour of deleteLibraryDependencies() when requesting to delete the
      * dependencies of an existing library.
      */
-    public function test_deleteLibraryDependencies_existing_library() {
+    public function test_deleteLibraryDependencies_existing_library(): void {
         global $DB;
 
         $this->resetAfterTest();
@@ -1494,7 +1665,7 @@ class framework_testcase extends \advanced_testcase {
      * Test the behaviour of deleteLibraryDependencies() when requesting to delete the
      * dependencies of a non-existent library.
      */
-    public function test_deleteLibraryDependencies_non_existent_library() {
+    public function test_deleteLibraryDependencies_non_existent_library(): void {
         global $DB;
 
         $this->resetAfterTest();
@@ -1522,7 +1693,7 @@ class framework_testcase extends \advanced_testcase {
     /**
      * Test the behaviour of deleteLibrary().
      */
-    public function test_deleteLibrary() {
+    public function test_deleteLibrary(): void {
         global $DB;
 
         $this->resetAfterTest();
@@ -1576,7 +1747,7 @@ class framework_testcase extends \advanced_testcase {
     /**
      * Test the behaviour of loadContent().
      */
-    public function test_loadContent() {
+    public function test_loadContent(): void {
         global $DB;
 
         $this->resetAfterTest();
@@ -1601,7 +1772,7 @@ class framework_testcase extends \advanced_testcase {
             'embedType' => 'iframe',
             'disable' => $h5p->displayoptions,
             'title' => $mainlibrary->title,
-            'slug' => \H5PCore::slugify($mainlibrary->title) . '-' . $h5p->id,
+            'slug' => H5PCore::slugify($mainlibrary->title) . '-' . $h5p->id,
             'filtered' => $h5p->filtered,
             'libraryId' => $mainlibrary->id,
             'libraryName' => $mainlibrary->machinename,
@@ -1628,7 +1799,7 @@ class framework_testcase extends \advanced_testcase {
      * Test the behaviour of loadContentDependencies() when requesting content dependencies
      * without specifying the dependency type.
      */
-    public function test_loadContentDependencies_no_type_defined() {
+    public function test_loadContentDependencies_no_type_defined(): void {
         $this->resetAfterTest();
 
         $generator = $this->getDataGenerator()->get_plugin_generator('core_h5p');
@@ -1687,7 +1858,7 @@ class framework_testcase extends \advanced_testcase {
      * Test the behaviour of loadContentDependencies() when requesting content dependencies
      * with specifying the dependency type.
      */
-    public function test_loadContentDependencies_type_defined() {
+    public function test_loadContentDependencies_type_defined(): void {
         $this->resetAfterTest();
 
         $generator = $this->getDataGenerator()->get_plugin_generator('core_h5p');
@@ -1754,13 +1925,13 @@ class framework_testcase extends \advanced_testcase {
         $this->resetAfterTest();
 
         // Get value for display_option_download.
-        $value = $this->framework->getOption(\H5PCore::DISPLAY_OPTION_DOWNLOAD);
-        $expected = \H5PDisplayOptionBehaviour::CONTROLLED_BY_AUTHOR_DEFAULT_OFF;
+        $value = $this->framework->getOption(H5PCore::DISPLAY_OPTION_DOWNLOAD);
+        $expected = H5PDisplayOptionBehaviour::CONTROLLED_BY_AUTHOR_DEFAULT_OFF;
         $this->assertEquals($expected, $value);
 
         // Get value for display_option_embed using default value (it should be ignored).
-        $value = $this->framework->getOption(\H5PCore::DISPLAY_OPTION_EMBED, \H5PDisplayOptionBehaviour::NEVER_SHOW);
-        $expected = \H5PDisplayOptionBehaviour::CONTROLLED_BY_AUTHOR_DEFAULT_OFF;
+        $value = $this->framework->getOption(H5PCore::DISPLAY_OPTION_EMBED, H5PDisplayOptionBehaviour::NEVER_SHOW);
+        $expected = H5PDisplayOptionBehaviour::CONTROLLED_BY_AUTHOR_DEFAULT_OFF;
         $this->assertEquals($expected, $value);
 
         // Get value for unexisting setting without default.
@@ -1790,18 +1961,18 @@ class framework_testcase extends \advanced_testcase {
         $this->assertEquals($newvalue, $value);
 
         // Set value for display_option_download and then get it again. Check it hasn't changed.
-        $name = \H5PCore::DISPLAY_OPTION_DOWNLOAD;
-        $newvalue = \H5PDisplayOptionBehaviour::NEVER_SHOW;
+        $name = H5PCore::DISPLAY_OPTION_DOWNLOAD;
+        $newvalue = H5PDisplayOptionBehaviour::NEVER_SHOW;
         $this->framework->setOption($name, $newvalue);
         $value = $this->framework->getOption($name);
-        $expected = \H5PDisplayOptionBehaviour::CONTROLLED_BY_AUTHOR_DEFAULT_OFF;
+        $expected = H5PDisplayOptionBehaviour::CONTROLLED_BY_AUTHOR_DEFAULT_OFF;
         $this->assertEquals($expected, $value);
     }
 
     /**
      * Test the behaviour of updateContentFields().
      */
-    public function test_updateContentFields() {
+    public function test_updateContentFields(): void {
         global $DB;
 
         $this->resetAfterTest();
@@ -1837,7 +2008,7 @@ class framework_testcase extends \advanced_testcase {
     /**
      * Test the behaviour of clearFilteredParameters().
      */
-    public function test_clearFilteredParameters() {
+    public function test_clearFilteredParameters(): void {
         global $DB;
 
         $this->resetAfterTest();
@@ -1889,7 +2060,7 @@ class framework_testcase extends \advanced_testcase {
     /**
      * Test the behaviour of getNumNotFiltered().
      */
-    public function test_getNumNotFiltered() {
+    public function test_getNumNotFiltered(): void {
         global $DB;
 
         $this->resetAfterTest();
@@ -1934,7 +2105,7 @@ class framework_testcase extends \advanced_testcase {
     /**
      * Test the behaviour of getNumContent().
      */
-    public function test_getNumContent() {
+    public function test_getNumContent(): void {
         $this->resetAfterTest();
 
         $generator = $this->getDataGenerator()->get_plugin_generator('core_h5p');
@@ -1966,7 +2137,7 @@ class framework_testcase extends \advanced_testcase {
     /**
      * Test the behaviour of getNumContent() when certain contents are being skipped.
      */
-    public function test_getNumContent_skip_content() {
+    public function test_getNumContent_skip_content(): void {
         $this->resetAfterTest();
 
         $generator = $this->getDataGenerator()->get_plugin_generator('core_h5p');
@@ -1991,7 +2162,7 @@ class framework_testcase extends \advanced_testcase {
     /**
      * Test the behaviour of isContentSlugAvailable().
      */
-    public function test_isContentSlugAvailable() {
+    public function test_isContentSlugAvailable(): void {
         $this->resetAfterTest();
 
         $slug = 'h5p-test-slug-1';
@@ -2006,7 +2177,7 @@ class framework_testcase extends \advanced_testcase {
     /**
      * Test that a record is stored for cached assets.
      */
-    public function test_saveCachedAssets() {
+    public function test_saveCachedAssets(): void {
         global $DB;
 
         $this->resetAfterTest();
@@ -2038,7 +2209,7 @@ class framework_testcase extends \advanced_testcase {
     /**
      * Test that the correct libraries are removed from the cached assets table
      */
-    public function test_deleteCachedAssets() {
+    public function test_deleteCachedAssets(): void {
         global $DB;
 
         $this->resetAfterTest();
@@ -2119,7 +2290,7 @@ class framework_testcase extends \advanced_testcase {
     /**
      * Test the behaviour of getLibraryContentCount().
      */
-    public function test_getLibraryContentCount() {
+    public function test_getLibraryContentCount(): void {
         $this->resetAfterTest();
 
         $generator = $this->getDataGenerator()->get_plugin_generator('core_h5p');
@@ -2154,7 +2325,7 @@ class framework_testcase extends \advanced_testcase {
     /**
      * Test the behaviour of test_libraryHasUpgrade().
      *
-     * @dataProvider test_libraryHasUpgrade_provider
+     * @dataProvider libraryHasUpgrade_provider
      * @param array $libraryrecords Array containing data for the library creation
      * @param array $testlibrary Array containing the test library data
      * @param bool $expected The expectation whether the library is patched or not
@@ -2176,7 +2347,7 @@ class framework_testcase extends \advanced_testcase {
      *
      * @return array
      */
-    public function test_libraryHasUpgrade_provider(): array {
+    public function libraryHasUpgrade_provider(): array {
         return [
             'Lower major version; Identical lower version' => [
                 [
@@ -2240,7 +2411,7 @@ class framework_testcase extends \advanced_testcase {
     /**
      * Test the behaviour of get_latest_library_version().
      */
-    public function test_get_latest_library_version() {
+    public function test_get_latest_library_version(): void {
         global $DB;
 
         $this->resetAfterTest();

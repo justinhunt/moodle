@@ -58,7 +58,8 @@ class notification {
     public static function add($message, $level = null) {
         global $PAGE, $SESSION;
 
-        if ($PAGE && $PAGE->state === \moodle_page::STATE_IN_BODY) {
+        if ($PAGE && ($PAGE->state === \moodle_page::STATE_IN_BODY
+           || $PAGE->state === \moodle_page::STATE_DONE)) {
             // Currently in the page body - just render and exit immediately.
             // We insert some code to immediately insert this into the user-notifications created by the header.
             $id = uniqid();
@@ -144,7 +145,7 @@ class notification {
     /**
      * Fetch all of the notifications in the stack and clear the stack.
      *
-     * @return array All of the notifications in the stack
+     * @return \core\output\notification[] All of the notifications in the stack
      */
     public static function fetch() {
         global $SESSION;

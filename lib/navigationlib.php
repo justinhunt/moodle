@@ -23,6 +23,9 @@
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
+use core\moodlenet\utilities;
+use core_contentbank\contentbank;
+
 defined('MOODLE_INTERNAL') || die();
 
 /**
@@ -91,7 +94,7 @@ class navigation_node implements renderable {
     public $id = null;
     /** @var string|int The identifier for the node, used to retrieve the node */
     public $key = null;
-    /** @var string The text to use for the node */
+    /** @var string|lang_string The text to use for the node */
     public $text = null;
     /** @var string Short text to use if requested [optional] */
     public $shorttext = null;
@@ -113,6 +116,8 @@ class navigation_node implements renderable {
     public $forceopen = false;
     /** @var array An array of CSS classes for the node */
     public $classes = array();
+    /** @var array An array of HTML attributes for the node */
+    public $attributes = [];
     /** @var navigation_node_collection An array of child nodes */
     public $children = array();
     /** @var bool If set to true the node will be recognised as active */
@@ -149,6 +154,18 @@ class navigation_node implements renderable {
     public $requiresajaxloading = false;
     /** @var bool If set to true this node will be added to the "flat" navigation */
     public $showinflatnavigation = false;
+    /** @var bool If set to true this node will be forced into a "more" menu whenever possible */
+    public $forceintomoremenu = false;
+    /** @var bool If set to true this node will be displayed in the "secondary" navigation when applicable */
+    public $showinsecondarynavigation = true;
+    /** @var bool If set to true the children of this node will be displayed within a submenu when applicable */
+    public $showchildreninsubmenu = false;
+    /** @var string tab element ID. */
+    public $tab;
+    /** @var string unique identifier. */
+    public $moremenuid;
+    /** @var bool node that have children. */
+    public $haschildren;
 
     /**
      * Constructs a new navigation_node
@@ -321,7 +338,12 @@ class navigation_node implements renderable {
      * @return navigation_node
      */
     public static function create($text, $action=null, $type=self::TYPE_CUSTOM,
-            $shorttext=null, $key=null, pix_icon $icon=null) {
+            $shorttext=null, $key=null, ?pix_icon $icon=null) {
+        if ($action && !($action instanceof moodle_url || $action instanceof action_link)) {
+            debugging(
+                "It is required that the action provided be either an action_url|moodle_url." .
+                " Please update your definition.", E_NOTICE);
+        }
         // Properties array used when creating the new navigation node
         $itemarray = array(
             'text' => $text,
@@ -349,14 +371,17 @@ class navigation_node implements renderable {
      * Adds a navigation node as a child of this node.
      *
      * @param string $text
-     * @param moodle_url|action_link $action
-     * @param int $type
+     * @param moodle_url|action_link|string $action
+     * @param ?int $type
      * @param string $shorttext
      * @param string|int $key
      * @param pix_icon $icon
      * @return navigation_node
      */
-    public function add($text, $action=null, $type=self::TYPE_CUSTOM, $shorttext=null, $key=null, pix_icon $icon=null) {
+    public function add($text, $action=null, $type=self::TYPE_CUSTOM, $shorttext=null, $key=null, ?pix_icon $icon=null) {
+        if ($action && is_string($action)) {
+            $action = new moodle_url($action);
+        }
         // Create child node
         $childnode = self::create($text, $action, $type, $shorttext, $key, $icon);
 
@@ -418,7 +443,7 @@ class navigation_node implements renderable {
      * use the get method instead.
      *
      * @param int|string $key The key of the node we are looking for
-     * @param int $type One of navigation_node::TYPE_*
+     * @param ?int $type One of navigation_node::TYPE_*
      * @return navigation_node|false
      */
     public function find($key, $type) {
@@ -428,11 +453,13 @@ class navigation_node implements renderable {
     /**
      * Walk the tree building up a list of all the flat navigation nodes.
      *
+     * @deprecated since Moodle 4.0
      * @param flat_navigation $nodes List of the found flat navigation nodes.
      * @param boolean $showdivider Show a divider before the first node.
      * @param string $label A label for the collection of navigation links.
      */
     public function build_flat_navigation_list(flat_navigation $nodes, $showdivider = false, $label = '') {
+        debugging("Function has been deprecated with the deprecation of the flat_navigation class.");
         if ($this->showinflatnavigation) {
             $indent = 0;
             if ($this->type == self::TYPE_COURSE || $this->key === self::COURSE_INDEX_PAGE) {
@@ -535,6 +562,16 @@ class navigation_node implements renderable {
     }
 
     /**
+     * Adds an HTML attribute to this node.
+     *
+     * @param string $name
+     * @param string $value
+     */
+    public function add_attribute(string $name, string $value): void {
+        $this->attributes[] = ['name' => $name, 'value' => $value];
+    }
+
+    /**
      * Removes a CSS class from this node.
      *
      * @param string $class
@@ -557,11 +594,20 @@ class navigation_node implements renderable {
 
     /**
      * Sets the title for this node and forces Moodle to utilise it.
-     * @param string $title
+     *
+     * Note that this method is named identically to the public "title" property of the class, which unfortunately confuses
+     * our Mustache renderer, because it will see the method and try and call it without any arguments (hence must be nullable)
+     * before trying to access the public property
+     *
+     * @param string|null $title
+     * @return string
      */
-    public function title($title) {
-        $this->title = $title;
-        $this->forcetitle = true;
+    public function title(?string $title = null): string {
+        if ($title !== null) {
+            $this->title = $title;
+            $this->forcetitle = true;
+        }
+        return (string) $this->title;
     }
 
     /**
@@ -639,14 +685,15 @@ class navigation_node implements renderable {
 
     /**
      * Searches all children for the best matching active node
+     * @param int $strength The url match to be made.
      * @return navigation_node|false
      */
-    public function search_for_active_node() {
-        if ($this->check_if_active(URL_MATCH_BASE)) {
+    public function search_for_active_node($strength = URL_MATCH_BASE) {
+        if ($this->check_if_active($strength)) {
             return $this;
         } else {
             foreach ($this->children as &$child) {
-                $outcome = $child->search_for_active_node();
+                $outcome = $child->search_for_active_node($strength);
                 if ($outcome !== false) {
                     return $outcome;
                 }
@@ -662,10 +709,13 @@ class navigation_node implements renderable {
      * @return string
      */
     public function get_content($shorttext=false) {
+        $navcontext = \context_helper::get_navigation_filter_context(null);
+        $options = !empty($navcontext) ? ['context' => $navcontext] : null;
+
         if ($shorttext && $this->shorttext!==null) {
-            return format_string($this->shorttext);
+            return format_string($this->shorttext, null, $options);
         } else {
-            return format_string($this->text);
+            return format_string($this->text, null, $options);
         }
     }
 
@@ -689,6 +739,26 @@ class navigation_node implements renderable {
      */
     public function has_action() {
         return !empty($this->action);
+    }
+
+    /**
+     * Used to easily determine if the action is an internal link.
+     *
+     * @return bool
+     */
+    public function has_internal_action(): bool {
+        global $CFG;
+        if ($this->has_action()) {
+            $url = $this->action();
+            if ($this->action() instanceof \action_link) {
+                $url = $this->action()->url;
+            }
+
+            if (($url->out() === $CFG->wwwroot) || (strpos($url->out(), $CFG->wwwroot.'/') === 0)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -814,7 +884,7 @@ class navigation_node implements renderable {
      *      If an array is given then nodes will only be hidden if their type mtatches an element in the array.
      *          e.g. array(navigation_node::TYPE_COURSE) would hide only course nodes.
      */
-    public function hide(array $typestohide = null) {
+    public function hide(?array $typestohide = null) {
         if ($typestohide === null || in_array($this->type, $typestohide)) {
             $this->display = false;
             if ($this->has_children()) {
@@ -838,6 +908,79 @@ class navigation_node implements renderable {
             return $this->action->url;
         }
         return $this->action;
+    }
+
+    /**
+     * Return an array consisting of the additional attributes for the action url.
+     *
+     * @return array Formatted array to parse in a template
+     */
+    public function actionattributes() {
+        if ($this->action instanceof action_link) {
+            return array_map(function($key, $value) {
+                return [
+                    'name' => $key,
+                    'value' => $value
+                ];
+            }, array_keys($this->action->attributes), $this->action->attributes);
+        }
+
+        return [];
+    }
+
+    /**
+     * Check whether the node's action is of type action_link.
+     *
+     * @return bool
+     */
+    public function is_action_link() {
+        return $this->action instanceof action_link;
+    }
+
+    /**
+     * Return an array consisting of the actions for the action link.
+     *
+     * @return array Formatted array to parse in a template
+     */
+    public function action_link_actions() {
+        global $PAGE;
+
+        if (!$this->is_action_link()) {
+            return [];
+        }
+
+        $actionid = $this->action->attributes['id'];
+        $actionsdata = array_map(function($action) use ($PAGE, $actionid) {
+            $data = $action->export_for_template($PAGE->get_renderer('core'));
+            $data->id = $actionid;
+            return $data;
+        }, !empty($this->action->actions) ? $this->action->actions : []);
+
+        return ['actions' => $actionsdata];
+    }
+
+    /**
+     * Sets whether the node and its children should be added into a "more" menu whenever possible.
+     *
+     * @param bool $forceintomoremenu
+     */
+    public function set_force_into_more_menu(bool $forceintomoremenu = false) {
+        $this->forceintomoremenu = $forceintomoremenu;
+        foreach ($this->children as $child) {
+            $child->set_force_into_more_menu($forceintomoremenu);
+        }
+    }
+
+    /**
+     * Sets whether the node and its children should be displayed in the "secondary" navigation when applicable.
+     *
+     * @param bool $show
+     */
+    public function set_show_in_secondary_navigation(bool $show = true) {
+        $this->showinsecondarynavigation = $show;
+        foreach ($this->children as $child) {
+            $child->set_show_in_secondary_navigation($show);
+        }
     }
 
     /**
@@ -1022,7 +1165,7 @@ class navigation_node_collection implements IteratorAggregate, Countable {
      *
      * @param string|int $key The key of the node we want to find.
      * @param int $type One of navigation_node::TYPE_*.
-     * @return navigation_node|null
+     * @return navigation_node|null|false
      */
     public function get($key, $type=null) {
         if ($type !== null) {
@@ -1051,7 +1194,7 @@ class navigation_node_collection implements IteratorAggregate, Countable {
      *
      * @param string|int $key  The key of the node we want to find.
      * @param int $type  One of navigation_node::TYPE_*.
-     * @return navigation_node|null
+     * @return navigation_node|false
      */
     public function find($key, $type=null) {
         if ($type !== null && array_key_exists($type, $this->orderedcollection) && array_key_exists($key, $this->orderedcollection[$type])) {
@@ -1128,7 +1271,7 @@ class navigation_node_collection implements IteratorAggregate, Countable {
      *
      * @return int
      */
-    public function count() {
+    public function count(): int {
         return $this->count;
     }
     /**
@@ -1139,7 +1282,7 @@ class navigation_node_collection implements IteratorAggregate, Countable {
      *
      * @return ArrayIterator
      */
-    public function getIterator() {
+    public function getIterator(): Traversable {
         return new ArrayIterator($this->collection);
     }
 }
@@ -1208,23 +1351,33 @@ class global_navigation extends navigation_node {
             return;
         }
 
-        if (get_home_page() == HOMEPAGE_SITE) {
-            // We are using the site home for the root element
-            $properties = array(
-                'key' => 'home',
-                'type' => navigation_node::TYPE_SYSTEM,
-                'text' => get_string('home'),
-                'action' => new moodle_url('/'),
-                'icon' => new pix_icon('i/home', '')
-            );
-        } else {
-            // We are using the users my moodle for the root element
+        $homepage = get_home_page();
+        if ($homepage == HOMEPAGE_MY) {
+            // We are using the users my moodle for the root element.
             $properties = array(
                 'key' => 'myhome',
                 'type' => navigation_node::TYPE_SYSTEM,
                 'text' => get_string('myhome'),
                 'action' => new moodle_url('/my/'),
-                'icon' => new pix_icon('i/dashboard', '')
+                'icon' => new pix_icon('i/dashboard', ''),
+            );
+        } else if ($homepage == HOMEPAGE_MYCOURSES) {
+            // We are using the user's course summary page for the root element.
+            $properties = array(
+                'key' => 'mycourses',
+                'type' => navigation_node::TYPE_SYSTEM,
+                'text' => get_string('mycourses'),
+                'action' => new moodle_url('/my/courses.php'),
+                'icon' => new pix_icon('i/course', '')
+            );
+        } else {
+            // We are using the site home for the root element.
+            $properties = array(
+                'key' => 'home',
+                'type' => navigation_node::TYPE_SYSTEM,
+                'text' => get_string('home'),
+                'action' => new moodle_url('/'),
+                'icon' => new pix_icon('i/home', ''),
             );
         }
 
@@ -1280,19 +1433,24 @@ class global_navigation extends navigation_node {
         // courses: Additional courses are added here.
         // users: Other users information loaded here.
         $this->rootnodes = array();
-        if (get_home_page() == HOMEPAGE_SITE) {
+        $defaulthomepage = get_home_page();
+        if ($defaulthomepage == HOMEPAGE_SITE) {
             // The home element should be my moodle because the root element is the site
             if (isloggedin() && !isguestuser()) {  // Makes no sense if you aren't logged in
-                $this->rootnodes['home'] = $this->add(get_string('myhome'), new moodle_url('/my/'),
-                    self::TYPE_SETTING, null, 'myhome', new pix_icon('i/dashboard', ''));
-                $this->rootnodes['home']->showinflatnavigation = true;
+                if (!empty($CFG->enabledashboard)) {
+                    // Only add dashboard to home if it's enabled.
+                    $this->rootnodes['home'] = $this->add(get_string('myhome'), new moodle_url('/my/'),
+                        self::TYPE_SETTING, null, 'myhome', new pix_icon('i/dashboard', ''));
+                    $this->rootnodes['home']->showinflatnavigation = true;
+                }
             }
         } else {
             // The home element should be the site because the root node is my moodle
             $this->rootnodes['home'] = $this->add(get_string('sitehome'), new moodle_url('/'),
                 self::TYPE_SETTING, null, 'home', new pix_icon('i/home', ''));
             $this->rootnodes['home']->showinflatnavigation = true;
-            if (!empty($CFG->defaulthomepage) && ($CFG->defaulthomepage == HOMEPAGE_MY)) {
+            if (!empty($CFG->defaulthomepage) &&
+                    ($CFG->defaulthomepage == HOMEPAGE_MY || $CFG->defaulthomepage == HOMEPAGE_MYCOURSES)) {
                 // We need to stop automatic redirection
                 $this->rootnodes['home']->action->param('redirect', '0');
             }
@@ -1300,7 +1458,20 @@ class global_navigation extends navigation_node {
         $this->rootnodes['site'] = $this->add_course($SITE);
         $this->rootnodes['myprofile'] = $this->add(get_string('profile'), null, self::TYPE_USER, null, 'myprofile');
         $this->rootnodes['currentcourse'] = $this->add(get_string('currentcourse'), null, self::TYPE_ROOTNODE, null, 'currentcourse');
-        $this->rootnodes['mycourses'] = $this->add(get_string('mycourses'), null, self::TYPE_ROOTNODE, null, 'mycourses', new pix_icon('i/course', ''));
+        $this->rootnodes['mycourses'] = $this->add(
+            get_string('mycourses'),
+            new moodle_url('/my/courses.php'),
+            self::TYPE_ROOTNODE,
+            null,
+            'mycourses',
+            new pix_icon('i/course', '')
+        );
+        // We do not need to show this node in the breadcrumbs if the default homepage is mycourses.
+        // It will be automatically handled by the breadcrumb generator.
+        if ($defaulthomepage == HOMEPAGE_MYCOURSES) {
+            $this->rootnodes['mycourses']->mainnavonly = true;
+        }
+
         $this->rootnodes['courses'] = $this->add(get_string('courses'), new moodle_url('/course/index.php'), self::TYPE_ROOTNODE, null, 'courses');
         if (!core_course_category::user_top()) {
             $this->rootnodes['courses']->hide();
@@ -1493,7 +1664,7 @@ class global_navigation extends navigation_node {
         foreach ($this->rootnodes as $node) {
             // Dont remove the home node
             /** @var navigation_node $node */
-            if (!in_array($node->key, ['home', 'myhome']) && !$node->has_children() && !$node->isactive) {
+            if (!in_array($node->key, ['home', 'mycourses', 'myhome']) && !$node->has_children() && !$node->isactive) {
                 $node->remove();
             }
         }
@@ -1502,8 +1673,7 @@ class global_navigation extends navigation_node {
             $this->search_for_active_node();
         }
 
-        // If the user is not logged in modify the navigation structure as detailed
-        // in {@link http://docs.moodle.org/dev/Navigation_2.0_structure}
+        // If the user is not logged in modify the navigation structure.
         if (!isloggedin()) {
             $activities = clone($this->rootnodes['site']->children);
             $this->rootnodes['site']->remove();
@@ -1799,7 +1969,7 @@ class global_navigation extends navigation_node {
      * @param int $categoryid The category id to load or null/0 to load all base level categories
      * @param bool $showbasecategories If set to true all base level categories will be loaded as well
      *        as the requested category and any parent categories.
-     * @return navigation_node|void returns a navigation node if a category has been loaded.
+     * @return true|void
      */
     protected function load_all_categories($categoryid = self::LOAD_ROOT_CATEGORIES, $showbasecategories = false) {
         global $CFG, $DB;
@@ -1962,13 +2132,14 @@ class global_navigation extends navigation_node {
      * @return void.
      */
     protected function add_category(stdClass $category, navigation_node $parent, $nodetype = self::TYPE_CATEGORY) {
+        global $CFG;
         if (array_key_exists($category->id, $this->addedcategories)) {
             return;
         }
         $canview = core_course_category::can_view_category($category);
         $url = $canview ? new moodle_url('/course/index.php', array('categoryid' => $category->id)) : null;
-        $context = context_coursecat::instance($category->id);
-        $categoryname = $canview ? format_string($category->name, true, array('context' => $context)) :
+        $context = \context_helper::get_navigation_filter_context(context_coursecat::instance($category->id));
+        $categoryname = $canview ? format_string($category->name, true, ['context' => $context]) :
             get_string('categoryhidden');
         $categorynode = $parent->add($categoryname, $url, $nodetype, $categoryname, $category->id);
         if (!$canview) {
@@ -2005,11 +2176,11 @@ class global_navigation extends navigation_node {
      * Loads all of the courses section into the navigation.
      *
      * This function calls method from current course format, see
-     * {@link format_base::extend_course_navigation()}
+     * core_courseformat\base::extend_course_navigation()
      * If course module ($cm) is specified but course format failed to create the node,
      * the activity node is created anyway.
      *
-     * By default course formats call the method {@link global_navigation::load_generic_course_sections()}
+     * By default course formats call the method global_navigation::load_generic_course_sections()
      *
      * @param stdClass $course Database record for the course
      * @param navigation_node $coursenode The course node within the navigation
@@ -2124,17 +2295,27 @@ class global_navigation extends navigation_node {
                     continue;
                 }
 
+                $parentnode = $coursenode;
+
+                // Set the parent node to the parent section if this is a delegated section.
+                if ($section->is_delegated()) {
+                    $parentsection = $section->get_component_instance()->get_parent_section();
+                    if ($parentsection) {
+                        $parentnode = $coursenode->find($parentsection->id, self::TYPE_SECTION) ?: $coursenode;
+                    }
+                }
+
                 $sectionname = get_section_name($course, $section);
                 $url = course_get_url($course, $section->section, array('navigation' => true));
 
-                $sectionnode = $coursenode->add($sectionname, $url, navigation_node::TYPE_SECTION,
+                $sectionnode = $parentnode->add($sectionname, $url, navigation_node::TYPE_SECTION,
                     null, $section->id, new pix_icon('i/section', ''));
                 $sectionnode->nodetype = navigation_node::NODETYPE_BRANCH;
                 $sectionnode->hidden = (!$section->visible || !$section->available);
+                $sectionnode->add_attribute('data-section-name-for', $section->id);
                 if ($this->includesectionnum !== false && $this->includesectionnum == $section->section) {
                     $this->load_section_activities($sectionnode, $section->section, $activities);
                 }
-                $section->sectionnode = $sectionnode;
                 $navigationsections[$sectionid] = $section;
             }
         }
@@ -2175,11 +2356,12 @@ class global_navigation extends navigation_node {
             if ($activity->icon) {
                 $icon = new pix_icon($activity->icon, get_string('modulename', $activity->modname), $activity->iconcomponent);
             } else {
-                $icon = new pix_icon('icon', get_string('modulename', $activity->modname), $activity->modname);
+                $icon = new pix_icon('monologo', get_string('modulename', $activity->modname), $activity->modname);
             }
 
             // Prepare the default name and url for the node
-            $activityname = format_string($activity->name, true, array('context' => context_module::instance($activity->id)));
+            $displaycontext = \context_helper::get_navigation_filter_context(context_module::instance($activity->id));
+            $activityname = format_string($activity->name, true, ['context' => $displaycontext]);
             $action = new moodle_url($activity->url);
 
             // Check if the onclick property is set (puke!)
@@ -2217,7 +2399,7 @@ class global_navigation extends navigation_node {
     /**
      * Loads a stealth module from unavailable section
      * @param navigation_node $coursenode
-     * @param stdClass $modinfo
+     * @param stdClass|course_modinfo $modinfo
      * @return navigation_node or null if not accessible
      */
     protected function load_stealth_activity(navigation_node $coursenode, $modinfo) {
@@ -2228,7 +2410,7 @@ class global_navigation extends navigation_node {
         if ($cm->icon) {
             $icon = new pix_icon($cm->icon, get_string('modulename', $cm->modname), $cm->iconcomponent);
         } else {
-            $icon = new pix_icon('icon', get_string('modulename', $cm->modname), $cm->modname);
+            $icon = new pix_icon('monologo', get_string('modulename', $cm->modname), $cm->modname);
         }
         $url = $cm->url;
         $activitynode = $coursenode->add(format_string($cm->name), $url, navigation_node::TYPE_ACTIVITY, null, $cm->id, $icon);
@@ -2405,16 +2587,6 @@ class global_navigation extends navigation_node {
                 } else {
                     $usernode->add(get_string('viewprofile'), new moodle_url('/user/view.php', $baseargs));
                 }
-            }
-
-            if (!empty($CFG->navadduserpostslinks)) {
-                // Add nodes for forum posts and discussions if the user can view either or both
-                // There are no capability checks here as the content of the page is based
-                // purely on the forums the current user has access too.
-                $forumtab = $usernode->add(get_string('forumposts', 'forum'));
-                $forumtab->add(get_string('posts', 'forum'), new moodle_url('/mod/forum/user.php', $baseargs));
-                $forumtab->add(get_string('discussions', 'forum'), new moodle_url('/mod/forum/user.php',
-                        array_merge($baseargs, array('mode' => 'discussions'))));
             }
 
             // Add blog nodes.
@@ -2631,8 +2803,9 @@ class global_navigation extends navigation_node {
         }
 
         $issite = ($course->id == $SITE->id);
-        $shortname = format_string($course->shortname, true, array('context' => $coursecontext));
-        $fullname = format_string($course->fullname, true, array('context' => $coursecontext));
+        $displaycontext = \context_helper::get_navigation_filter_context($coursecontext);
+        $shortname = format_string($course->shortname, true, ['context' => $displaycontext]);
+        $fullname = format_string($course->fullname, true, ['context' => $displaycontext]);
         // This is the name that will be shown for the course.
         $coursename = empty($CFG->navshowfullcoursenames) ? $shortname : $fullname;
 
@@ -2687,7 +2860,7 @@ class global_navigation extends navigation_node {
         $coursenode->showinflatnavigation = $coursetype == self::COURSE_MY;
 
         $coursenode->hidden = (!$course->visible);
-        $coursenode->title(format_string($course->fullname, true, array('context' => $coursecontext, 'escape' => false)));
+        $coursenode->title(format_string($course->fullname, true, ['context' => $displaycontext, 'escape' => false]));
         if ($canexpandcourse) {
             // This course can be expanded by the user, make it a branch to make the system aware that its expandable by ajax.
             $coursenode->nodetype = self::NODETYPE_BRANCH;
@@ -2793,13 +2966,16 @@ class global_navigation extends navigation_node {
             if ($navoptions->notes) {
                 $participants->add(get_string('notes', 'notes'), new moodle_url('/notes/index.php', array('filtertype' => 'course', 'filterselect' => $course->id)), self::TYPE_SETTING, null, 'currentcoursenotes');
             }
-        } else if (count($this->extendforuser) > 0 || $this->page->course->id == $course->id) {
-            $participants = $coursenode->add(get_string('participants'), null, self::TYPE_CONTAINER, get_string('participants'), 'participants');
+        } else if (count($this->extendforuser) > 0) {
+            $coursenode->add(get_string('participants'), null, self::TYPE_CONTAINER, get_string('participants'), 'participants');
+        } else if ($siteparticipantsnode = $this->rootnodes['site']->get('participants', self::TYPE_CUSTOM)) {
+            // The participants node was added for the site, but cannot be viewed inside the course itself, so remove.
+            $siteparticipantsnode->remove();
         }
 
         // Badges.
         if ($navoptions->badges) {
-            $url = new moodle_url('/badges/view.php', array('type' => 2, 'id' => $course->id));
+            $url = new moodle_url('/badges/index.php', ['type' => 2, 'id' => $course->id]);
 
             $coursenode->add(get_string('coursebadges', 'badges'), $url,
                     navigation_node::TYPE_SETTING, null, 'badgesview',
@@ -2822,6 +2998,18 @@ class global_navigation extends navigation_node {
             if ($this->page->context->contextlevel < CONTEXT_MODULE && strpos($this->page->pagetype, 'grade-') === 0) {
                 $gradenode->make_active();
             }
+        }
+
+        // Add link for configuring communication.
+        if ($navoptions->communication) {
+            $url = new moodle_url('/communication/configure.php', [
+                'contextid' => \core\context\course::instance($course->id)->id,
+                'instanceid' => $course->id,
+                'instancetype' => 'coursecommunication',
+                'component' => 'core_course',
+            ]);
+            $coursenode->add(get_string('communication', 'communication'), $url,
+                navigation_node::TYPE_SETTING, null, 'communication');
         }
 
         return true;
@@ -2852,9 +3040,13 @@ class global_navigation extends navigation_node {
         // This required as there are not other guaranteed nodes that may be loaded.
         $coursenode->add('frontpageloaded', null, self::TYPE_CUSTOM, null, 'frontpageloaded')->display = false;
 
+        // Add My courses to the site pages within the navigation structure so the block can read it.
+        $coursenode->add(get_string('mycourses'), new moodle_url('/my/courses.php'), self::TYPE_CUSTOM, null, 'mycourses');
+
         // Participants.
         if ($navoptions->participants) {
-            $coursenode->add(get_string('participants'), new moodle_url('/user/index.php?id='.$course->id), self::TYPE_CUSTOM, get_string('participants'), 'participants');
+            $coursenode->add(get_string('participants'), new moodle_url('/user/index.php?id='.$course->id),
+                self::TYPE_CUSTOM, get_string('participants'), 'participants');
         }
 
         // Blogs.
@@ -2867,7 +3059,7 @@ class global_navigation extends navigation_node {
 
         // Badges.
         if ($navoptions->badges) {
-            $url = new moodle_url($CFG->wwwroot . '/badges/view.php', array('type' => 1));
+            $url = new moodle_url($CFG->wwwroot . '/badges/index.php', ['type' => 1]);
             $coursenode->add(get_string('sitebadges', 'badges'), $url, navigation_node::TYPE_CUSTOM);
         }
 
@@ -2889,20 +3081,6 @@ class global_navigation extends navigation_node {
                     self::TYPE_SETTING, null, 'search');
         }
 
-        if ($navoptions->calendar) {
-            $courseid = $COURSE->id;
-            $params = array('view' => 'month');
-            if ($courseid != $SITE->id) {
-                $params['course'] = $courseid;
-            }
-
-            // Calendar
-            $calendarurl = new moodle_url('/calendar/view.php', $params);
-            $node = $coursenode->add(get_string('calendar', 'calendar'), $calendarurl,
-                self::TYPE_CUSTOM, null, 'calendar', new pix_icon('i/calendar', ''));
-            $node->showinflatnavigation = true;
-        }
-
         if (isloggedin()) {
             $usercontext = context_user::instance($USER->id);
             if (has_capability('moodle/user:manageownfiles', $usercontext)) {
@@ -2911,6 +3089,7 @@ class global_navigation extends navigation_node {
                     self::TYPE_SETTING, null, 'privatefiles', new pix_icon('i/privatefiles', ''));
                 $node->display = false;
                 $node->showinflatnavigation = true;
+                $node->mainnavonly = true;
             }
         }
 
@@ -3029,7 +3208,7 @@ class global_navigation extends navigation_node {
      * may be of more use to you.
      *
      * @param string|int $key The key of the node you wish to receive.
-     * @param int $type One of navigation_node::TYPE_*
+     * @param ?int $type One of navigation_node::TYPE_*
      * @return navigation_node|false
      */
     public function find($key, $type) {
@@ -3158,7 +3337,7 @@ class global_navigation extends navigation_node {
         // Show a link to the course page if there are more courses the user is enrolled in.
         if ($showmorelinkinnav || $showmorelinkinflatnav) {
             // Adding hash to URL so the link is not highlighted in the navigation when clicked.
-            $url = new moodle_url('/my/');
+            $url = new moodle_url('/my/courses.php');
             $parent = $this->rootnodes['mycourses'];
             $coursenode = $parent->add(get_string('morenavigationlinks'), $url, self::TYPE_CUSTOM, null, self::COURSE_INDEX_PAGE);
 
@@ -3229,7 +3408,13 @@ class global_navigation_for_ajax extends global_navigation {
 
         $this->rootnodes = array();
         $this->rootnodes['site']    = $this->add_course($SITE);
-        $this->rootnodes['mycourses'] = $this->add(get_string('mycourses'), new moodle_url('/my'), self::TYPE_ROOTNODE, null, 'mycourses');
+        $this->rootnodes['mycourses'] = $this->add(
+            get_string('mycourses'),
+            new moodle_url('/my/courses.php'),
+            self::TYPE_ROOTNODE,
+            null,
+            'mycourses'
+        );
         $this->rootnodes['courses'] = $this->add(get_string('courses'), null, self::TYPE_ROOTNODE, null, 'courses');
         // The courses branch is always displayed, and is always expandable (although may be empty).
         // This mimicks what is done during {@link global_navigation::initialise()}.
@@ -3474,7 +3659,7 @@ class navbar extends navigation_node {
         global $CFG;
         if (during_initial_install()) {
             $this->duringinstall = true;
-            return false;
+            return;
         }
         $this->page = $page;
         $this->text = get_string('home');
@@ -3495,6 +3680,7 @@ class navbar extends navigation_node {
         } else if ($this->hasitems !== false) {
             return true;
         }
+        $outcome = false;
         if (count($this->children) > 0 || count($this->prependchildren) > 0) {
             // There have been manually added items - there are definitely items.
             $outcome = true;
@@ -3659,8 +3845,10 @@ class navbar extends navigation_node {
                 if (!core_course_category::can_view_category($category)) {
                     continue;
                 }
-                $url = new moodle_url('/course/index.php', array('categoryid' => $category->id));
-                $name = format_string($category->name, true, array('context' => $context));
+
+                $displaycontext = \context_helper::get_navigation_filter_context($context);
+                $url = new moodle_url('/course/index.php', ['categoryid' => $category->id]);
+                $name = format_string($category->name, true, ['context' => $displaycontext]);
                 $categorynode = breadcrumb_navigation_node::create($name, $url, self::TYPE_CATEGORY, null, $category->id);
                 if (!$category->visible) {
                     $categorynode->hidden = true;
@@ -3670,7 +3858,8 @@ class navbar extends navigation_node {
         }
 
         // Don't show the 'course' node if enrolled in this course.
-        if (!is_enrolled(context_course::instance($this->page->course->id, null, '', true))) {
+        $coursecontext = context_course::instance($this->page->course->id);
+        if (!is_enrolled($coursecontext, null, '', true)) {
             $courses = $this->page->navigation->get('courses');
             if (!$courses) {
                 // Courses node may not be present.
@@ -3701,7 +3890,7 @@ class navbar extends navigation_node {
      * @param pix_icon $icon An optional icon to use for this node.
      * @return navigation_node
      */
-    public function add($text, $action=null, $type=self::TYPE_CUSTOM, $shorttext=null, $key=null, pix_icon $icon=null) {
+    public function add($text, $action=null, $type=self::TYPE_CUSTOM, $shorttext=null, $key=null, ?pix_icon $icon=null) {
         if ($this->content !== null) {
             debugging('Nav bar items must be printed before $OUTPUT->header() has been called', DEBUG_DEVELOPER);
         }
@@ -3747,7 +3936,7 @@ class navbar extends navigation_node {
      * @param pix_icon $icon An optional icon to use for this node.
      * @return navigation_node
      */
-    public function prepend($text, $action=null, $type=self::TYPE_CUSTOM, $shorttext=null, $key=null, pix_icon $icon=null) {
+    public function prepend($text, $action=null, $type=self::TYPE_CUSTOM, $shorttext=null, $key=null, ?pix_icon $icon=null) {
         if ($this->content !== null) {
             debugging('Nav bar items must be printed before $OUTPUT->header() has been called', DEBUG_DEVELOPER);
         }
@@ -3837,6 +4026,7 @@ class breadcrumb_navigation_node extends navigation_node {
  * Subclass of navigation_node allowing different rendering for the flat navigation
  * in particular allowing dividers and indents.
  *
+ * @deprecated since Moodle 4.0 - do not use any more. Leverage secondary/tertiary navigation concepts
  * @package   core
  * @category  navigation
  * @copyright 2016 Damyon Wiese
@@ -3859,6 +4049,7 @@ class flat_navigation_node extends navigation_node {
      * @param mixed $navnode A navigation_node or an array
      */
     public function __construct($navnode, $indent) {
+        debugging("Flat nav has been deprecated in favour of primary/secondary navigation concepts");
         if (is_array($navnode)) {
             parent::__construct($navnode);
         } else if ($navnode instanceof navigation_node) {
@@ -3916,9 +4107,11 @@ class flat_navigation_node extends navigation_node {
 
         if ($this->is_section()) {
             $active = $PAGE->navigation->find_active_node();
-            while ($active = $active->parent) {
-                if ($active->key == $this->key && $active->type == $this->type) {
-                    return true;
+            if ($active) {
+                while ($active = $active->parent) {
+                    if ($active->key == $this->key && $active->type == $this->type) {
+                        return true;
+                    }
                 }
             }
         }
@@ -3968,6 +4161,7 @@ class flat_navigation_node extends navigation_node {
  * Class used to generate a collection of navigation nodes most closely related
  * to the current page.
  *
+ * @deprecated since Moodle 4.0 - do not use any more. Leverage secondary/tertiary navigation concepts
  * @package core
  * @copyright 2016 Damyon Wiese
  * @license   http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
@@ -3983,8 +4177,9 @@ class flat_navigation extends navigation_node_collection {
      */
     public function __construct(moodle_page &$page) {
         if (during_initial_install()) {
-            return false;
+            return;
         }
+        debugging("Flat navigation has been deprecated in favour of primary/secondary navigation concepts");
         $this->page = $page;
     }
 
@@ -4010,10 +4205,11 @@ class flat_navigation extends navigation_node_collection {
             $url = new moodle_url('/course/view.php', array('id' => $course->id));
 
             $coursecontext = context_course::instance($course->id, MUST_EXIST);
+            $displaycontext = \context_helper::get_navigation_filter_context($coursecontext);
             // This is the name that will be shown for the course.
             $coursename = empty($CFG->navshowfullcoursenames) ?
-                format_string($course->shortname, true, array('context' => $coursecontext)) :
-                format_string($course->fullname, true, array('context' => $coursecontext));
+                format_string($course->shortname, true, ['context' => $displaycontext]) :
+                format_string($course->fullname, true, ['context' => $displaycontext]);
 
             $flat = new flat_navigation_node(navigation_node::create($coursename, $url), 0);
             $flat->set_collectionlabel($coursename);
@@ -4065,8 +4261,7 @@ class flat_navigation extends navigation_node_collection {
         // Add-a-block in editing mode.
         if (isset($this->page->theme->addblockposition) &&
                 $this->page->theme->addblockposition == BLOCK_ADDBLOCK_POSITION_FLATNAV &&
-                $PAGE->user_is_editing() && $PAGE->user_can_edit_blocks() &&
-                ($addable = $PAGE->blocks->get_addable_blocks())) {
+                $PAGE->user_is_editing() && $PAGE->user_can_edit_blocks()) {
             $url = new moodle_url($PAGE->url, ['bui_addblock' => '', 'sesskey' => sesskey()]);
             $addablock = navigation_node::create(get_string('addblock'), $url);
             $flat = new flat_navigation_node($addablock, 0);
@@ -4074,15 +4269,13 @@ class flat_navigation extends navigation_node_collection {
             $flat->key = 'addblock';
             $flat->icon = new pix_icon('i/addblock', '');
             $this->add($flat);
-            $blocks = [];
-            foreach ($addable as $block) {
-                $blocks[] = $block->name;
-            }
-            $params = array('blocks' => $blocks, 'url' => '?' . $url->get_query_string(false));
-            $PAGE->requires->js_call_amd('core/addblockmodal', 'init', array($params));
+
+            $addblockurl = "?{$url->get_query_string(false)}";
+
+            $PAGE->requires->js_call_amd('core_block/add_modal', 'init',
+                [$addblockurl, $this->page->get_edited_page_hash()]);
         }
     }
-
 
     /**
      * Override the parent so we can set a label for this collection if it has not been set yet.
@@ -4117,7 +4310,7 @@ class flat_navigation extends navigation_node_collection {
  * @license   http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 class settings_navigation extends navigation_node {
-    /** @var stdClass the current context */
+    /** @var context the current context */
     protected $context;
     /** @var moodle_page the moodle page that the navigation belongs to */
     protected $page;
@@ -4137,7 +4330,7 @@ class settings_navigation extends navigation_node {
      */
     public function __construct(moodle_page &$page) {
         if (during_initial_install()) {
-            return false;
+            return;
         }
         $this->page = $page;
         // Initialise the main navigation. It is most important that this is done
@@ -4275,7 +4468,7 @@ class settings_navigation extends navigation_node {
      * @param pix_icon $icon An icon that appears next to the node.
      * @return navigation_node with the new node added to it.
      */
-    public function add($text, $url=null, $type=null, $shorttext=null, $key=null, pix_icon $icon=null) {
+    public function add($text, $url=null, $type=null, $shorttext=null, $key=null, ?pix_icon $icon=null) {
         $node = parent::add($text, $url, $type, $shorttext, $key, $icon);
         $node->add_class('root_node');
         return $node;
@@ -4293,7 +4486,7 @@ class settings_navigation extends navigation_node {
      * @param pix_icon $icon An icon that appears next to the node.
      * @return navigation_node $node with the new node added to it.
      */
-    public function prepend($text, $url=null, $type=null, $shorttext=null, $key=null, pix_icon $icon=null) {
+    public function prepend($text, $url=null, $type=null, $shorttext=null, $key=null, ?pix_icon $icon=null) {
         $children = $this->children;
         $childrenclass = get_class($children);
         $this->children = new $childrenclass;
@@ -4338,7 +4531,7 @@ class settings_navigation extends navigation_node {
      *      tree and start at the beginning
      * @return mixed A key to access the admin tree by
      */
-    protected function load_administration_settings(navigation_node $referencebranch=null, part_of_admin_tree $adminbranch=null) {
+    protected function load_administration_settings(?navigation_node $referencebranch=null, ?part_of_admin_tree $adminbranch=null) {
         global $CFG;
 
         // Check if we are just starting to generate this navigation.
@@ -4378,12 +4571,13 @@ class settings_navigation extends navigation_node {
             // Now we need to display it and any children it may have
             $url = null;
             $icon = null;
-            if ($adminbranch instanceof admin_settingpage) {
-                $url = new moodle_url('/'.$CFG->admin.'/settings.php', array('section'=>$adminbranch->name));
-            } else if ($adminbranch instanceof admin_externalpage) {
-                $url = $adminbranch->url;
-            } else if (!empty($CFG->linkadmincategories) && $adminbranch instanceof admin_category) {
-                $url = new moodle_url('/'.$CFG->admin.'/category.php', array('category' => $adminbranch->name));
+
+            if ($adminbranch instanceof \core_admin\local\settings\linkable_settings_page) {
+                if (empty($CFG->linkadmincategories) && $adminbranch instanceof admin_category) {
+                    $url = null;
+                } else {
+                    $url = $adminbranch->get_settings_page_url();
+                }
             }
 
             // Add the branch
@@ -4448,7 +4642,7 @@ class settings_navigation extends navigation_node {
      * @return navigation_node|false
      */
     protected function load_course_settings($forceopen = false) {
-        global $CFG;
+        global $CFG, $USER;
         require_once($CFG->dirroot . '/course/lib.php');
 
         $course = $this->page->course;
@@ -4462,23 +4656,52 @@ class settings_navigation extends navigation_node {
             $coursenode->force_open();
         }
 
+        // MoodleNet links.
+        if ($this->page->user_is_editing()) {
+            $this->page->requires->js_call_amd('core/moodlenet/mutations', 'init');
+        }
+        $usercanshare = utilities::can_user_share($coursecontext, $USER->id, 'course');
+        $issuerid = get_config('moodlenet', 'oauthservice');
+        try {
+            $issuer = \core\oauth2\api::get_issuer($issuerid);
+            $isvalidinstance = utilities::is_valid_instance($issuer);
+            if ($usercanshare && $isvalidinstance) {
+                $this->page->requires->js_call_amd('core/moodlenet/send_resource', 'init');
+                $action = new action_link(new moodle_url(''), '', null, [
+                    'data-action' => 'sendtomoodlenet',
+                    'data-type' => 'course',
+                ]);
+                // Share course to MoodleNet link.
+                $coursenode->add(get_string('moodlenet:sharetomoodlenet', 'moodle'),
+                    $action, self::TYPE_SETTING, null, 'exportcoursetomoodlenet')->set_force_into_more_menu(true);
+                // MoodleNet share progress link.
+                $url = new moodle_url('/moodlenet/shareprogress.php');
+                $coursenode->add(get_string('moodlenet:shareprogress'),
+                    $url, self::TYPE_SETTING, null, 'moodlenetshareprogress')->set_force_into_more_menu(true);
+            }
+        } catch (dml_missing_record_exception $e) {
+            debugging("Invalid MoodleNet OAuth 2 service set in site administration: 'moodlenet | oauthservice'. " .
+                "This must be a valid issuer.");
+        }
 
         if ($adminoptions->update) {
             // Add the course settings link
             $url = new moodle_url('/course/edit.php', array('id'=>$course->id));
-            $coursenode->add(get_string('editsettings'), $url, self::TYPE_SETTING, null, 'editsettings', new pix_icon('i/settings', ''));
+            $coursenode->add(get_string('settings'), $url, self::TYPE_SETTING, null,
+                'editsettings', new pix_icon('i/settings', ''));
         }
 
         if ($adminoptions->editcompletion) {
             // Add the course completion settings link
             $url = new moodle_url('/course/completion.php', array('id' => $course->id));
-            $coursenode->add(get_string('coursecompletion', 'completion'), $url, self::TYPE_SETTING, null, null,
+            $coursenode->add(get_string('coursecompletion', 'completion'), $url, self::TYPE_SETTING, null, 'coursecompletion',
                              new pix_icon('i/settings', ''));
         }
 
         if (!$adminoptions->update && $adminoptions->tags) {
             $url = new moodle_url('/course/tags.php', array('id' => $course->id));
             $coursenode->add(get_string('coursetags', 'tag'), $url, self::TYPE_SETTING, null, 'coursetags', new pix_icon('i/settings', ''));
+            $coursenode->get('coursetags')->set_force_into_more_menu();
         }
 
         // add enrol nodes
@@ -4487,13 +4710,15 @@ class settings_navigation extends navigation_node {
         // Manage filters
         if ($adminoptions->filters) {
             $url = new moodle_url('/filter/manage.php', array('contextid'=>$coursecontext->id));
-            $coursenode->add(get_string('filters', 'admin'), $url, self::TYPE_SETTING, null, null, new pix_icon('i/filter', ''));
+            $coursenode->add(get_string('filters', 'admin'), $url, self::TYPE_SETTING,
+                null, 'filtermanagement', new pix_icon('i/filter', ''));
         }
 
         // View course reports.
         if ($adminoptions->reports) {
-            $reportnav = $coursenode->add(get_string('reports'), null, self::TYPE_CONTAINER, null, 'coursereports',
-                    new pix_icon('i/stats', ''));
+            $reportnav = $coursenode->add(get_string('reports'),
+                new moodle_url('/report/view.php', ['courseid' => $coursecontext->instanceid]),
+                self::TYPE_CONTAINER, null, 'coursereports', new pix_icon('i/stats', ''));
             $coursereports = core_component::get_plugin_list('coursereport');
             foreach ($coursereports as $report => $dir) {
                 $libfile = $CFG->dirroot.'/course/report/'.$report.'/lib.php';
@@ -4509,6 +4734,10 @@ class settings_navigation extends navigation_node {
             $reports = get_plugin_list_with_function('report', 'extend_navigation_course', 'lib.php');
             foreach ($reports as $reportfunction) {
                 $reportfunction($reportnav, $course, $coursecontext);
+            }
+
+            if (!$reportnav->has_children()) {
+                $reportnav->remove();
             }
         }
 
@@ -4532,36 +4761,6 @@ class settings_navigation extends navigation_node {
         if ($adminoptions->badges) {
             require_once($CFG->libdir .'/badgeslib.php');
             badges_add_course_navigation($coursenode, $course);
-        }
-
-        // Backup this course
-        if ($adminoptions->backup) {
-            $url = new moodle_url('/backup/backup.php', array('id'=>$course->id));
-            $coursenode->add(get_string('backup'), $url, self::TYPE_SETTING, null, 'backup', new pix_icon('i/backup', ''));
-        }
-
-        // Restore to this course
-        if ($adminoptions->restore) {
-            $url = new moodle_url('/backup/restorefile.php', array('contextid'=>$coursecontext->id));
-            $coursenode->add(get_string('restore'), $url, self::TYPE_SETTING, null, 'restore', new pix_icon('i/restore', ''));
-        }
-
-        // Import data from other courses
-        if ($adminoptions->import) {
-            $url = new moodle_url('/backup/import.php', array('id'=>$course->id));
-            $coursenode->add(get_string('import'), $url, self::TYPE_SETTING, null, 'import', new pix_icon('i/import', ''));
-        }
-
-        // Copy this course.
-        if ($adminoptions->copy) {
-            $url = new moodle_url('/backup/copy.php', array('id' => $course->id));
-            $coursenode->add(get_string('copycourse'), $url, self::TYPE_SETTING, null, 'copy', new pix_icon('t/copy', ''));
-        }
-
-        // Reset this course
-        if ($adminoptions->reset) {
-            $url = new moodle_url('/course/reset.php', array('id'=>$course->id));
-            $coursenode->add(get_string('reset'), $url, self::TYPE_SETTING, null, 'reset', new pix_icon('i/return', ''));
         }
 
         // Questions
@@ -4605,8 +4804,77 @@ class settings_navigation extends navigation_node {
             }
         }
 
+        // Prepare data for course content download functionality if it is enabled.
+        if (\core\content::can_export_context($coursecontext, $USER)) {
+            $linkattr = \core_course\output\content_export_link::get_attributes($coursecontext);
+            $actionlink = new action_link($linkattr->url, $linkattr->displaystring, null, $linkattr->elementattributes);
+
+            $coursenode->add($linkattr->displaystring, $actionlink, self::TYPE_SETTING, null, 'download',
+                    new pix_icon('t/download', ''));
+            $coursenode->get('download')->set_force_into_more_menu(true);
+        }
+
+        // Course reuse options.
+        if ($adminoptions->import
+                || $adminoptions->backup
+                || $adminoptions->restore
+                || $adminoptions->copy
+                || $adminoptions->reset) {
+            $coursereusenav = $coursenode->add(
+                get_string('coursereuse'),
+                new moodle_url('/backup/view.php', ['id' => $course->id]),
+                self::TYPE_CONTAINER, null, 'coursereuse', new pix_icon('t/edit', ''),
+            );
+
+            // Import data from other courses.
+            if ($adminoptions->import) {
+                $url = new moodle_url('/backup/import.php', ['id' => $course->id]);
+                $coursereusenav->add(get_string('import'), $url, self::TYPE_SETTING, null, 'import', new pix_icon('i/import', ''));
+            }
+
+            // Backup this course.
+            if ($adminoptions->backup) {
+                $url = new moodle_url('/backup/backup.php', ['id' => $course->id]);
+                $coursereusenav->add(get_string('backup'), $url, self::TYPE_SETTING, null, 'backup', new pix_icon('i/backup', ''));
+            }
+
+            // Restore to this course.
+            if ($adminoptions->restore) {
+                $url = new moodle_url('/backup/restorefile.php', ['contextid' => $coursecontext->id]);
+                $coursereusenav->add(
+                    get_string('restore'),
+                    $url,
+                    self::TYPE_SETTING,
+                    null,
+                    'restore',
+                    new pix_icon('i/restore', ''),
+                );
+            }
+
+            // Copy this course.
+            if ($adminoptions->copy) {
+                $url = new moodle_url('/backup/copy.php', ['id' => $course->id]);
+                $coursereusenav->add(get_string('copycourse'), $url, self::TYPE_SETTING, null, 'copy', new pix_icon('t/copy', ''));
+            }
+
+            // Reset this course.
+            if ($adminoptions->reset) {
+                $url = new moodle_url('/course/reset.php', ['id' => $course->id]);
+                $coursereusenav->add(get_string('reset'), $url, self::TYPE_SETTING, null, 'reset', new pix_icon('i/return', ''));
+            }
+        }
+
         // Return we are done
         return $coursenode;
+    }
+
+    /**
+     * Get the moodle_page object associated to the current settings navigation.
+     *
+     * @return moodle_page
+     */
+    public function get_page(): moodle_page {
+        return $this->page;
     }
 
     /**
@@ -4621,7 +4889,7 @@ class settings_navigation extends navigation_node {
      * @return navigation_node|false
      */
     protected function load_module_settings() {
-        global $CFG;
+        global $CFG, $USER;
 
         if (!$this->page->cm && $this->context->contextlevel == CONTEXT_MODULE && $this->context->instanceid) {
             $cm = get_coursemodule_from_id(false, $this->context->instanceid, 0, false, MUST_EXIST);
@@ -4640,22 +4908,25 @@ class settings_navigation extends navigation_node {
         // Settings for the module
         if (has_capability('moodle/course:manageactivities', $this->page->cm->context)) {
             $url = new moodle_url('/course/modedit.php', array('update' => $this->page->cm->id, 'return' => 1));
-            $modulenode->add(get_string('editsettings'), $url, navigation_node::TYPE_SETTING, null, 'modedit');
+            $modulenode->add(get_string('settings'), $url, self::TYPE_SETTING, null, 'modedit', new pix_icon('i/settings', ''));
         }
         // Assign local roles
         if (count(get_assignable_roles($this->page->cm->context))>0) {
             $url = new moodle_url('/'.$CFG->admin.'/roles/assign.php', array('contextid'=>$this->page->cm->context->id));
-            $modulenode->add(get_string('localroles', 'role'), $url, self::TYPE_SETTING, null, 'roleassign');
+            $modulenode->add(get_string('localroles', 'role'), $url, self::TYPE_SETTING, null, 'roleassign',
+                new pix_icon('i/role', ''));
         }
         // Override roles
         if (has_capability('moodle/role:review', $this->page->cm->context) or count(get_overridable_roles($this->page->cm->context))>0) {
             $url = new moodle_url('/'.$CFG->admin.'/roles/permissions.php', array('contextid'=>$this->page->cm->context->id));
-            $modulenode->add(get_string('permissions', 'role'), $url, self::TYPE_SETTING, null, 'roleoverride');
+            $modulenode->add(get_string('permissions', 'role'), $url, self::TYPE_SETTING, null, 'roleoverride',
+                new pix_icon('i/permissions', ''));
         }
         // Check role permissions
         if (has_any_capability(array('moodle/role:assign', 'moodle/role:safeoverride','moodle/role:override', 'moodle/role:assign'), $this->page->cm->context)) {
             $url = new moodle_url('/'.$CFG->admin.'/roles/check.php', array('contextid'=>$this->page->cm->context->id));
-            $modulenode->add(get_string('checkpermissions', 'role'), $url, self::TYPE_SETTING, null, 'rolecheck');
+            $modulenode->add(get_string('checkpermissions', 'role'), $url, self::TYPE_SETTING, null, 'rolecheck',
+                new pix_icon('i/checkpermissions', ''));
         }
 
         // Add the context locking node.
@@ -4664,7 +4935,8 @@ class settings_navigation extends navigation_node {
         // Manage filters
         if (has_capability('moodle/filter:manage', $this->page->cm->context) && count(filter_get_available_in_context($this->page->cm->context))>0) {
             $url = new moodle_url('/filter/manage.php', array('contextid'=>$this->page->cm->context->id));
-            $modulenode->add(get_string('filters', 'admin'), $url, self::TYPE_SETTING, null, 'filtermanage');
+            $modulenode->add(get_string('filters', 'admin'), $url, self::TYPE_SETTING, null, 'filtermanage',
+                new pix_icon('i/filter', ''));
         }
         // Add reports
         $reports = get_plugin_list_with_function('report', 'extend_navigation_module', 'lib.php');
@@ -4675,14 +4947,14 @@ class settings_navigation extends navigation_node {
         $featuresfunc = $this->page->activityname.'_supports';
         if (function_exists($featuresfunc) && $featuresfunc(FEATURE_BACKUP_MOODLE2) && has_capability('moodle/backup:backupactivity', $this->page->cm->context)) {
             $url = new moodle_url('/backup/backup.php', array('id'=>$this->page->cm->course, 'cm'=>$this->page->cm->id));
-            $modulenode->add(get_string('backup'), $url, self::TYPE_SETTING, null, 'backup');
+            $modulenode->add(get_string('backup'), $url, self::TYPE_SETTING, null, 'backup', new pix_icon('i/backup', ''));
         }
 
         // Restore this activity
         $featuresfunc = $this->page->activityname.'_supports';
         if (function_exists($featuresfunc) && $featuresfunc(FEATURE_BACKUP_MOODLE2) && has_capability('moodle/restore:restoreactivity', $this->page->cm->context)) {
             $url = new moodle_url('/backup/restorefile.php', array('contextid'=>$this->page->cm->context->id));
-            $modulenode->add(get_string('restore'), $url, self::TYPE_SETTING, null, 'restore');
+            $modulenode->add(get_string('restore'), $url, self::TYPE_SETTING, null, 'restore', new pix_icon('i/restore', ''));
         }
 
         // Allow the active advanced grading method plugin to append its settings
@@ -4696,6 +4968,26 @@ class settings_navigation extends navigation_node {
         $function = $this->page->activityname.'_extend_settings_navigation';
         if (function_exists($function)) {
             $function($this, $modulenode);
+        }
+
+        // Send activity to MoodleNet.
+        $usercanshare = utilities::can_user_share($this->context->get_course_context(), $USER->id);
+        $issuerid = get_config('moodlenet', 'oauthservice');
+        try {
+            $issuer = \core\oauth2\api::get_issuer($issuerid);
+            $isvalidinstance = utilities::is_valid_instance($issuer);
+            if ($usercanshare && $isvalidinstance) {
+                $this->page->requires->js_call_amd('core/moodlenet/send_resource', 'init');
+                $action = new action_link(new moodle_url(''), '', null, [
+                    'data-action' => 'sendtomoodlenet',
+                    'data-type' => 'activity',
+                ]);
+                $modulenode->add(get_string('moodlenet:sharetomoodlenet', 'moodle'),
+                    $action, self::TYPE_SETTING, null, 'exportmoodlenet')->set_force_into_more_menu(true);
+            }
+        } catch (dml_missing_record_exception $e) {
+            debugging("Invalid MoodleNet OAuth 2 service set in site administration: 'moodlenet | oauthservice'. " .
+                "This must be a valid issuer.");
         }
 
         // Remove the module node if there are no children.
@@ -4874,12 +5166,14 @@ class settings_navigation extends navigation_node {
 
         // Add a user setting branch.
         if ($gstitle == 'usercurrentsettings') {
-            $dashboard = $this->add(get_string('myhome'), new moodle_url('/my/'), self::TYPE_CONTAINER, null, 'dashboard');
+            $mainpage = $this->add(get_string('home'), new moodle_url('/'), self::TYPE_CONTAINER, null, 'site');
+
             // This should be set to false as we don't want to show this to the user. It's only for generating the correct
             // breadcrumb.
-            $dashboard->display = false;
-            if (get_home_page() == HOMEPAGE_MY) {
-                $dashboard->mainnavonly = true;
+            $mainpage->display = false;
+            $homepage = get_home_page();
+            if (($homepage == HOMEPAGE_MY || $homepage == HOMEPAGE_MYCOURSES)) {
+                $mainpage->mainnavonly = true;
             }
 
             $iscurrentuser = ($user->id == $USER->id);
@@ -4894,18 +5188,8 @@ class settings_navigation extends navigation_node {
             }
 
             // Add the user profile to the dashboard.
-            $profilenode = $dashboard->add(get_string('profile'), new moodle_url('/user/profile.php',
+            $profilenode = $mainpage->add(get_string('profile'), new moodle_url('/user/profile.php',
                     array('id' => $user->id)), self::TYPE_SETTING, null, 'myprofile');
-
-            if (!empty($CFG->navadduserpostslinks)) {
-                // Add nodes for forum posts and discussions if the user can view either or both
-                // There are no capability checks here as the content of the page is based
-                // purely on the forums the current user has access too.
-                $forumtab = $profilenode->add(get_string('forumposts', 'forum'));
-                $forumtab->add(get_string('posts', 'forum'), new moodle_url('/mod/forum/user.php', $baseargs), null, 'myposts');
-                $forumtab->add(get_string('discussions', 'forum'), new moodle_url('/mod/forum/user.php',
-                        array_merge($baseargs, array('mode' => 'discussions'))), null, 'mydiscussions');
-            }
 
             // Add blog nodes.
             if (!empty($CFG->enableblogs)) {
@@ -4939,14 +5223,14 @@ class settings_navigation extends navigation_node {
                     $messageargs['user2'] = $user->id;
                 }
                 $url = new moodle_url('/message/index.php', $messageargs);
-                $dashboard->add(get_string('messages', 'message'), $url, self::TYPE_SETTING, null, 'messages');
+                $mainpage->add(get_string('messages', 'message'), $url, self::TYPE_SETTING, null, 'messages');
             }
 
             // Add the "My private files" link.
             // This link doesn't have a unique display for course context so only display it under the user's profile.
             if ($issitecourse && $iscurrentuser && has_capability('moodle/user:manageownfiles', $usercontext)) {
                 $url = new moodle_url('/user/files.php');
-                $dashboard->add(get_string('privatefiles'), $url, self::TYPE_SETTING, null, 'privatefiles');
+                $mainpage->add(get_string('privatefiles'), $url, self::TYPE_SETTING, null, 'privatefiles');
             }
 
             // Add a node to view the users notes if permitted.
@@ -4968,7 +5252,7 @@ class settings_navigation extends navigation_node {
                 } else { // Otherwise we are in a course and should redirect to the user grade report (Activity report version).
                     $url = new moodle_url('/course/user.php', array('mode' => 'grade', 'id' => $course->id, 'user' => $user->id));
                 }
-                $dashboard->add(get_string('grades', 'grades'), $url, self::TYPE_SETTING, null, 'mygrades');
+                $mainpage->add(get_string('grades', 'grades'), $url, self::TYPE_SETTING, null, 'mygrades');
             }
 
             // Let plugins hook into user navigation.
@@ -4982,7 +5266,7 @@ class settings_navigation extends navigation_node {
             }
 
             $usersetting = navigation_node::create(get_string('preferences', 'moodle'), $prefurl, self::TYPE_CONTAINER, null, $key);
-            $dashboard->add_node($usersetting);
+            $mainpage->add_node($usersetting);
         } else {
             $usersetting = $this->add(get_string('preferences', 'moodle'), $prefurl, self::TYPE_CONTAINER, null, $key);
             $usersetting->display = false;
@@ -5078,15 +5362,6 @@ class settings_navigation extends navigation_node {
             }
         }
 
-        // Add "Course preferences" link.
-        if (isloggedin() && !isguestuser($user)) {
-            if ($currentuser && has_capability('moodle/user:editownprofile', $systemcontext) ||
-                has_capability('moodle/user:editprofile', $usercontext)) {
-                $url = new moodle_url('/user/course.php', array('id' => $user->id, 'course' => $course->id));
-                $useraccount->add(get_string('coursepreferences'), $url, self::TYPE_SETTING, null, 'coursepreferences');
-            }
-        }
-
         // Add "Calendar preferences" link.
         if (isloggedin() && !isguestuser($user)) {
             if ($currentuser && has_capability('moodle/user:editownprofile', $systemcontext) ||
@@ -5096,12 +5371,22 @@ class settings_navigation extends navigation_node {
             }
         }
 
+        // Add "Content bank preferences" link.
+        if (isloggedin() && !isguestuser($user)) {
+            if ($currentuser && has_capability('moodle/user:editownprofile', $systemcontext) ||
+                has_capability('moodle/user:editprofile', $usercontext)) {
+                $url = new moodle_url('/user/contentbank.php', ['id' => $user->id]);
+                $useraccount->add(get_string('contentbankpreferences', 'core_contentbank'), $url, self::TYPE_SETTING,
+                        null, 'contentbankpreferences');
+            }
+        }
+
         // View the roles settings.
-        if (has_any_capability(array('moodle/role:assign', 'moodle/role:safeoverride', 'moodle/role:override',
-                'moodle/role:manage'), $usercontext)) {
+        if (has_any_capability(['moodle/role:assign', 'moodle/role:safeoverride', 'moodle/role:override',
+                'moodle/role:manage'], $usercontext)) {
             $roles = $usersetting->add(get_string('roles'), null, self::TYPE_SETTING);
 
-            $url = new moodle_url('/admin/roles/usersroles.php', array('userid'=>$user->id, 'courseid'=>$course->id));
+            $url = new moodle_url('/admin/roles/usersroles.php', ['userid' => $user->id, 'courseid' => $course->id]);
             $roles->add(get_string('thisusersroles', 'role'), $url, self::TYPE_SETTING);
 
             $assignableroles = get_assignable_roles($usercontext, ROLENAME_BOTH);
@@ -5163,7 +5448,7 @@ class settings_navigation extends navigation_node {
         }
         // Security keys.
         if ($currentuser && $enablemanagetokens) {
-            $url = new moodle_url('/user/managetoken.php', array('sesskey'=>sesskey()));
+            $url = new moodle_url('/user/managetoken.php');
             $useraccount->add(get_string('securitykeys', 'webservice'), $url, self::TYPE_SETTING);
         }
 
@@ -5286,15 +5571,17 @@ class settings_navigation extends navigation_node {
         if (can_edit_in_category($catcontext->instanceid)) {
             $url = new moodle_url('/course/management.php', array('categoryid' => $catcontext->instanceid));
             $editstring = get_string('managecategorythis');
-            $categorynode->add($editstring, $url, self::TYPE_SETTING, null, null, new pix_icon('i/edit', ''));
+            $node = $categorynode->add($editstring, $url, self::TYPE_SETTING, null, 'managecategory', new pix_icon('i/edit', ''));
+            $node->set_show_in_secondary_navigation(false);
         }
 
         if (has_capability('moodle/category:manage', $catcontext)) {
             $editurl = new moodle_url('/course/editcategory.php', array('id' => $catcontext->instanceid));
-            $categorynode->add(get_string('editcategorythis'), $editurl, self::TYPE_SETTING, null, 'edit', new pix_icon('i/edit', ''));
+            $categorynode->add(get_string('settings'), $editurl, self::TYPE_SETTING, null, 'edit', new pix_icon('i/edit', ''));
 
             $addsubcaturl = new moodle_url('/course/editcategory.php', array('parent' => $catcontext->instanceid));
-            $categorynode->add(get_string('addsubcategory'), $addsubcaturl, self::TYPE_SETTING, null, 'addsubcat', new pix_icon('i/withsubcat', ''));
+            $categorynode->add(get_string('addsubcategory'), $addsubcaturl, self::TYPE_SETTING, null,
+                'addsubcat', new pix_icon('i/withsubcat', ''))->set_show_in_secondary_navigation(false);
         }
 
         // Assign local roles
@@ -5313,7 +5600,7 @@ class settings_navigation extends navigation_node {
         if (has_any_capability(array('moodle/role:assign', 'moodle/role:safeoverride',
                 'moodle/role:override', 'moodle/role:assign'), $catcontext)) {
             $url = new moodle_url('/'.$CFG->admin.'/roles/check.php', array('contextid' => $catcontext->id));
-            $categorynode->add(get_string('checkpermissions', 'role'), $url, self::TYPE_SETTING, null, 'checkpermissions', new pix_icon('i/checkpermissions', ''));
+            $categorynode->add(get_string('checkpermissions', 'role'), $url, self::TYPE_SETTING, null, 'rolecheck', new pix_icon('i/checkpermissions', ''));
         }
 
         // Add the context locking node.
@@ -5343,6 +5630,14 @@ class settings_navigation extends navigation_node {
             foreach ($plugins as $pluginfunction) {
                 $pluginfunction($categorynode, $catcontext);
             }
+        }
+
+        $cb = new contentbank();
+        if ($cb->is_context_allowed($catcontext)
+            && has_capability('moodle/contentbank:access', $catcontext)) {
+            $url = new \moodle_url('/contentbank/index.php', ['contextid' => $catcontext->id]);
+            $categorynode->add(get_string('contentbank'), $url, self::TYPE_CUSTOM, null,
+                'contentbank', new \pix_icon('i/contentbank', ''));
         }
 
         return $categorynode;
@@ -5393,7 +5688,7 @@ class settings_navigation extends navigation_node {
         }
         $frontpage->id = 'frontpagesettings';
 
-        if ($this->page->user_allowed_editing()) {
+        if ($this->page->user_allowed_editing() && !$this->page->theme->haseditswitch) {
 
             // Add the turn on/off settings
             $url = new moodle_url('/course/view.php', array('id'=>$course->id, 'sesskey'=>sesskey()));
@@ -5410,7 +5705,8 @@ class settings_navigation extends navigation_node {
         if ($adminoptions->update) {
             // Add the course settings link
             $url = new moodle_url('/admin/settings.php', array('section'=>'frontpagesettings'));
-            $frontpage->add(get_string('editsettings'), $url, self::TYPE_SETTING, null, null, new pix_icon('i/settings', ''));
+            $frontpage->add(get_string('settings'), $url, self::TYPE_SETTING, null,
+                'editsettings', new pix_icon('i/settings', ''));
         }
 
         // add enrol nodes
@@ -5419,12 +5715,15 @@ class settings_navigation extends navigation_node {
         // Manage filters
         if ($adminoptions->filters) {
             $url = new moodle_url('/filter/manage.php', array('contextid'=>$coursecontext->id));
-            $frontpage->add(get_string('filters', 'admin'), $url, self::TYPE_SETTING, null, null, new pix_icon('i/filter', ''));
+            $frontpage->add(get_string('filters', 'admin'), $url, self::TYPE_SETTING,
+                null, 'filtermanagement', new pix_icon('i/filter', ''));
         }
 
         // View course reports.
         if ($adminoptions->reports) {
-            $frontpagenav = $frontpage->add(get_string('reports'), null, self::TYPE_CONTAINER, null, 'frontpagereports',
+            $frontpagenav = $frontpage->add(get_string('reports'), new moodle_url('/report/view.php',
+                ['courseid' => $coursecontext->instanceid]),
+                self::TYPE_CONTAINER, null, 'coursereports',
                     new pix_icon('i/stats', ''));
             $coursereports = core_component::get_plugin_list('coursereport');
             foreach ($coursereports as $report=>$dir) {
@@ -5442,18 +5741,10 @@ class settings_navigation extends navigation_node {
             foreach ($reports as $reportfunction) {
                 $reportfunction($frontpagenav, $course, $coursecontext);
             }
-        }
 
-        // Backup this course
-        if ($adminoptions->backup) {
-            $url = new moodle_url('/backup/backup.php', array('id'=>$course->id));
-            $frontpage->add(get_string('backup'), $url, self::TYPE_SETTING, null, null, new pix_icon('i/backup', ''));
-        }
-
-        // Restore to this course
-        if ($adminoptions->restore) {
-            $url = new moodle_url('/backup/restorefile.php', array('contextid'=>$coursecontext->id));
-            $frontpage->add(get_string('restore'), $url, self::TYPE_SETTING, null, null, new pix_icon('i/restore', ''));
+            if (!$frontpagenav->has_children()) {
+                $frontpagenav->remove();
+            }
         }
 
         // Questions
@@ -5472,6 +5763,34 @@ class settings_navigation extends navigation_node {
         foreach ($pluginsfunction as $plugintype => $plugins) {
             foreach ($plugins as $pluginfunction) {
                 $pluginfunction($frontpage, $course, $coursecontext);
+            }
+        }
+
+        // Course reuse options.
+        if ($adminoptions->backup || $adminoptions->restore) {
+            $coursereusenav = $frontpage->add(
+                get_string('coursereuse'),
+                new moodle_url('/backup/view.php', ['id' => $course->id]),
+                self::TYPE_CONTAINER, null, 'coursereuse', new pix_icon('t/edit', ''),
+            );
+
+            // Backup this course.
+            if ($adminoptions->backup) {
+                $url = new moodle_url('/backup/backup.php', ['id' => $course->id]);
+                $coursereusenav->add(get_string('backup'), $url, self::TYPE_SETTING, null, 'backup', new pix_icon('i/backup', ''));
+            }
+
+            // Restore to this course.
+            if ($adminoptions->restore) {
+                $url = new moodle_url('/backup/restorefile.php', ['contextid' => $coursecontext->id]);
+                $coursereusenav->add(
+                    get_string('restore'),
+                    $url,
+                    self::TYPE_SETTING,
+                    null,
+                    'restore',
+                    new pix_icon('i/restore', ''),
+                );
             }
         }
 
@@ -5546,8 +5865,6 @@ class settings_navigation_ajax extends settings_navigation {
 
     /**
      * Initialise the site admin navigation.
-     *
-     * @return array An array of the expandable nodes
      */
     public function initialise() {
         if ($this->initialised || during_initial_install()) {
@@ -5633,7 +5950,7 @@ class navigation_json {
         }
 
         if ($child->forcetitle || $child->title !== $child->text) {
-            $attributes['title'] = htmlentities($child->title, ENT_QUOTES, 'UTF-8');
+            $attributes['title'] = htmlentities($child->title ?? '', ENT_QUOTES, 'UTF-8');
         }
         if (array_key_exists($child->key.':'.$child->type, $this->expandable)) {
             $attributes['expandable'] = $child->key;

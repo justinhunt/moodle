@@ -54,7 +54,7 @@ function cli_writeln($text, $stream=STDOUT) {
  * @param bool $casesensitive true if options are case sensitive
  * @return string entered text
  */
-function cli_input($prompt, $default='', array $options=null, $casesensitiveoptions=false) {
+function cli_input($prompt, $default='', ?array $options=null, $casesensitiveoptions=false) {
     cli_writeln($prompt);
     cli_write(': ');
     $input = fread(STDIN, 2048);
@@ -80,7 +80,7 @@ function cli_input($prompt, $default='', array $options=null, $casesensitiveopti
  * @param array $shortmapping array describing mapping of short to long style options ex:('h'=>'help', 'v'=>'verbose')
  * @return array array of arrays, options, unrecognised as optionlongname=>value
  */
-function cli_get_params(array $longoptions, array $shortmapping=null) {
+function cli_get_params(array $longoptions, ?array $shortmapping=null) {
     $shortmapping = (array)$shortmapping;
     $options      = array();
     $unrecognized = array();
@@ -106,7 +106,8 @@ function cli_get_params(array $longoptions, array $shortmapping=null) {
                 $key   = reset($parts);
                 $value = true;
 
-                if (substr($key, 0, 3) === 'no-') {
+                if (substr($key, 0, 3) === 'no-' && !array_key_exists($key, $longoptions)
+                        && array_key_exists(substr($key, 3), $longoptions)) {
                     // Support flipping the boolean value.
                     $value = !$value;
                     $key = substr($key, 3);

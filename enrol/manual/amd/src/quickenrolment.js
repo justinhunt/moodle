@@ -26,11 +26,11 @@ import * as Toast from 'core/toast';
 import Config from 'core/config';
 import Fragment from 'core/fragment';
 import ModalEvents from 'core/modal_events';
-import ModalFactory from 'core/modal_factory';
 import Notification from 'core/notification';
 import jQuery from 'jquery';
 import Pending from 'core/pending';
 import Prefetch from 'core/prefetch';
+import ModalSaveCancel from 'core/modal_save_cancel';
 
 const Selectors = {
     cohortSelector: "#id_cohortlist",
@@ -88,11 +88,14 @@ const registerEventListeners = contextId => {
 const showModal = (dynamicTable, contextId) => {
     const pendingPromise = new Pending('enrol_manual/quickenrolment:showModal');
 
-    return ModalFactory.create({
-        type: ModalFactory.types.SAVE_CANCEL,
+    return ModalSaveCancel.create({
         large: true,
         title: Str.get_string('enrolusers', 'enrol_manual'),
         body: getBodyForContext(contextId),
+        buttons: {
+            save: Str.get_string('enrolusers', 'enrol_manual'),
+        },
+        show: true,
     })
     .then(modal => {
         modal.getRoot().on(ModalEvents.save, e => {
@@ -116,23 +119,15 @@ const showModal = (dynamicTable, contextId) => {
 
         return modal;
     })
-    .then(modal => {
-        modal.show();
+    .then(modal => Promise.all([modal, modal.getBodyPromise()]))
+    .then(([modal, body]) => {
+        if (body.get(0).querySelector(Selectors.cohortSelector)) {
+            return modal.setSaveButtonText(Str.get_string('enroluserscohorts', 'enrol_manual')).then(() => modal);
+        }
 
         return modal;
     })
     .then(modal => {
-        modal.setSaveButtonText(Str.get_string('enrolusers', 'enrol_manual'));
-
-        modal.getBodyPromise().then(body => {
-            if (body.get(0).querySelector(Selectors.cohortSelector)) {
-                modal.setSaveButtonText(Str.get_string('enroluserscohorts', 'enrol_manual'));
-            }
-
-            return body;
-        })
-        .catch();
-
         pendingPromise.resolve();
 
         return modal;

@@ -16,12 +16,12 @@
 /**
  * Contain the logic for a drawer.
  *
- * @package    theme_boost
+ * @module theme_boost/drawer
  * @copyright  2016 Damyon Wiese
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
-define(['jquery', 'core/custom_interaction_events', 'core/log', 'core/pubsub', 'core/aria'],
-     function($, CustomEvents, Log, PubSub, Aria) {
+define(['jquery', 'core/custom_interaction_events', 'core/log', 'core/pubsub', 'core/aria', 'core_user/repository'],
+     function($, CustomEvents, Log, PubSub, Aria, UserRepository) {
 
     var SELECTORS = {
         TOGGLE_REGION: '[data-region="drawer-toggle"]',
@@ -37,8 +37,6 @@ define(['jquery', 'core/custom_interaction_events', 'core/log', 'core/pubsub', '
 
     /**
      * Constructor for the Drawer.
-     *
-     * @param {object} root The root jQuery element for the modal
      */
     var Drawer = function() {
 
@@ -57,7 +55,7 @@ define(['jquery', 'core/custom_interaction_events', 'core/log', 'core/pubsub', '
             var body = $(SELECTORS.BODY);
             var preference = trigger.attr('data-preference');
             if (small) {
-                M.util.set_user_preference(preference, 'false');
+                UserRepository.setUserPreference(preference, false);
             }
 
             drawer.on('mousewheel DOMMouseScroll', this.preventPageScroll);
@@ -90,7 +88,7 @@ define(['jquery', 'core/custom_interaction_events', 'core/log', 'core/pubsub', '
             Aria.hide(drawer.get());
             drawer.addClass('closed');
             if (!small) {
-                M.util.set_user_preference(preference, 'false');
+                UserRepository.setUserPreference(preference, false);
             }
         });
     };
@@ -109,7 +107,7 @@ define(['jquery', 'core/custom_interaction_events', 'core/log', 'core/pubsub', '
         var side = trigger.attr('data-side');
         var preference = trigger.attr('data-preference');
         if (small) {
-            M.util.set_user_preference(preference, 'false');
+            UserRepository.setUserPreference(preference, false);
         }
 
         body.addClass('drawer-ease');
@@ -122,18 +120,21 @@ define(['jquery', 'core/custom_interaction_events', 'core/log', 'core/pubsub', '
             body.addClass('drawer-open-' + side);
             drawer.removeClass('closed');
             if (!small) {
-                M.util.set_user_preference(preference, 'true');
+                UserRepository.setUserPreference(preference, true);
             }
         } else {
             // Close.
             body.removeClass('drawer-open-' + side);
             trigger.attr('aria-expanded', 'false');
             drawer.addClass('closed').delay(500).queue(function() {
-                Aria.hide(this);
+                // Ensure that during the delay, the drawer wasn't re-opened.
+                if ($(this).hasClass('closed')) {
+                    Aria.hide(this);
+                }
                 $(this).dequeue();
             });
             if (!small) {
-                M.util.set_user_preference(preference, 'false');
+                UserRepository.setUserPreference(preference, false);
             }
         }
 

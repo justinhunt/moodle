@@ -14,35 +14,24 @@
 // You should have received a copy of the GNU General Public License
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
+namespace core_customfield;
+
 /**
- * Tests for class \core_customfield\api.
+ * Functional test for class \core_customfield\api
  *
  * @package    core_customfield
  * @category   test
  * @copyright  2018 Toni Barbera <toni@moodle.com>
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
-
-defined('MOODLE_INTERNAL') || die();
-
-use \core_customfield\api;
-use \core_customfield\category_controller;
-
-/**
- * Functional test for class \core_customfield\api
- *
- * @package    core_customfield
- * @copyright  2018 Toni Barbera <toni@moodle.com>
- * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
- */
-class core_customfield_api_testcase extends advanced_testcase {
+class api_test extends \advanced_testcase {
 
     /**
      * Get generator.
      *
      * @return core_customfield_generator
      */
-    protected function get_generator(): core_customfield_generator {
+    protected function get_generator(): \core_customfield_generator {
         return $this->getDataGenerator()->get_plugin_generator('core_customfield');
     }
 
@@ -65,7 +54,7 @@ class core_customfield_api_testcase extends advanced_testcase {
      * This replicates what is happening when categories are moved
      * in the interface using drag-drop.
      */
-    public function test_move_category() {
+    public function test_move_category(): void {
         $this->resetAfterTest();
 
         // Create the categories.
@@ -116,7 +105,7 @@ class core_customfield_api_testcase extends advanced_testcase {
     /**
      * Tests for \core_customfield\api::get_categories_with_fields() behaviour.
      */
-    public function test_get_categories_with_fields() {
+    public function test_get_categories_with_fields(): void {
         $this->resetAfterTest();
 
         // Create the categories.
@@ -124,7 +113,7 @@ class core_customfield_api_testcase extends advanced_testcase {
             'component' => 'core_course',
             'area'      => 'course',
             'itemid'    => 0,
-            'contextid' => context_system::instance()->id
+            'contextid' => \context_system::instance()->id
         ];
         $category0 = $this->get_generator()->create_category(['name' => 'aaaa'] + $options);
         $category1 = $this->get_generator()->create_category(['name' => 'bbbb'] + $options);
@@ -152,11 +141,11 @@ class core_customfield_api_testcase extends advanced_testcase {
     /**
      * Test for functions api::save_category() and rename_category)
      */
-    public function test_save_category() {
+    public function test_save_category(): void {
         $this->resetAfterTest();
 
         $params = ['component' => 'core_course', 'area' => 'course', 'itemid' => 0, 'name' => 'Cat1',
-            'contextid' => context_system::instance()->id];
+            'contextid' => \context_system::instance()->id];
         $c1 = category_controller::create(0, (object)$params);
         api::save_category($c1);
         $this->assertNotEmpty($c1->get('id'));
@@ -187,7 +176,7 @@ class core_customfield_api_testcase extends advanced_testcase {
     /**
      * Test for function handler::create_category
      */
-    public function test_create_category() {
+    public function test_create_category(): void {
         $this->resetAfterTest();
 
         $handler = \core_course\customfield\course_handler::create();
@@ -211,7 +200,7 @@ class core_customfield_api_testcase extends advanced_testcase {
     /**
      * Tests for \core_customfield\api::delete_category() behaviour.
      */
-    public function test_delete_category_with_fields() {
+    public function test_delete_category_with_fields(): void {
         $this->resetAfterTest();
 
         global $DB;
@@ -220,11 +209,11 @@ class core_customfield_api_testcase extends advanced_testcase {
             'component' => 'core_course',
             'area'      => 'course',
             'itemid'    => 0,
-            'contextid' => context_system::instance()->id
+            'contextid' => \context_system::instance()->id
         ];
         $lpg = $this->get_generator();
         $course = $this->getDataGenerator()->create_course();
-        $dataparams = ['instanceid' => $course->id, 'contextid' => context_course::instance($course->id)->id];
+        $dataparams = ['instanceid' => $course->id, 'contextid' => \context_course::instance($course->id)->id];
         $category0 = $lpg->create_category($options);
         $category1 = $lpg->create_category($options);
         for ($i = 0; $i < 6; $i++) {

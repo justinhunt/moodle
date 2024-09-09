@@ -1,6 +1,7 @@
-duedateno,mod_assign
-mysubmission,mod_assign
-nolatesubmissions,mod_assign
-nosubmissionsacceptedafter,mod_assign
-notsubmittedyet,mod_assign
-submissionsnotgraded,mod_assign
+attemptreopenmethod_none,mod_assign
+groupoverridesdeleted,mod_assign
+useroverridesdeleted,mod_assign
+choosegradingaction,mod_assign
+updategrade,mod_assign
+viewgrader,mod_assign
+downloadasfolders_help,mod_assign

@@ -23,6 +23,10 @@
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  * @since      Moodle 3.0
  */
+namespace mod_folder;
+
+use context_user;
+use context_module;
 
 defined('MOODLE_INTERNAL') || die();
 
@@ -36,12 +40,13 @@ defined('MOODLE_INTERNAL') || die();
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  * @since      Moodle 3.0
  */
-class mod_folder_lib_testcase extends advanced_testcase {
+class lib_test extends \advanced_testcase {
 
     /**
      * Setup.
      */
-    public function setUp() {
+    public function setUp(): void {
+        parent::setUp();
         $this->resetAfterTest();
         $this->setAdminUser();
     }
@@ -50,16 +55,17 @@ class mod_folder_lib_testcase extends advanced_testcase {
      * Prepares things before this test case is initialised
      * @return void
      */
-    public static function setUpBeforeClass() {
+    public static function setUpBeforeClass(): void {
         global $CFG;
         require_once($CFG->dirroot . '/mod/folder/lib.php');
+        parent::setUpBeforeClass();
     }
 
     /**
      * Test folder_view
      * @return void
      */
-    public function test_folder_view() {
+    public function test_folder_view(): void {
         global $CFG;
 
         $CFG->enablecompletion = 1;
@@ -68,7 +74,7 @@ class mod_folder_lib_testcase extends advanced_testcase {
         $course = $this->getDataGenerator()->create_course(array('enablecompletion' => 1));
         $folder = $this->getDataGenerator()->create_module('folder', array('course' => $course->id),
                                                             array('completion' => 2, 'completionview' => 1));
-        $context = context_module::instance($folder->cmid);
+        $context = \context_module::instance($folder->cmid);
         $cm = get_coursemodule_from_instance('folder', $folder->id);
 
         // Trigger and capture the event.
@@ -90,12 +96,12 @@ class mod_folder_lib_testcase extends advanced_testcase {
         $this->assertNotEmpty($event->get_name());
 
         // Check completion status.
-        $completion = new completion_info($course);
+        $completion = new \completion_info($course);
         $completiondata = $completion->get_data($cm);
         $this->assertEquals(1, $completiondata->completionstate);
     }
 
-    public function test_folder_core_calendar_provide_event_action() {
+    public function test_folder_core_calendar_provide_event_action(): void {
         // Create the activity.
         $course = $this->getDataGenerator()->create_course();
         $folder = $this->getDataGenerator()->create_module('folder', array('course' => $course->id));
@@ -118,7 +124,7 @@ class mod_folder_lib_testcase extends advanced_testcase {
         $this->assertTrue($actionevent->is_actionable());
     }
 
-    public function test_folder_core_calendar_provide_event_action_for_non_user() {
+    public function test_folder_core_calendar_provide_event_action_for_non_user(): void {
         global $CFG;
 
         // Create a course.
@@ -145,7 +151,7 @@ class mod_folder_lib_testcase extends advanced_testcase {
         $this->assertNull($actionevent);
     }
 
-    public function test_folder_core_calendar_provide_event_action_in_hidden_section() {
+    public function test_folder_core_calendar_provide_event_action_in_hidden_section(): void {
         // Create a course.
         $course = $this->getDataGenerator()->create_course();
 
@@ -172,7 +178,7 @@ class mod_folder_lib_testcase extends advanced_testcase {
         $this->assertNull($actionevent);
     }
 
-    public function test_folder_core_calendar_provide_event_action_for_user() {
+    public function test_folder_core_calendar_provide_event_action_for_user(): void {
         // Create a course.
         $course = $this->getDataGenerator()->create_course();
 
@@ -203,7 +209,7 @@ class mod_folder_lib_testcase extends advanced_testcase {
         $this->assertTrue($actionevent->is_actionable());
     }
 
-    public function test_folder_core_calendar_provide_event_action_already_completed() {
+    public function test_folder_core_calendar_provide_event_action_already_completed(): void {
         global $CFG;
 
         $CFG->enablecompletion = 1;
@@ -221,7 +227,7 @@ class mod_folder_lib_testcase extends advanced_testcase {
             \core_completion\api::COMPLETION_EVENT_TYPE_DATE_COMPLETION_EXPECTED);
 
         // Mark the activity as completed.
-        $completion = new completion_info($course);
+        $completion = new \completion_info($course);
         $completion->set_module_viewed($cm);
 
         // Create an action factory.
@@ -234,7 +240,7 @@ class mod_folder_lib_testcase extends advanced_testcase {
         $this->assertNull($actionevent);
     }
 
-    public function test_folder_core_calendar_provide_event_action_already_completed_for_user() {
+    public function test_folder_core_calendar_provide_event_action_already_completed_for_user(): void {
         global $CFG;
 
         $CFG->enablecompletion = 1;
@@ -257,7 +263,7 @@ class mod_folder_lib_testcase extends advanced_testcase {
                 \core_completion\api::COMPLETION_EVENT_TYPE_DATE_COMPLETION_EXPECTED);
 
         // Mark the activity as completed for the student.
-        $completion = new completion_info($course);
+        $completion = new \completion_info($course);
         $completion->set_module_viewed($cm, $student->id);
 
         // Now, log out.
@@ -282,7 +288,7 @@ class mod_folder_lib_testcase extends advanced_testcase {
      * @return bool|calendar_event
      */
     private function create_action_event($courseid, $instanceid, $eventtype) {
-        $event = new stdClass();
+        $event = new \stdClass();
         $event->name = 'Calendar event';
         $event->modulename  = 'folder';
         $event->courseid = $courseid;
@@ -291,6 +297,109 @@ class mod_folder_lib_testcase extends advanced_testcase {
         $event->eventtype = $eventtype;
         $event->timestart = time();
 
-        return calendar_event::create($event);
+        return \calendar_event::create($event);
+    }
+
+    /**
+     * Test Get recent mod activity method.
+     * @covers ::folder_get_recent_mod_activity
+     * @dataProvider folder_get_recent_mod_activity_provider
+     *
+     * @param int $forcedownload The forcedownload option.
+     * @param bool $hascapability if the user has the mod/folder:view capability
+     * @param int $count The expected recent activities entries.
+     */
+    public function test_folder_get_recent_mod_activity(int $forcedownload, bool $hascapability, int $count): void {
+        global $USER, $DB;
+
+        $this->resetAfterTest();
+        $this->setAdminUser();
+
+        $course = $this->getDataGenerator()->create_course();
+
+        // Add files to draft area.
+        $filesitem = file_get_unused_draft_itemid();
+        $usercontext = context_user::instance($USER->id);
+        $filerecord = [
+            'component' => 'user',
+            'filearea' => 'draft',
+            'contextid' => $usercontext->id,
+            'itemid' => $filesitem,
+            'filename' => 'file1.txt', 'filepath' => '/',
+        ];
+        $fs = get_file_storage();
+        $fs->create_file_from_string($filerecord, 'First test file contents');
+        // And a second file.
+        $filerecord['filename'] = 'file2.txt';
+        $fs->create_file_from_string($filerecord, 'Second test file contents');
+
+        // Create the activity.
+        $module = $this->getDataGenerator()->create_module(
+            'folder',
+            ['course' => $course->id, 'forcedownload' => $forcedownload, 'files' => $filesitem]
+        );
+
+        // Get some additional data.
+        $cm = get_coursemodule_from_instance('folder', $module->id);
+        $context = context_module::instance($cm->id);
+
+        // Add user with the specific capability.
+        $user = $this->getDataGenerator()->create_user();
+        $this->getDataGenerator()->enrol_user($user->id, $course->id, 'editingteacher');
+        if (!$hascapability) {
+            // The recent activiy uses "folder:view" capability which is allowed by default.
+            $role = $DB->get_record('role', ['shortname' => 'editingteacher'], '*', MUST_EXIST);
+            assign_capability('mod/folder:view', CAP_PROHIBIT, $role->id, $context->id, true);
+        }
+        $this->setUser($user);
+
+        // Get the recent activity.
+        $index = 1;
+        $activities = [];
+        folder_get_recent_mod_activity($activities, $index, time() - HOURSECS, $course->id, $cm->id);
+
+        // Check recent activity.
+        $this->assertCount($count, $activities);
+        foreach ($activities as $index => $activity) {
+            $this->assertEquals('folder', $activity->type);
+            $content = $activity->content;
+            $this->assertEquals("file{$index}.txt", $content->filename);
+            $urlparams = $content->url->params();
+            if ($forcedownload) {
+                $this->assertEquals(1, $urlparams['forcedownload']);
+            } else {
+                $this->assertArrayNotHasKey('forcedownload', $urlparams);
+            }
+        }
+    }
+
+    /**
+     * Data provider for test_folder_get_recent_mod_activity().
+     *
+     * @return array
+     */
+    public function folder_get_recent_mod_activity_provider(): array {
+        return [
+            'Teacher with force download' => [
+                'forcedownload' => 1,
+                'hascapability' => true,
+                'count' => 2,
+            ],
+            'Teacher with no force download' => [
+                'forcedownload' => 0,
+                'hascapability' => true,
+                'count' => 2,
+            ],
+            'Invalid user with force download' => [
+                'forcedownload' => 1,
+                'hascapability' => false,
+                'count' => 0,
+            ],
+            'Invalid user with no force download' => [
+                'forcedownload' => 0,
+                'hascapability' => false,
+                'count' => 0,
+            ],
+        ];
     }
 }

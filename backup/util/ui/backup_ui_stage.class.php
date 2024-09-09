@@ -46,7 +46,7 @@ abstract class backup_ui_stage extends base_ui_stage {
      * @param backup_ui $ui
      * @param array $params
      */
-    public function __construct(backup_ui $ui, array $params = null) {
+    public function __construct(backup_ui $ui, ?array $params = null) {
         parent::__construct($ui, $params);
     }
 
@@ -81,7 +81,7 @@ class backup_ui_stage_initial extends backup_ui_stage {
      * @param backup_ui $ui
      * @param array $params
      */
-    public function __construct(backup_ui $ui, array $params = null) {
+    public function __construct(backup_ui $ui, ?array $params = null) {
         $this->stage = backup_ui::STAGE_INITIAL;
         parent::__construct($ui, $params);
     }
@@ -91,7 +91,7 @@ class backup_ui_stage_initial extends backup_ui_stage {
      * @param base_moodleform $m
      * @return int The number of changes
      */
-    public function process(base_moodleform $m = null) {
+    public function process(?base_moodleform $m = null) {
 
         $form = $this->initialise_stage_form();
 
@@ -116,7 +116,9 @@ class backup_ui_stage_initial extends backup_ui_stage {
                         if (isset($data->$name) &&  $data->$name != $setting->get_value()) {
                             $setting->set_value($data->$name);
                             $changes++;
-                        } else if (!isset($data->$name) && $setting->get_ui_type() == backup_setting::UI_HTML_CHECKBOX && $setting->get_value()) {
+                        } else if (!isset($data->$name) && $setting->get_value() &&
+                                $setting->get_ui_type() == backup_setting::UI_HTML_CHECKBOX &&
+                                $setting->get_status() !== backup_setting::LOCKED_BY_HIERARCHY) {
                             $setting->set_value(0);
                             $changes++;
                         }
@@ -242,7 +244,7 @@ class backup_ui_stage_schema extends backup_ui_stage {
      * @param backup_ui $ui
      * @param array $params
      */
-    public function __construct(backup_ui $ui, array $params = null) {
+    public function __construct(backup_ui $ui, ?array $params = null) {
         $this->stage = backup_ui::STAGE_SCHEMA;
         parent::__construct($ui, $params);
     }
@@ -253,7 +255,7 @@ class backup_ui_stage_schema extends backup_ui_stage {
      * @param base_moodleform $form
      * @return int The number of changes the user made
      */
-    public function process(base_moodleform $form = null) {
+    public function process(?base_moodleform $form = null) {
         $form = $this->initialise_stage_form();
         // Check it wasn't cancelled.
         if ($form->is_cancelled()) {
@@ -395,7 +397,7 @@ class backup_ui_stage_confirmation extends backup_ui_stage {
      * @param backup_ui $ui
      * @param array $params
      */
-    public function __construct($ui, array $params = null) {
+    public function __construct($ui, ?array $params = null) {
         $this->stage = backup_ui::STAGE_CONFIRMATION;
         parent::__construct($ui, $params);
     }
@@ -406,7 +408,7 @@ class backup_ui_stage_confirmation extends backup_ui_stage {
      * @param base_moodleform $form
      * @return int The number of changes the user made
      */
-    public function process(base_moodleform $form = null) {
+    public function process(?base_moodleform $form = null) {
         $form = $this->initialise_stage_form();
         // Check it hasn't been cancelled.
         if ($form->is_cancelled()) {
@@ -537,7 +539,7 @@ class backup_ui_stage_final extends backup_ui_stage {
      * @param backup_ui $ui
      * @param array $params
      */
-    public function __construct(backup_ui $ui, array $params = null) {
+    public function __construct(backup_ui $ui, ?array $params = null) {
         $this->stage = backup_ui::STAGE_FINAL;
         parent::__construct($ui, $params);
     }
@@ -550,7 +552,7 @@ class backup_ui_stage_final extends backup_ui_stage {
      * @param base_moodleform $form
      * @return bool
      */
-    public function process(base_moodleform $form = null) {
+    public function process(?base_moodleform $form = null) {
         return true;
     }
 
@@ -598,7 +600,7 @@ class backup_ui_stage_complete extends backup_ui_stage_final {
      * @param array $params
      * @param array $results
      */
-    public function __construct(backup_ui $ui, array $params = null, array $results = null) {
+    public function __construct(backup_ui $ui, ?array $params = null, ?array $results = null) {
         $this->results = $results;
         parent::__construct($ui, $params);
         $this->stage = backup_ui::STAGE_COMPLETE;
@@ -641,7 +643,7 @@ class backup_ui_stage_complete extends backup_ui_stage_final {
         }
         $output .= $renderer->get_samesite_notification();
         $output .= $renderer->notification(get_string('executionsuccess', 'backup'), 'notifysuccess');
-        $output .= $renderer->continue_button($restorerul);
+        $output .= $renderer->continue_button($restorerul, 'get');
         $output .= $renderer->box_end();
 
         return $output;

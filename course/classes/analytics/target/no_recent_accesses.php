@@ -51,7 +51,7 @@ class no_recent_accesses extends course_enrolments {
      *
      * @return \lang_string
      */
-    public static function get_name() : \lang_string {
+    public static function get_name(): \lang_string {
         return new \lang_string('target:norecentaccesses', 'course');
     }
 
@@ -101,6 +101,10 @@ class no_recent_accesses extends course_enrolments {
 
         if (!$this->students = $course->get_students()) {
             return get_string('nocoursestudents', 'course');
+        }
+
+        if (!$fortraining && !$course->get_course_data()->visible) {
+            return get_string('hiddenfromstudents');
         }
 
         if ($course->get_end() && $course->get_end() < $course->get_start()) {
