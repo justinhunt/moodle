@@ -22,6 +22,10 @@
  * @license   http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
+use core\di;
+use core\hook;
+use core_user\hook\extend_user_menu;
+
 define('USER_FILTER_ENROLMENT', 1);
 define('USER_FILTER_GROUP', 2);
 define('USER_FILTER_LAST_ACCESS', 3);
@@ -558,10 +562,13 @@ function user_get_user_details($user, $course = null, array $userfields = array(
                     }
                 }
 
+                $groupdescription = file_rewrite_pluginfile_urls($group->description, 'pluginfile.php', $context->id, 'group',
+                    'description', $group->id);
+
                 $userdetails['groups'][] = [
                     'id' => $group->id,
-                    'name' => format_string($group->name),
-                    'description' => format_text($group->description, $group->descriptionformat, ['context' => $context]),
+                    'name' => format_string($group->name, true, ['context' => $context]),
+                    'description' => format_text($groupdescription, $group->descriptionformat, ['context' => $context]),
                     'descriptionformat' => $group->descriptionformat
                 ];
             }
@@ -907,6 +914,14 @@ function user_get_user_navigation_info($user, $page, $options = array()) {
         if ($item->itemtype !== 'divider' && $item->itemtype !== 'invalid') {
             $custommenucount++;
         }
+    }
+
+    // Call to hook to add menu items.
+    $hook = new extend_user_menu();
+    di::get(core\hook\manager::class)->dispatch($hook);
+    $hookitems = $hook->get_navitems();
+    foreach ($hookitems as $menuitem) {
+        $returnobject->navitems[] = $menuitem;
     }
 
     if ($custommenucount > 0) {

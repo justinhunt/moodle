@@ -65,6 +65,9 @@ class cachestore_redis extends store implements
      */
     const TTL_EXPIRE_BATCH = 10000;
 
+    /** @var int The number of seconds to wait for a connection or response from the Redis server. */
+    const CONNECTION_TIMEOUT = 10;
+
     /**
      * Name of this store.
      *
@@ -267,11 +270,52 @@ class cachestore_redis extends store implements
         $redis = null;
         try {
             // Create a $redis object of a RedisCluster or Redis class.
+            $phpredisversion = phpversion('redis');
             if ($clustermode) {
-                $redis = new RedisCluster(null, $trimmedservers, 1, 1, true, $password, !empty($opts) ? $opts : null);
+                if (version_compare($phpredisversion, '6.0.0', '>=')) {
+                    // Named parameters are fully supported starting from version 6.0.0.
+                    $redis = new RedisCluster(
+                        name: null,
+                        seeds: $trimmedservers,
+                        timeout: self::CONNECTION_TIMEOUT, // Timeout.
+                        read_timeout: self::CONNECTION_TIMEOUT, // Read timeout.
+                        persistent: true,
+                        auth: $password,
+                        context: !empty($opts) ? $opts : null,
+                    );
+                } else {
+                    $redis = new RedisCluster(
+                        null,
+                        $trimmedservers,
+                        self::CONNECTION_TIMEOUT,
+                        self::CONNECTION_TIMEOUT,
+                        true, $password,
+                        !empty($opts) ? $opts : null,
+                    );
+                }
             } else {
                 $redis = new Redis();
-                $redis->connect($server, $port, 1, null, 100, 1, $opts);
+                if (version_compare($phpredisversion, '6.0.0', '>=')) {
+                    // Named parameters are fully supported starting from version 6.0.0.
+                    $redis->connect(
+                        host: $server,
+                        port: $port,
+                        timeout: self::CONNECTION_TIMEOUT, // Timeout.
+                        retry_interval: 100, // Retry interval.
+                        read_timeout: self::CONNECTION_TIMEOUT, // Read timeout.
+                        context: $opts,
+                    );
+                } else {
+                    $redis->connect(
+                        $server, $port,
+                        self::CONNECTION_TIMEOUT,
+                        null,
+                        100,
+                        self::CONNECTION_TIMEOUT,
+                        $opts,
+                    );
+                }
+
                 if (!empty($password)) {
                     $redis->auth($password);
                 }

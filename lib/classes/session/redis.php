@@ -114,6 +114,9 @@ class redis extends handler implements SessionHandlerInterface {
     /** @var clock A clock instance */
     protected clock $clock;
 
+    /** @var int The number of seconds to wait for a connection or response from the Redis server. */
+    const CONNECTION_TIMEOUT = 10;
+
     /**
      * Create new instance of handler.
      */
@@ -164,12 +167,15 @@ class redis extends handler implements SessionHandlerInterface {
         }
 
         // This sets the Redis session lock expiry time to whatever is lower, either
-        // the PHP execution time `max_execution_time`, if the value was defined in
-        // the `php.ini` or the globally configured `sessiontimeout`. Setting it to
-        // the lower of the two will not make things worse it if the execution timeout
+        // the PHP execution time `max_execution_time`, if the value is positive, or the
+        // globally configured `sessiontimeout`.
+        //
+        // Setting it to the lower of the two will not make things worse it if the execution timeout
         // is longer than the session timeout.
+        //
         // For the PHP execution time, once the PHP execution time is over, we can be sure
         // that the lock is no longer actively held so that the lock can expire safely.
+        //
         // Although at `lib/classes/php_time_limit.php::raise(int)`, Moodle can
         // progressively increase the maximum PHP execution time, this is limited to the
         // `max_execution_time` value defined in the `php.ini`.
@@ -177,9 +183,19 @@ class redis extends handler implements SessionHandlerInterface {
         // once the session itself expires.
         // If we unnecessarily hold the lock any longer, it blocks other session requests.
         $this->lockexpire = ini_get('max_execution_time');
+        if ($this->lockexpire < 0) {
+            // If the max_execution_time is set to a value lower than 0, which is invalid, use the default value.
+            // https://www.php.net/manual/en/info.configuration.php#ini.max-execution-time defines the default as 30.
+            // Note: This value is not available programatically.
+            $this->lockexpire = 30;
+        }
+
         if (empty($this->lockexpire) || ($this->lockexpire > (int)$CFG->sessiontimeout)) {
+            // The value of the max_execution_time is either unlimited (0), or higher than the session timeout.
+            // Cap it at the session timeout.
             $this->lockexpire = (int)$CFG->sessiontimeout;
         }
+
         if (isset($CFG->session_redis_lock_expire)) {
             $this->lockexpire = (int)$CFG->session_redis_lock_expire;
         }
@@ -270,27 +286,55 @@ class redis extends handler implements SessionHandlerInterface {
             // Make a connection to Redis server(s).
             try {
                 // Create a $redis object of a RedisCluster or Redis class.
+                $phpredisversion = phpversion('redis');
                 if ($this->clustermode) {
-                    $this->connection = new \RedisCluster(
-                        name: null,
-                        seeds: $trimmedservers,
-                        timeout: 1,
-                        readTimeout: 1,
-                        persistent: true,
-                        auth: $this->auth,
-                        context: !empty($opts) ? $opts : null,
-                    );
+                    if (version_compare($phpredisversion, '6.0.0', '>=')) {
+                        // Named parameters are fully supported starting from version 6.0.0.
+                        $this->connection = new \RedisCluster(
+                            name: null,
+                            seeds: $trimmedservers,
+                            timeout: self::CONNECTION_TIMEOUT, // Timeout.
+                            read_timeout: self::CONNECTION_TIMEOUT, // Read timeout.
+                            persistent: true,
+                            auth: $this->auth,
+                            context: !empty($opts) ? $opts : null,
+                        );
+                    } else {
+                        $this->connection = new \RedisCluster(
+                            null,
+                            $trimmedservers,
+                            self::CONNECTION_TIMEOUT,
+                            self::CONNECTION_TIMEOUT,
+                            true,
+                            $this->auth,
+                            !empty($opts) ? $opts : null
+                        );
+                    }
                 } else {
                     $delay = rand(100, 500);
                     $this->connection = new \Redis();
-                    $this->connection->connect(
-                        host: $server,
-                        port: $port,
-                        timeout: 1,
-                        retry_interval: $delay,
-                        read_timeout: 1,
-                        context: $opts,
-                    );
+                    if (version_compare($phpredisversion, '6.0.0', '>=')) {
+                        // Named parameters are fully supported starting from version 6.0.0.
+                        $this->connection->connect(
+                            host: $server,
+                            port: $port,
+                            timeout: self::CONNECTION_TIMEOUT, // Timeout.
+                            retry_interval: $delay,
+                            read_timeout: self::CONNECTION_TIMEOUT, // Read timeout.
+                            context: $opts,
+                        );
+                    } else {
+                        $this->connection->connect(
+                            $server,
+                            $port,
+                            self::CONNECTION_TIMEOUT,
+                            null,
+                            $delay,
+                            self::CONNECTION_TIMEOUT,
+                            $opts
+                        );
+                    }
+
                     if ($this->auth !== '' && !$this->connection->auth($this->auth)) {
                         throw new $exceptionclass('Unable to authenticate.');
                     }

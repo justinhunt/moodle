@@ -389,16 +389,8 @@ define ('BLOG_COURSE_LEVEL', 3);
 define ('BLOG_SITE_LEVEL', 4);
 define ('BLOG_GLOBAL_LEVEL', 5);
 
-
-// Tag constants.
-/**
- * To prevent problems with multibytes strings,Flag updating in nav not working on the review page. this should not exceed the
- * length of "varchar(255) / 3 (bytes / utf-8 character) = 85".
- * TODO: this is not correct, varchar(255) are 255 unicode chars ;-)
- *
- * @todo define(TAG_MAX_LENGTH) this is not correct, varchar(255) are 255 unicode chars ;-)
- */
-define('TAG_MAX_LENGTH', 50);
+/** The maximum length of a tag */
+define('TAG_MAX_LENGTH', 255);
 
 // Password policy constants.
 define ('PASSWORD_LOWER', 'abcdefghijklmnopqrstuvwxyz');
@@ -425,6 +417,8 @@ define('FEATURE_CONTROLS_GRADE_VISIBILITY', 'controlsgradevisbility');
 /** True if module supports plagiarism plugins */
 define('FEATURE_PLAGIARISM', 'plagiarism');
 
+/** True if module supports completion (true by default) */
+define('FEATURE_COMPLETION', 'completion_enabled');
 /** True if module has code to track whether somebody viewed it */
 define('FEATURE_COMPLETION_TRACKS_VIEWS', 'completion_tracks_views');
 /** True if module has custom completion rules */
@@ -9894,11 +9888,11 @@ function get_home_page() {
             if (empty($CFG->enabledashboard) && $userhomepage == HOMEPAGE_MY) {
                 // If the user was using the dashboard but it's disabled, return the default home page.
                 $userhomepage = $defaultpage;
-            } else if (clean_param($userhomepage, PARAM_LOCALURL)) {
+            } else if (get_default_home_page_url()) {
                 return HOMEPAGE_URL;
             }
             return (int) $userhomepage;
-        } else if (clean_param($CFG->defaulthomepage, PARAM_LOCALURL)) {
+        } else if (get_default_home_page_url()) {
             return HOMEPAGE_URL;
         }
     }
@@ -9928,13 +9922,15 @@ function get_default_home_page(): int {
 function get_default_home_page_url(): ?\core\url {
     global $CFG;
 
-    if ($defaulthomepage = clean_param($CFG->defaulthomepage, PARAM_LOCALURL)) {
+    if (substr((string)$CFG->defaulthomepage, 0, 1) === '/' &&
+            ($defaulthomepage = clean_param($CFG->wwwroot . $CFG->defaulthomepage, PARAM_LOCALURL))) {
         return new \core\url($defaulthomepage);
     }
 
     if ($CFG->defaulthomepage == HOMEPAGE_USER) {
         $userhomepage = get_user_preferences('user_home_page_preference');
-        if ($userhomepage = clean_param($userhomepage, PARAM_LOCALURL)) {
+        if (substr((string)$userhomepage, 0, 1) === '/' &&
+                ($userhomepage = clean_param($CFG->wwwroot . $userhomepage, PARAM_LOCALURL))) {
             return new \core\url($userhomepage);
         }
     }

@@ -672,7 +672,7 @@ All rights reserved.</copyright>
     <location>psr/log</location>
     <name>log</name>
     <description>Common interface for logging libraries</description>
-    <version>3.0.0</version>
+    <version>3.0.2</version>
     <license>MIT</license>
     <repository>https://github.com/php-fig/log</repository>
   </library>
@@ -807,5 +807,19 @@ All rights reserved.</copyright>
       <license>BSD</license>
       <licenseversion>3-Clause</licenseversion>
       <repository>https://github.com/nikic/FastRoute</repository>
+  </library>
+  <library>
+      <location>spatie/php-cloneable</location>
+      <name>PHP Cloneable</name>
+      <version>1.0.2</version>
+      <license>MIT</license>
+      <repository>https://github.com/spatie/php-cloneable</repository>
+  </library>
+  <library>
+      <location>giggsey/libphonenumber-for-php-lite</location>
+      <name>libphonenumber for PHP (Lite)</name>
+      <version>8.13.31</version>
+      <license>Apache 2.0</license>
+      <repository>https://github.com/giggsey/libphonenumber-for-php-lite</repository>
   </library>
 </libraries>

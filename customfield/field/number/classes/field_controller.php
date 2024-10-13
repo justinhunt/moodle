@@ -41,6 +41,15 @@ class field_controller  extends \core_customfield\field_controller {
         $mform->addElement('header', 'specificsettings', get_string('specificsettings', 'customfield_number'));
         $mform->setExpanded('specificsettings');
 
+        $providers = provider_base::get_all_providers($this);
+        if (count($providers) > 0) {
+            $this->add_field_type_select($mform, $providers);
+            // Add form config elements for each provider.
+            foreach ($providers as $provider) {
+                $provider->config_form_definition($mform);
+            }
+        }
+
         // Default value.
         $mform->addElement('float', 'configdata[defaultvalue]', get_string('defaultvalue', 'core_customfield'));
         if ($this->get_configdata_property('defaultvalue') === null) {
@@ -68,7 +77,7 @@ class field_controller  extends \core_customfield\field_controller {
 
         // Display format settings.
         // TODO: Change this after MDL-82996 fixed.
-        $randelname = 'str_' . random_string();
+        $randelname = 'str_display_format';
         $mform->addGroup([], $randelname, html_writer::tag('h4', get_string('headerdisplaysettings', 'customfield_number')));
 
         // Display template.
@@ -91,6 +100,22 @@ class field_controller  extends \core_customfield\field_controller {
     }
 
     /**
+     * Adds selector to provider for field population.
+     *
+     * @param MoodleQuickForm $mform
+     * @param provider_base[] $providers
+     */
+    protected function add_field_type_select(MoodleQuickForm $mform, array $providers): void {
+        $autooptions = [];
+        foreach ($providers as $provider) {
+            $autooptions[get_class($provider)] = $provider->get_name();
+        }
+        $options = ['' => get_string('genericfield', 'customfield_number')];
+        $options = array_merge($options, $autooptions);
+        $mform->addElement('select', 'configdata[fieldtype]', get_string('fieldtype', 'customfield_number'), $options);
+    }
+
+    /**
      * Validate the data on the field configuration form
      *
      * @param array $data
@@ -110,6 +135,11 @@ class field_controller  extends \core_customfield\field_controller {
         $minimumvalue = $data['configdata']['minimumvalue'] ?? '';
         $maximumvalue = $data['configdata']['maximumvalue'] ?? '';
 
+        foreach (provider_base::get_all_providers($this) as $provider) {
+            if (array_key_exists('fieldtype', $data["configdata"]) && $data["configdata"]["fieldtype"] == get_class($provider)) {
+                $errors = array_merge($errors, $provider->config_form_validation($data, $files));
+            }
+        }
         // Early exit if neither maximum/minimum are specified.
         if ($minimumvalue === '' && $maximumvalue === '') {
             return $errors;
@@ -140,23 +170,42 @@ class field_controller  extends \core_customfield\field_controller {
      *
      * @param mixed $value
      * @param context|null $context
-     * @return string|null
+     * @return string|float|null
      */
-    public function prepare_field_for_display(mixed $value, ?context $context = null): ?string {
-        if ((float) $value == 0) {
+    public function prepare_field_for_display(mixed $value, ?context $context = null): string|null|float {
+        if ($value === null) {
+            return null;
+        }
+
+        $decimalplaces = (int) $this->get_configdata_property('decimalplaces');
+        if (round((float) $value, $decimalplaces) == 0) {
             $value = $this->get_configdata_property('displaywhenzero');
             if ((string) $value === '') {
                 return null;
             }
         } else {
             // Let's format the value.
-            $decimalplaces = (int) $this->get_configdata_property('decimalplaces');
-            $value = format_float((float) $value, $decimalplaces);
+            $provider = provider_base::instance($this);
+            if ($provider) {
+                $value = $provider->prepare_export_value($value, $context);
+            } else {
+                $value = format_float((float)$value, $decimalplaces);
 
-            // Apply the display format.
-            $format = $this->get_configdata_property('display');
-            $value = str_replace('{value}', $value, $format);
+                // Apply the display format.
+                $format = $this->get_configdata_property('display') ?? '{value}';
+                $value = str_replace('{value}', $value, $format);
+            }
         }
+
         return format_string($value, true, ['context' => $context ?? system::instance()]);
+    }
+
+    /**
+     * Can the value of this field be manually editable in the edit forms
+     *
+     * @return bool
+     */
+    public function is_editable(): bool {
+        return (string) $this->get_configdata_property('fieldtype') === '';
     }
 }
